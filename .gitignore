@@ -1,0 +1,28 @@
+# Build outputs
+/build/
+*.bin
+*.exe
+*.o
+hound
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Odin
+.odin/
+
+# Config (user-specific)
+.hound/
+
+PRPs/
+bin/
