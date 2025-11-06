@@ -3,10 +3,22 @@ package main
 // Error types for the application
 ErrorType :: enum {
 	None,
-	TokenNotFound,
-	NetworkError,
-	APITimeout,
-	InvalidResponse,
+
+	// Usage errors (user's fault)
+	MissingArgument,      // No token address provided
+	InvalidToken,         // Malformed token address
+
+	// API errors (token/service issues)
+	TokenNotFound,        // 404 or empty pairs array
+	RateLimited,          // 429 Too Many Requests
+	ServerError,          // 500/503 API down
+
+	// Network errors (connection issues)
+	NetworkTimeout,       // Timeout waiting for response
+	ConnectionFailed,     // Cannot establish connection
+
+	// Parse errors (data issues)
+	InvalidResponse,      // Malformed JSON or unexpected structure
 }
 
 // API response structures matching DexScreener API
