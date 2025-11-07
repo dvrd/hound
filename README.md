@@ -130,24 +130,13 @@ task debug
 ./bin/hound_debug DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2
 ```
 
-### Phase 2 Features
-
-The current version includes Phase 2 error handling:
-- 9 granular error types
-- HTTP status code discrimination
-- Network error type discrimination
-- User-friendly 3-line error messages
-- Proper exit codes for all scenarios
-
-See `ODIN_ERROR_HANDLING_RESEARCH.md` for detailed error handling research and implementation notes.
-
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[Add license information]
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
