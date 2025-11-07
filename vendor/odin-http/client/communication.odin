@@ -9,9 +9,83 @@ import "core:log"
 import "core:net"
 import "core:strconv"
 import "core:strings"
+import "core:sys/posix"
 
 import http ".."
 import openssl "../openssl"
+
+// resolve_hostname_native uses native OS DNS resolution on macOS via getaddrinfo()
+// This is necessary because core:net reads /etc/resolv.conf which is not used on macOS.
+// macOS uses mDNSResponder accessed via getaddrinfo() system call.
+when ODIN_OS == .Darwin {
+	resolve_hostname_native :: proc(hostname: string) -> (ep4, ep6: net.Endpoint, err: net.Network_Error) {
+		// Convert hostname to C string
+		hostname_cstr := strings.clone_to_cstring(hostname, context.temp_allocator)
+
+		// Setup hints for getaddrinfo
+		hints: posix.addrinfo = {}
+		hints.ai_family = .UNSPEC     // Allow IPv4 or IPv6
+		hints.ai_socktype = .STREAM   // TCP socket
+		hints.ai_flags = {.ADDRCONFIG}  // Only return addresses if we have that type configured
+
+		// Call getaddrinfo
+		result: ^posix.addrinfo = nil
+		ret := posix.getaddrinfo(hostname_cstr, nil, &hints, &result)
+		if ret != .NONE {
+			// Failed to resolve
+			err = .Unable_To_Resolve
+			return
+		}
+		defer posix.freeaddrinfo(result)
+
+		// Parse results - iterate through linked list
+		for res := result; res != nil; res = res.ai_next {
+			if res.ai_family == .INET && ep4.address == nil {
+				// IPv4 address - extract bytes from u32be
+				sockaddr_in := (^posix.sockaddr_in)(res.ai_addr)
+				addr_u32 := sockaddr_in.sin_addr.s_addr
+
+				// Convert u32be to [4]u8 in network byte order
+				addr_bytes := transmute([4]u8)addr_u32
+				ep4.address = net.IP4_Address{
+					addr_bytes[0],
+					addr_bytes[1],
+					addr_bytes[2],
+					addr_bytes[3],
+				}
+			} else if res.ai_family == .INET6 && ep6.address == nil {
+				// IPv6 address - s6_addr is [16]u8, convert to [8]u16be
+				sockaddr_in6 := (^posix.sockaddr_in6)(res.ai_addr)
+				addr_u8 := sockaddr_in6.sin6_addr.s6_addr
+
+				// Convert [16]u8 to [8]u16be (network byte order)
+				ep6.address = net.IP6_Address{
+					u16be((u16(addr_u8[0]) << 8) | u16(addr_u8[1])),
+					u16be((u16(addr_u8[2]) << 8) | u16(addr_u8[3])),
+					u16be((u16(addr_u8[4]) << 8) | u16(addr_u8[5])),
+					u16be((u16(addr_u8[6]) << 8) | u16(addr_u8[7])),
+					u16be((u16(addr_u8[8]) << 8) | u16(addr_u8[9])),
+					u16be((u16(addr_u8[10]) << 8) | u16(addr_u8[11])),
+					u16be((u16(addr_u8[12]) << 8) | u16(addr_u8[13])),
+					u16be((u16(addr_u8[14]) << 8) | u16(addr_u8[15])),
+				}
+			}
+
+			// Stop if we have both IPv4 and IPv6
+			if ep4.address != nil && ep6.address != nil {
+				break
+			}
+		}
+
+		// Return error if we couldn't resolve anything
+		if ep4.address == nil && ep6.address == nil {
+			err = .Unable_To_Resolve
+			return
+		}
+
+		return
+	}
+}
 
 parse_endpoint :: proc(target: string) -> (url: http.URL, endpoint: net.Endpoint, err: net.Network_Error) {
 	url = http.url_parse(target)
@@ -22,8 +96,14 @@ parse_endpoint :: proc(target: string) -> (url: http.URL, endpoint: net.Endpoint
 		endpoint = t
 		return
 	case net.Host:
-		ep4, ep6 := net.resolve(t.hostname) or_return
-		endpoint = ep4 if ep4.address != nil else ep6
+		// Use native DNS resolution on macOS to work around /etc/resolv.conf issue
+		when ODIN_OS == .Darwin {
+			ep4, ep6 := resolve_hostname_native(t.hostname) or_return
+			endpoint = ep4 if ep4.address != nil else ep6
+		} else {
+			ep4, ep6 := net.resolve(t.hostname) or_return
+			endpoint = ep4 if ep4.address != nil else ep6
+		}
 
 		endpoint.port = t.port
 		if endpoint.port == 0 {
