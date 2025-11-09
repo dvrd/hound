@@ -1,7 +1,7 @@
 version: '3'
 
 tasks:
-  default:
+  build:
     desc: Build the hound binary
     cmds:
       - mkdir -p bin
@@ -30,3 +30,38 @@ tasks:
       - task: default
       - sudo cp bin/hound /usr/local/bin/
       - sudo chmod +x /usr/local/bin/hound
+
+  test:
+    desc: Run all unit tests
+    cmds:
+      - odin test tests -all-packages
+
+  test:verbose:
+    desc: Run tests with verbose output
+    cmds:
+      - odin test tests -all-packages -verbose
+
+  test:decoder:
+    desc: Run raydium decoder tests only
+    cmds:
+      - odin test tests -file:tests/raydium_decoder_test.odin
+
+  test:price:
+    desc: Run price fetcher tests only
+    cmds:
+      - odin test tests -file:tests/price_fetcher_test.odin
+
+  test:config:
+    desc: Run config tests only
+    cmds:
+      - odin test tests -file:tests/token_config_test.odin
+
+  test:integration:
+    desc: Run integration tests only
+    cmds:
+      - odin test tests -file:tests/integration_test.odin
+
+  test:watch:
+    desc: Run tests in watch mode (requires entr)
+    cmds:
+      - find tests src -name "*.odin" | entr -c task test

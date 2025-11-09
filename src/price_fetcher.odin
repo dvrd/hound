@@ -1,6 +1,7 @@
 package main
 
 import "core:bufio"
+import "core:encoding/hex"
 import "core:encoding/json"
 import "core:fmt"
 import "core:math"

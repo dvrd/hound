@@ -6,6 +6,12 @@ import "core:encoding/hex"
 
 // Raydium pool state structure (752 bytes)
 // LIQUIDITY_STATE_LAYOUT_V4
+//
+// Structure discovered through reverse engineering:
+// - 32 u64 fields (256 bytes): offsets 0-255
+// - 6 mixed u128/u64 fields (80 bytes): offsets 256-335
+// - 12 publicKey fields (384 bytes): offsets 336-719
+// - lpReserve u64 + padding (32 bytes): offsets 720-751
 RaydiumPoolState :: struct {
 	status:           u64,
 	nonce:            u64,
@@ -23,18 +29,19 @@ RaydiumPoolState :: struct {
 	min_price_mult:   u64,
 	max_price_mult:   u64,
 	system_decimal:   u64,
-	base_mint:        [32]u8, // Offset 128
-	quote_mint:       [32]u8, // Offset 160
-	base_vault:       [32]u8, // Offset 192 - CRITICAL
-	quote_vault:      [32]u8, // Offset 224 - CRITICAL
-	base_withdraw_q:  [32]u8,
-	quote_withdraw_q: [32]u8,
-	lp_mint:          [32]u8,
-	lp_vault:         [32]u8,
-	open_orders:      [32]u8,
-	market_id:        [32]u8,
-	market_program:   [32]u8,
-	target_orders:    [32]u8,
+	// PublicKey fields start at offset 336
+	quote_vault:      [32]u8, // Offset 336 - SOL vault (VERIFIED)
+	base_vault:       [32]u8, // Offset 368 - AURA vault (VERIFIED)
+	quote_mint:       [32]u8, // Offset 400 - SOL mint (VERIFIED)
+	base_mint:        [32]u8, // Offset 432 - AURA mint (VERIFIED)
+	lp_mint:          [32]u8, // Offset 464
+	open_orders:      [32]u8, // Offset 496
+	market_id:        [32]u8, // Offset 528
+	market_program:   [32]u8, // Offset 560
+	target_orders:    [32]u8, // Offset 592
+	withdraw_queue:   [32]u8, // Offset 624
+	lp_vault:         [32]u8, // Offset 656
+	owner:            [32]u8, // Offset 688
 }
 
 // Decode Raydium LIQUIDITY_STATE_LAYOUT_V4 from 752 bytes
@@ -46,13 +53,13 @@ decode_raydium_pool_v4 :: proc(data: []u8) -> (RaydiumPoolState, bool) {
 
 	pool: RaydiumPoolState
 
-	// Read u64 fields (little-endian)
+	// Read u64 fields (little-endian) - first 256 bytes
 	pool.status = read_u64_le(data, 0)
 	pool.nonce = read_u64_le(data, 8)
 	pool.max_order = read_u64_le(data, 16)
 	pool.depth = read_u64_le(data, 24)
-	pool.base_decimal = read_u64_le(data, 32) // CRITICAL
-	pool.quote_decimal = read_u64_le(data, 40) // CRITICAL
+	pool.quote_decimal = read_u64_le(data, 32) // SOL = 9 decimals
+	pool.base_decimal = read_u64_le(data, 40) // AURA = 6 decimals
 	pool.state = read_u64_le(data, 48)
 	pool.reset_flag = read_u64_le(data, 56)
 	pool.min_size = read_u64_le(data, 64)
@@ -64,19 +71,22 @@ decode_raydium_pool_v4 :: proc(data: []u8) -> (RaydiumPoolState, bool) {
 	pool.max_price_mult = read_u64_le(data, 112)
 	pool.system_decimal = read_u64_le(data, 120)
 
-	// Read PublicKey fields (32 bytes each)
-	pool.base_mint = read_pubkey(data, 128)
-	pool.quote_mint = read_pubkey(data, 160)
-	pool.base_vault = read_pubkey(data, 192) // CRITICAL
-	pool.quote_vault = read_pubkey(data, 224) // CRITICAL
-	pool.base_withdraw_q = read_pubkey(data, 256)
-	pool.quote_withdraw_q = read_pubkey(data, 288)
-	pool.lp_mint = read_pubkey(data, 320)
-	pool.lp_vault = read_pubkey(data, 352)
-	pool.open_orders = read_pubkey(data, 384)
-	pool.market_id = read_pubkey(data, 416)
-	pool.market_program = read_pubkey(data, 448)
-	pool.target_orders = read_pubkey(data, 480)
+	// Note: Offsets 256-335 contain u128/u64 swap fee fields (80 bytes)
+	// Not decoded in this struct as they're not needed for price calculation
+
+	// Read PublicKey fields (32 bytes each) - start at offset 336
+	pool.quote_vault = read_pubkey(data, 336) // SOL vault (VERIFIED)
+	pool.base_vault = read_pubkey(data, 368) // AURA vault (VERIFIED)
+	pool.quote_mint = read_pubkey(data, 400) // SOL mint (VERIFIED)
+	pool.base_mint = read_pubkey(data, 432) // AURA mint (VERIFIED)
+	pool.lp_mint = read_pubkey(data, 464)
+	pool.open_orders = read_pubkey(data, 496)
+	pool.market_id = read_pubkey(data, 528)
+	pool.market_program = read_pubkey(data, 560)
+	pool.target_orders = read_pubkey(data, 592)
+	pool.withdraw_queue = read_pubkey(data, 624)
+	pool.lp_vault = read_pubkey(data, 656)
+	pool.owner = read_pubkey(data, 688)
 
 	return pool, true
 }

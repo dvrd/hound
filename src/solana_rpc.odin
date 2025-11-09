@@ -4,6 +4,7 @@ package main
 import "core:encoding/base64"
 import "core:encoding/json"
 import "core:fmt"
+import "core:math"
 import "core:strconv"
 import client "../vendor/odin-http/client"
 
@@ -56,23 +57,20 @@ connect_rpc :: proc(endpoint: string) -> (RPCConnection, ErrorType) {
 
 // Fetch account data from Solana RPC
 get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorType) {
-	// Build RPC request body
-	RPC_Options :: struct {
-		encoding:   string,
-		commitment: string,
-	}
+	// Build RPC request body using json.Value
+	options := json.Object{}
+	options["encoding"] = json.String("base64")
+	options["commitment"] = json.String("confirmed")
 
-	RPC_Request :: struct {
-		jsonrpc: string,
-		id:      int,
-		method:  string,
-		params:  []any,
-	}
+	params := make(json.Array, 2, context.temp_allocator)
+	params[0] = json.String(address)
+	params[1] = options
 
-	options := RPC_Options{encoding = "base64", commitment = "confirmed"}
-	params := []any{address, options}
-
-	rpc_req := RPC_Request{jsonrpc = "2.0", id = 1, method = "getAccountInfo", params = params}
+	request_obj := json.Object{}
+	request_obj["jsonrpc"] = json.String("2.0")
+	request_obj["id"] = json.Integer(1)
+	request_obj["method"] = json.String("getAccountInfo")
+	request_obj["params"] = params
 
 	// Create HTTP request
 	req: client.Request
@@ -80,7 +78,7 @@ get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorTy
 	defer client.request_destroy(&req)
 
 	// Add JSON body
-	if marshal_err := client.with_json(&req, rpc_req); marshal_err != nil {
+	if marshal_err := client.with_json(&req, request_obj); marshal_err != nil {
 		return nil, .RPCInvalidResponse
 	}
 
@@ -177,22 +175,19 @@ get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorTy
 
 // Fetch token account balance from Solana RPC
 get_token_balance :: proc(conn: RPCConnection, vault: string) -> (TokenBalance, ErrorType) {
-	// Build RPC request body
-	RPC_Options :: struct {
-		commitment: string,
-	}
+	// Build RPC request body using json.Value
+	options := json.Object{}
+	options["commitment"] = json.String("confirmed")
 
-	RPC_Request :: struct {
-		jsonrpc: string,
-		id:      int,
-		method:  string,
-		params:  []any,
-	}
+	params := make(json.Array, 2, context.temp_allocator)
+	params[0] = json.String(vault)
+	params[1] = options
 
-	options := RPC_Options{commitment = "confirmed"}
-	params := []any{vault, options}
-
-	rpc_req := RPC_Request{jsonrpc = "2.0", id = 2, method = "getTokenAccountBalance", params = params}
+	request_obj := json.Object{}
+	request_obj["jsonrpc"] = json.String("2.0")
+	request_obj["id"] = json.Integer(2)
+	request_obj["method"] = json.String("getTokenAccountBalance")
+	request_obj["params"] = params
 
 	// Create HTTP request
 	req: client.Request
@@ -200,7 +195,7 @@ get_token_balance :: proc(conn: RPCConnection, vault: string) -> (TokenBalance, 
 	defer client.request_destroy(&req)
 
 	// Add JSON body
-	if marshal_err := client.with_json(&req, rpc_req); marshal_err != nil {
+	if marshal_err := client.with_json(&req, request_obj); marshal_err != nil {
 		return {}, .RPCInvalidResponse
 	}
 

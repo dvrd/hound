@@ -177,7 +177,54 @@ This project includes a fix for DNS resolution issues on macOS. Odin's `core:net
 
 ## Development
 
+### Development Philosophy
+
+Hound follows engineering principles inspired by **[TigerBeetle](https://tigerbeetle.com/)**'s rigorous approach to safety-critical systems:
+
+**Core Priorities** (in order):
+1. **Safety** - Correct price data is mission-critical
+2. **Performance** - Sub-second response times
+3. **Developer Experience** - Clear, documented code
+
+**Key Principles**:
+- ✅ High assertion density (≥2 per function)
+- ✅ Explicit error handling (zero ignored errors)
+- ✅ Static memory allocation
+- ✅ Tests as living documentation
+- ✅ Zero technical debt policy
+
+📚 **Read More**: [`.claude/DEVELOPMENT_PHILOSOPHY.md`](.claude/DEVELOPMENT_PHILOSOPHY.md) | [Quick Reference](.claude/QUICK_REFERENCE.md)
+
 ### Running Tests
+
+Hound includes a comprehensive test suite with 42 tests covering all critical functionality:
+
+```bash
+# Run all tests
+task test
+
+# Run specific test suites
+task test:decoder      # Raydium pool decoder tests
+task test:price        # Price calculation tests
+task test:config       # Configuration tests
+task test:integration  # End-to-end integration tests
+
+# Run with verbose output
+task test:verbose
+
+# Watch mode (auto-run on file changes)
+task test:watch
+```
+
+All tests serve dual purposes:
+1. **Verification** - Ensure code correctness
+2. **Documentation** - Show how the system works
+
+📊 **Test Results**: 42 tests, 100% pass rate, ~66ms execution time
+
+📚 **Read More**: [`tests/README.md`](tests/README.md)
+
+### Manual Testing
 
 Test the application with configured tokens:
 ```bash
@@ -187,12 +234,52 @@ task debug
 ./bin/hound_debug sol         # Test SOL token lookup
 ```
 
+## Documentation
+
+Hound maintains comprehensive documentation for developers and contributors:
+
+### Core Documentation
+- **[Development Philosophy](.claude/DEVELOPMENT_PHILOSOPHY.md)** - Complete engineering principles and standards (inspired by TigerBeetle)
+- **[Quick Reference](.claude/QUICK_REFERENCE.md)** - Fast lookup for common patterns and checklists
+- **[Test Suite Guide](tests/README.md)** - Comprehensive testing documentation with examples
+
+### Technical Documentation
+- **[Raydium Reverse Engineering](RAYDIUM_REVERSE_ENGINEERING.md)** - Deep dive into on-chain pool structure analysis
+- **Project Structure** - See [Architecture](#architecture) section above
+
+### External Resources
+- **[TigerBeetle TIGER_STYLE](https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md)** - Source of our engineering philosophy
+- **[Raydium SDK](https://github.com/raydium-io/raydium-sdk)** - Official Raydium protocol documentation
+
+## Contributing
+
+We welcome contributions! Before submitting:
+
+1. **Read the philosophy**: Review [`.claude/DEVELOPMENT_PHILOSOPHY.md`](.claude/DEVELOPMENT_PHILOSOPHY.md)
+2. **Follow the checklist**: Use [`.claude/QUICK_REFERENCE.md`](.claude/QUICK_REFERENCE.md)
+3. **Write tests**: All new features must include documented tests
+4. **Run checks**:
+   ```bash
+   odin fmt src/ tests/         # Format code
+   task test                    # Run all tests
+   ```
+
+### Pre-Commit Checklist
+- [ ] `odin fmt` run on all files
+- [ ] All tests pass (`task test`)
+- [ ] ≥2 assertions per function
+- [ ] All errors handled explicitly
+- [ ] Test includes DOCUMENTATION comment
+- [ ] Commit message explains "why" not "what"
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ## Acknowledgments
 
-- [odin-http](https://github.com/laytan/odin-http) by Laytan Laats
-- [DexScreener](https://dexscreener.com/) for the API
-- [Odin programming language](https://odin-lang.org/) by Ginger Bill
+- **[TigerBeetle](https://tigerbeetle.com/)** - Inspiration for our engineering philosophy
+- **[odin-http](https://github.com/laytan/odin-http)** by Laytan Laats - HTTP client library
+- **[DexScreener](https://dexscreener.com/)** - DEX aggregator API
+- **[Odin programming language](https://odin-lang.org/)** by Ginger Bill - The language that powers Hound
+- **[Raydium](https://raydium.io/)** - On-chain liquidity protocol
