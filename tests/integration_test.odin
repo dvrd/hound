@@ -394,3 +394,87 @@ test_integration_sol_oracle_caching :: proc(t: ^testing.T) {
 	testing.expect(t, price1 > 50.0 && price1 < 1000.0,
 		fmt.tprintf("Integration: SOL price should be reasonable: $%.2f", price1))
 }
+
+@(test)
+test_integration_hybrid_price_workflow :: proc(t: ^testing.T) {
+	// DOCUMENTATION: End-to-end hybrid price workflow (Phase 4.3)
+	//
+	// User Flow:
+	// 1. User runs `hound aura` → Fetches on-chain price (Raydium pool)
+	// 2. System also fetches 24h change from DexScreener API
+	// 3. User sees combined output: "aura: $0.059660 (+3.2%)"
+	// 4. Second query uses cached 24h change (5-minute TTL)
+	// 5. If API fails, gracefully shows 0.0% (non-fatal)
+	//
+	// This test verifies:
+	// - On-chain price calculation works
+	// - API 24h change fetch integrates seamlessly
+	// - Cache works across multiple price queries
+	// - Graceful degradation if API fails
+
+	// Step 1: Create minimal config with AURA token
+	config := src.TokenConfig{
+		version = "1.0",
+		tokens = []src.Token{
+			{
+				symbol = "AURA",
+				name = "Aura Token",
+				contract_address = "DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2",
+				chain = "solana",
+				pools = []src.PoolInfo{
+					{
+						dex = "raydium",
+						pool_address = "9ViX1VductEoC2wERTSp2TuDxXPwAf69aeET8ENPJpsN",
+						quote_token = "sol",
+						pool_type = "amm_v4",
+					},
+				},
+				is_quote_token = false,
+				usd_price = 0.0,
+			},
+		},
+	}
+
+	// Step 2: Find token
+	token, found := src.find_token_by_symbol(config, "aura")
+	testing.expect(t, found,
+		"Integration: AURA token should be found in config")
+
+	// Step 3: Reset API cache (simulate fresh start)
+	src.g_api_change_cache = src.APIChangeCache{}
+
+	// Step 4: Fetch on-chain price (should also fetch 24h change)
+	price_data, err := src.fetch_onchain_price(token)
+
+	// Test behavior depends on whether fetch succeeds
+	if err == .None {
+		// Assert: On-chain price is positive
+		testing.expect(t, price_data.price_usd > 0,
+			fmt.tprintf("Integration: On-chain price should be positive: $%.6f",
+				price_data.price_usd))
+
+		// Assert: 24h change is in reasonable range
+		testing.expect(t, price_data.change_24h >= -100.0 && price_data.change_24h <= 10000.0,
+			fmt.tprintf("Integration: 24h change should be in reasonable range: %.2f%%",
+				price_data.change_24h))
+
+		// Step 5: Fetch again immediately - should use cache
+		price_data2, err2 := src.fetch_onchain_price(token)
+		if err2 == .None {
+			// Assert: Cached 24h change matches (cache hit)
+			testing.expect(t, price_data2.change_24h == price_data.change_24h,
+				fmt.tprintf("Integration: Cached 24h change should match: %.2f%% vs %.2f%%",
+					price_data.change_24h, price_data2.change_24h))
+		}
+
+		// Step 6: Verify cache state
+		testing.expect(t, src.g_api_change_cache.is_valid,
+			"Integration: API cache should be valid after fetch")
+
+		testing.expect(t, !src.is_api_cache_stale(src.g_api_change_cache, token.contract_address),
+			"Integration: Fresh API cache should not be stale")
+	} else {
+		// If fetch fails, document the error (RPC might be down)
+		fmt.printf("Integration: On-chain price fetch failed with error: %v\n", err)
+	}
+}

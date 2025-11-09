@@ -7,7 +7,33 @@ import "core:fmt"
 import "core:math"
 import "core:net"
 import "core:strconv"
+import "core:time"
 import client "../vendor/odin-http/client"
+
+// API Change Cache - 5 minute TTL (less volatile than SOL price)
+APIChangeCache :: struct {
+	contract_address: string,    // Token address this cache is for
+	change_24h:       f64,        // Cached 24-hour percentage change
+	cached_at:        time.Time,  // When cache was populated
+	is_valid:         bool,       // Whether cache has been populated
+}
+
+// Global cache instance (similar to g_sol_cache pattern)
+g_api_change_cache: APIChangeCache
+
+// Cache TTL constant - 5 minutes for 24h change (less volatile than price)
+API_CHANGE_CACHE_TTL :: 5 * time.Minute
+
+// DexScreener response structure (minimal - only extract what we need)
+// Note: Full structure already exists in types.odin, but we create minimal version
+// for 24h change extraction to avoid confusion with fetch_price() usage
+DexScreenerChangeResponse :: struct {
+	pairs: []struct {
+		priceChange: struct {
+			h24: f64,  // 24-hour percentage change (e.g., 3.45 = +3.45%)
+		},
+	},
+}
 
 fetch_price :: proc(contract_address: string) -> (price: PriceData, err: ErrorType) {
 	// Build URL
@@ -86,6 +112,124 @@ fetch_price :: proc(contract_address: string) -> (price: PriceData, err: ErrorTy
 	
 	// Return data
 	return PriceData{price_usd = price_val, change_24h = change}, .None
+}
+
+// Fetch 24h change from DexScreener API (for hybrid pricing)
+fetch_24h_change :: proc(contract_address: string) -> (f64, ErrorType) {
+	// ASSERTION 1: TigerBeetle safety - validate input
+	assert(len(contract_address) > 0, "Contract address must not be empty")
+
+	// Build API URL - same endpoint as fetch_price()
+	url := fmt.tprintf("https://api.dexscreener.com/latest/dex/tokens/%s", contract_address)
+
+	// HTTP GET with error handling (follow fetch_price pattern)
+	res, http_err := client.get(url)
+	if http_err != nil {
+		// PATTERN: Discriminate network errors
+		#partial switch e in http_err {
+		case net.Network_Error:
+			return 0, .NetworkTimeout
+		case net.TCP_Send_Error, net.Dial_Error:
+			return 0, .ConnectionFailed
+		case:
+			return 0, .ConnectionFailed
+		}
+	}
+	defer client.response_destroy(&res)  // CRITICAL: Always cleanup
+
+	// PATTERN: Check HTTP status code
+	#partial switch res.status {
+	case .Not_Found:
+		return 0, .TokenNotFound
+	case .Too_Many_Requests:
+		return 0, .RateLimited
+	case .Internal_Server_Error, .Service_Unavailable:
+		return 0, .ServerError
+	case .OK:
+		// Continue processing
+	case:
+		return 0, .ServerError
+	}
+
+	// Extract and parse JSON body
+	body, allocation, body_err := client.response_body(&res)
+	if body_err != nil {
+		return 0, .InvalidResponse
+	}
+	defer client.body_destroy(body, allocation)  // CRITICAL: Always cleanup
+
+	// Parse JSON - use minimal struct (only extract h24)
+	response: DexScreenerChangeResponse
+	json_err := json.unmarshal_string(body.(string), &response)
+	if json_err != nil {
+		return 0, .InvalidResponse
+	}
+
+	// CRITICAL: Check pairs array not empty
+	if len(response.pairs) == 0 {
+		return 0, .TokenNotFound
+	}
+
+	// Extract 24h change (direct f64, no string conversion needed)
+	change_24h := response.pairs[0].priceChange.h24
+
+	// ASSERTION 2: Validate reasonable range (-100% to +10000%)
+	// Most tokens don't change more than 10000% in 24h, less than -100% is impossible
+	assert(change_24h >= -100.0 && change_24h <= 10000.0, "24h change outside reasonable range")
+
+	return change_24h, .None
+}
+
+// Check if API change cache is stale (> 5 minutes old)
+is_api_cache_stale :: proc(cache: APIChangeCache, contract_address: string) -> bool {
+	// ASSERTION 1: Cache validity is boolean (TigerBeetle safety)
+	assert(cache.is_valid == true || cache.is_valid == false, "Cache is_valid must be boolean")
+
+	// Invalid cache is always stale
+	if !cache.is_valid {
+		return true
+	}
+
+	// Different token means cache doesn't apply (cache miss)
+	if cache.contract_address != contract_address {
+		return true
+	}
+
+	// Check time-based staleness
+	elapsed := time.diff(cache.cached_at, time.now())
+
+	// ASSERTION 2: Time cannot go backwards (TigerBeetle safety)
+	assert(elapsed >= 0, "Elapsed time cannot be negative")
+
+	return elapsed > API_CHANGE_CACHE_TTL
+}
+
+// Get 24h change with caching (5-minute TTL)
+get_24h_change_cached :: proc(contract_address: string) -> (f64, ErrorType) {
+	// ASSERTION 1: Cache TTL is positive (configuration check)
+	assert(API_CHANGE_CACHE_TTL > 0, "Cache TTL must be positive")
+
+	// Check cache freshness
+	if !is_api_cache_stale(g_api_change_cache, contract_address) {
+		// ASSERTION 2: Cached value is in reasonable range
+		assert(g_api_change_cache.change_24h >= -100.0 && g_api_change_cache.change_24h <= 10000.0,
+		       "Cached 24h change outside reasonable range")
+		return g_api_change_cache.change_24h, .None
+	}
+
+	// Cache miss or stale - fetch fresh data
+	change_24h, err := fetch_24h_change(contract_address)
+	if err == .None {
+		// Update global cache
+		g_api_change_cache.contract_address = contract_address
+		g_api_change_cache.change_24h = change_24h
+		g_api_change_cache.cached_at = time.now()
+		g_api_change_cache.is_valid = true
+		return change_24h, .None
+	}
+
+	// Fetch failed - return error
+	return 0, err
 }
 
 // Calculate price from reserves using AMM constant product formula
@@ -176,6 +320,15 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 	// Convert to USD
 	price_in_usd := price_in_quote * sol_usd_price
 
-	// Return price data (24h change set to 0 for MVP)
-	return PriceData{price_usd = price_in_usd, change_24h = 0.0}, .None
+	// Fetch 24h change from API (graceful degradation - non-fatal if fails)
+	change_24h := 0.0  // Default fallback if API fails
+	api_change, api_err := get_24h_change_cached(token.contract_address)
+	if api_err == .None {
+		change_24h = api_change
+	}
+	// Note: API error is non-fatal - we have on-chain price, that's sufficient
+	// Displaying 0.0% is better than blocking the entire price display
+
+	// Return price data with hybrid approach (on-chain price + API 24h change)
+	return PriceData{price_usd = price_in_usd, change_24h = change_24h}, .None
 }
