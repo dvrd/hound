@@ -1,0 +1,32 @@
+#!/bin/bash
+# Pre-commit hook: Auto-sync src/version.odin when VERSION changes
+# This hook is automatically run before each commit
+
+set -e
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Check if VERSION file is staged
+if git diff --cached --name-only | grep -q "^VERSION$"; then
+    echo -e "${YELLOW}VERSION file detected in commit, syncing version.odin...${NC}"
+
+    # Run the version update script
+    if ./scripts/update_version.sh; then
+        # Check if version.odin was modified
+        if [ -f src/version.odin ]; then
+            # Add version.odin to staging area
+            git add src/version.odin
+            echo -e "${GREEN}✓ Auto-added src/version.odin to commit${NC}"
+        fi
+    else
+        echo -e "${RED}✗ Failed to sync version.odin${NC}"
+        exit 1
+    fi
+fi
+
+# Allow commit to proceed
+exit 0

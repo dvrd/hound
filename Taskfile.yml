@@ -116,3 +116,8 @@ tasks:
     desc: 'Update version and create git tag (usage: task version:tag -- 0.5.0)'
     cmds:
       - ./scripts/update_version.sh {{.CLI_ARGS}} --tag
+
+  hooks:install:
+    desc: Install git hooks (pre-commit for auto-syncing version.odin)
+    cmds:
+      - ./scripts/install-hooks.sh

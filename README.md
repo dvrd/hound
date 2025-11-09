@@ -63,6 +63,16 @@ Add your favorite Solana tokens by adding more entries to the `tokens` array. Ea
 - `contract_address`: Solana contract address
 - `chain`: Must be "solana"
 
+### Git Hooks (Optional)
+
+For contributors: Install git hooks to automatically sync version files:
+
+```bash
+task hooks:install
+```
+
+This installs a pre-commit hook that automatically updates `src/version.odin` when `VERSION` changes.
+
 ## Usage
 
 ### Build

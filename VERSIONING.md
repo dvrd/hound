@@ -47,6 +47,40 @@ task version:sync
    ./scripts/update_version.sh
    ```
 
+## Automatic Synchronization (Pre-commit Hook)
+
+Hound includes a **pre-commit git hook** that automatically syncs `src/version.odin` when `VERSION` changes.
+
+### Installation
+
+Install the hook once after cloning:
+
+```bash
+# Using Task (recommended)
+task hooks:install
+
+# Or directly
+./scripts/install-hooks.sh
+```
+
+### How It Works
+
+When you commit a change to `VERSION`:
+
+```bash
+echo "0.5.0" > VERSION
+git add VERSION
+git commit -m "chore: bump version to 0.5.0"
+```
+
+The hook automatically:
+1. ✅ Detects `VERSION` in the commit
+2. ✅ Runs `./scripts/update_version.sh`
+3. ✅ Adds `src/version.odin` to the commit
+4. ✅ Continues with the commit
+
+**No manual sync needed!** Both files stay synchronized automatically.
+
 ## Version in Code
 
 Version information is available in `src/version.odin`:
@@ -74,20 +108,25 @@ get_version_info() -> string      // Returns "hound v0.4.2"
 
 ## Release Workflow
 
+With the pre-commit hook installed, releasing is simplified:
+
 1. **Update VERSION file**:
    ```bash
-   task version:update -- 1.0.0
+   echo "1.0.0" > VERSION
+   # Or: task version:update -- 1.0.0
    ```
 
-2. **Commit changes**:
+2. **Commit changes** (hook auto-adds version.odin):
    ```bash
-   git add VERSION src/version.odin
+   git add VERSION
    git commit -m "chore: bump version to 1.0.0"
+   # Hook automatically syncs and includes src/version.odin
    ```
 
 3. **Create git tag**:
    ```bash
    git tag -a v1.0.0 -m "Release v1.0.0"
+   # Or: task version:tag -- 1.0.0 (does both step 1 & 3)
    ```
 
 4. **Push changes and tag**:
@@ -95,6 +134,17 @@ get_version_info() -> string      // Returns "hound v0.4.2"
    git push origin master
    git push origin v1.0.0
    ```
+
+### Without Hook Installed
+
+If the pre-commit hook is not installed, manually sync:
+
+```bash
+echo "1.0.0" > VERSION
+./scripts/update_version.sh
+git add VERSION src/version.odin
+git commit -m "chore: bump version to 1.0.0"
+```
 
 ## Automated Version Bumping
 
