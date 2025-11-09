@@ -12,6 +12,12 @@ run :: proc() -> ErrorType {
 
 	symbol := os.args[1]
 
+	// Handle version flags
+	if symbol == "--version" || symbol == "-v" || symbol == "version" {
+		fmt.println(get_version_info())
+		return .None
+	}
+
 	// Load token configuration
 	config, config_err := load_token_config()
 	if config_err != .None {

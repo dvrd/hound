@@ -23,10 +23,10 @@ foreign objc {
     objc_registerClassPair :: proc(cls: Class) ---
 }
 
-// Core Objective-C types (use Odin's built-in types)
-id       :: intrinsics.objc_id
-Class    :: intrinsics.objc_Class
-SEL      :: intrinsics.objc_SEL
+// Core Objective-C types
+id       :: ^intrinsics.objc_object
+Class    :: ^intrinsics.objc_class
+SEL      :: ^intrinsics.objc_selector
 IMP      :: rawptr
 CGFloat  :: f64
 
@@ -72,23 +72,23 @@ selector :: proc(name: cstring) -> SEL {
 
 NSApplication_sharedApplication :: proc() -> NSApplication {
     class := get_class("NSApplication")
-    return NSApplication(intrinsics.objc_send(id, class, selector("sharedApplication")))
+    return NSApplication(intrinsics.objc_send(id, id(class), selector("sharedApplication")))
 }
 
 NSApplication_setActivationPolicy :: proc(app: NSApplication, policy: NSApplicationActivationPolicy) {
-    intrinsics.objc_send(nil, app, selector("setActivationPolicy:"), policy)
+    intrinsics.objc_send(nil, id(app), selector("setActivationPolicy:"), policy)
 }
 
 NSApplication_run :: proc(app: NSApplication) {
-    intrinsics.objc_send(nil, app, selector("run"))
+    intrinsics.objc_send(nil, id(app), selector("run"))
 }
 
 NSApplication_terminate :: proc(app: NSApplication, sender: id = nil) {
-    intrinsics.objc_send(nil, app, selector("terminate:"), sender)
+    intrinsics.objc_send(nil, id(app), selector("terminate:"), sender)
 }
 
 NSApplication_setDelegate :: proc(app: NSApplication, delegate: id) {
-    intrinsics.objc_send(nil, app, selector("setDelegate:"), delegate)
+    intrinsics.objc_send(nil, id(app), selector("setDelegate:"), delegate)
 }
 
 // ============================================================================
@@ -97,11 +97,11 @@ NSApplication_setDelegate :: proc(app: NSApplication, delegate: id) {
 
 NSStatusBar_systemStatusBar :: proc() -> NSStatusBar {
     class := get_class("NSStatusBar")
-    return NSStatusBar(intrinsics.objc_send(id, class, selector("systemStatusBar")))
+    return NSStatusBar(intrinsics.objc_send(id, id(class), selector("systemStatusBar")))
 }
 
 NSStatusBar_statusItemWithLength :: proc(bar: NSStatusBar, length: CGFloat) -> NSStatusItem {
-    return NSStatusItem(intrinsics.objc_send(id, bar, selector("statusItemWithLength:"), length))
+    return NSStatusItem(intrinsics.objc_send(id, id(bar), selector("statusItemWithLength:"), length))
 }
 
 // ============================================================================
@@ -109,11 +109,11 @@ NSStatusBar_statusItemWithLength :: proc(bar: NSStatusBar, length: CGFloat) -> N
 // ============================================================================
 
 NSStatusItem_button :: proc(item: NSStatusItem) -> NSButton {
-    return NSButton(intrinsics.objc_send(id, item, selector("button")))
+    return NSButton(intrinsics.objc_send(id, id(item), selector("button")))
 }
 
 NSStatusItem_setMenu :: proc(item: NSStatusItem, menu: NSMenu) {
-    intrinsics.objc_send(nil, item, selector("setMenu:"), menu)
+    intrinsics.objc_send(nil, id(item), selector("setMenu:"), id(menu))
 }
 
 // ============================================================================
@@ -121,11 +121,11 @@ NSStatusItem_setMenu :: proc(item: NSStatusItem, menu: NSMenu) {
 // ============================================================================
 
 NSButton_setTitle :: proc(button: NSButton, title: NSString) {
-    intrinsics.objc_send(nil, button, selector("setTitle:"), title)
+    intrinsics.objc_send(nil, id(button), selector("setTitle:"), id(title))
 }
 
 NSButton_setAttributedTitle :: proc(button: NSButton, title: NSAttributedString) {
-    intrinsics.objc_send(nil, button, selector("setAttributedTitle:"), title)
+    intrinsics.objc_send(nil, id(button), selector("setAttributedTitle:"), id(title))
 }
 
 // ============================================================================
@@ -134,11 +134,11 @@ NSButton_setAttributedTitle :: proc(button: NSButton, title: NSAttributedString)
 
 NSMenu_alloc :: proc() -> NSMenu {
     class := get_class("NSMenu")
-    return NSMenu(intrinsics.objc_send(id, class, selector("alloc")))
+    return NSMenu(intrinsics.objc_send(id, id(class), selector("alloc")))
 }
 
 NSMenu_init :: proc(menu: NSMenu) -> NSMenu {
-    return NSMenu(intrinsics.objc_send(id, menu, selector("init")))
+    return NSMenu(intrinsics.objc_send(id, id(menu), selector("init")))
 }
 
 NSMenu_new :: proc() -> NSMenu {
@@ -147,7 +147,7 @@ NSMenu_new :: proc() -> NSMenu {
 }
 
 NSMenu_addItem :: proc(menu: NSMenu, item: NSMenuItem) {
-    intrinsics.objc_send(nil, menu, selector("addItem:"), item)
+    intrinsics.objc_send(nil, id(menu), selector("addItem:"), id(item))
 }
 
 // ============================================================================
@@ -156,11 +156,11 @@ NSMenu_addItem :: proc(menu: NSMenu, item: NSMenuItem) {
 
 NSMenuItem_alloc :: proc() -> NSMenuItem {
     class := get_class("NSMenuItem")
-    return NSMenuItem(intrinsics.objc_send(id, class, selector("alloc")))
+    return NSMenuItem(intrinsics.objc_send(id, id(class), selector("alloc")))
 }
 
 NSMenuItem_initWithTitle :: proc(item: NSMenuItem, title: NSString, action: SEL, keyEquivalent: NSString) -> NSMenuItem {
-    return NSMenuItem(intrinsics.objc_send(id, item, selector("initWithTitle:action:keyEquivalent:"), title, action, keyEquivalent))
+    return NSMenuItem(intrinsics.objc_send(id, id(item), selector("initWithTitle:action:keyEquivalent:"), id(title), action, id(keyEquivalent)))
 }
 
 NSMenuItem_new :: proc(title: NSString, action: SEL = nil, keyEquivalent: NSString = nil) -> NSMenuItem {
@@ -174,11 +174,11 @@ NSMenuItem_new :: proc(title: NSString, action: SEL = nil, keyEquivalent: NSStri
 
 NSMenuItem_separatorItem :: proc() -> NSMenuItem {
     class := get_class("NSMenuItem")
-    return NSMenuItem(intrinsics.objc_send(id, class, selector("separatorItem")))
+    return NSMenuItem(intrinsics.objc_send(id, id(class), selector("separatorItem")))
 }
 
 NSMenuItem_setTarget :: proc(item: NSMenuItem, target: id) {
-    intrinsics.objc_send(nil, item, selector("setTarget:"), target)
+    intrinsics.objc_send(nil, id(item), selector("setTarget:"), target)
 }
 
 // ============================================================================
@@ -189,24 +189,24 @@ NSUTF8StringEncoding :: uint(4)
 
 NSString_alloc :: proc() -> NSString {
     class := get_class("NSString")
-    return NSString(intrinsics.objc_send(id, class, selector("alloc")))
+    return NSString(intrinsics.objc_send(id, id(class), selector("alloc")))
 }
 
 NSString_initWithBytes :: proc(str: NSString, bytes: rawptr, length: uint, encoding: uint) -> NSString {
-    return NSString(intrinsics.objc_send(id, str, selector("initWithBytes:length:encoding:"), bytes, length, encoding))
+    return NSString(intrinsics.objc_send(id, id(str), selector("initWithBytes:length:encoding:"), bytes, length, encoding))
 }
 
 NSString_fromString :: proc(s: string) -> NSString {
     if len(s) == 0 {
         class := get_class("NSString")
-        return NSString(intrinsics.objc_send(id, class, selector("string")))
+        return NSString(intrinsics.objc_send(id, id(class), selector("string")))
     }
     ns_str := NSString_alloc()
     return NSString_initWithBytes(ns_str, raw_data(s), uint(len(s)), NSUTF8StringEncoding)
 }
 
 NSString_UTF8String :: proc(str: NSString) -> cstring {
-    return cstring(intrinsics.objc_send(rawptr, str, selector("UTF8String")))
+    return cstring(intrinsics.objc_send(rawptr, id(str), selector("UTF8String")))
 }
 
 NSString_toString :: proc(str: NSString) -> string {
@@ -220,17 +220,17 @@ NSString_toString :: proc(str: NSString) -> string {
 
 NSColor_systemRedColor :: proc() -> NSColor {
     class := get_class("NSColor")
-    return NSColor(intrinsics.objc_send(id, class, selector("systemRedColor")))
+    return NSColor(intrinsics.objc_send(id, id(class), selector("systemRedColor")))
 }
 
 NSColor_systemGreenColor :: proc() -> NSColor {
     class := get_class("NSColor")
-    return NSColor(intrinsics.objc_send(id, class, selector("systemGreenColor")))
+    return NSColor(intrinsics.objc_send(id, id(class), selector("systemGreenColor")))
 }
 
 NSColor_systemGrayColor :: proc() -> NSColor {
     class := get_class("NSColor")
-    return NSColor(intrinsics.objc_send(id, class, selector("systemGrayColor")))
+    return NSColor(intrinsics.objc_send(id, id(class), selector("systemGrayColor")))
 }
 
 // ============================================================================
@@ -239,11 +239,11 @@ NSColor_systemGrayColor :: proc() -> NSColor {
 
 NSAttributedString_alloc :: proc() -> NSAttributedString {
     class := get_class("NSAttributedString")
-    return NSAttributedString(intrinsics.objc_send(id, class, selector("alloc")))
+    return NSAttributedString(intrinsics.objc_send(id, id(class), selector("alloc")))
 }
 
 NSAttributedString_initWithString :: proc(attr_str: NSAttributedString, str: NSString, attributes: NSDictionary) -> NSAttributedString {
-    return NSAttributedString(intrinsics.objc_send(id, attr_str, selector("initWithString:attributes:"), str, attributes))
+    return NSAttributedString(intrinsics.objc_send(id, id(attr_str), selector("initWithString:attributes:"), id(str), id(attributes)))
 }
 
 NSAttributedString_new :: proc(str: NSString, attributes: NSDictionary = nil) -> NSAttributedString {
@@ -257,7 +257,7 @@ NSAttributedString_new :: proc(str: NSString, attributes: NSDictionary = nil) ->
 
 NSDictionary_dictionaryWithObject :: proc(object: id, key: id) -> NSDictionary {
     class := get_class("NSDictionary")
-    return NSDictionary(intrinsics.objc_send(id, class, selector("dictionaryWithObject:forKey:"), object, key))
+    return NSDictionary(intrinsics.objc_send(id, id(class), selector("dictionaryWithObject:forKey:"), object, key))
 }
 
 // ============================================================================
@@ -274,7 +274,7 @@ NSTimer_scheduledTimerWithTimeInterval :: proc(
     class := get_class("NSTimer")
     return NSTimer(intrinsics.objc_send(
         id,
-        class,
+        id(class),
         selector("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
         interval,
         target,
@@ -290,7 +290,7 @@ NSTimer_scheduledTimerWithTimeInterval :: proc(
 
 NSObject_alloc :: proc() -> id {
     class := get_class("NSObject")
-    return intrinsics.objc_send(id, class, selector("alloc"))
+    return intrinsics.objc_send(id, id(class), selector("alloc"))
 }
 
 NSObject_init :: proc(obj: id) -> id {

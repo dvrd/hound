@@ -107,6 +107,18 @@ Available tokens:
   sol - Solana
 ```
 
+Show version information:
+```bash
+./bin/hound --version
+# or
+./bin/hound -v
+```
+
+Output:
+```
+hound v0.4.2
+```
+
 Symbol lookup is case-insensitive:
 ```bash
 ./bin/hound AURA    # Works the same as 'aura'
@@ -242,6 +254,7 @@ Hound maintains comprehensive documentation for developers and contributors:
 - **[Development Philosophy](.claude/DEVELOPMENT_PHILOSOPHY.md)** - Complete engineering principles and standards (inspired by TigerBeetle)
 - **[Quick Reference](.claude/QUICK_REFERENCE.md)** - Fast lookup for common patterns and checklists
 - **[Test Suite Guide](tests/README.md)** - Comprehensive testing documentation with examples
+- **[Versioning Guide](VERSIONING.md)** - Semantic versioning and release management
 
 ### Technical Documentation
 - **[Raydium Reverse Engineering](RAYDIUM_REVERSE_ENGINEERING.md)** - Deep dive into on-chain pool structure analysis

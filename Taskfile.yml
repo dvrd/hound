@@ -96,3 +96,23 @@ tasks:
       - task: menubar
       - sudo cp bin/hound-menubar /usr/local/bin/
       - sudo chmod +x /usr/local/bin/hound-menubar
+
+  version:
+    desc: Display current version
+    cmds:
+      - cat VERSION
+
+  version:update:
+    desc: 'Update version (usage: task version:update -- 0.5.0)'
+    cmds:
+      - ./scripts/update_version.sh {{.CLI_ARGS}}
+
+  version:sync:
+    desc: Sync version.odin with VERSION file (regenerate version.odin)
+    cmds:
+      - ./scripts/update_version.sh
+
+  version:tag:
+    desc: 'Update version and create git tag (usage: task version:tag -- 0.5.0)'
+    cmds:
+      - ./scripts/update_version.sh {{.CLI_ARGS}} --tag
