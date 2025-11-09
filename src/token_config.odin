@@ -6,12 +6,23 @@ import "core:os"
 import "core:path/filepath"
 import "core:strings"
 
+// PoolInfo represents a liquidity pool for a token
+PoolInfo :: struct {
+	dex:          string, // "raydium"
+	pool_address: string, // Pool account address
+	quote_token:  string, // "sol", "usdc", etc.
+	pool_type:    string, // "amm_v4"
+}
+
 // Token represents a single cryptocurrency token configuration
 Token :: struct {
 	symbol:           string,
 	name:             string,
 	contract_address: string,
 	chain:            string,
+	pools:            []PoolInfo, // Liquidity pools for on-chain pricing
+	is_quote_token:   bool, // True if this is a quote token (SOL, USDC)
+	usd_price:        f64, // USD price for quote tokens
 }
 
 // TokenConfig represents the complete token configuration file

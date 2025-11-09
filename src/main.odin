@@ -30,8 +30,23 @@ run :: proc() -> ErrorType {
 		return .TokenNotConfigured
 	}
 
-	// Fetch price using the contract address
-	price_data, err := fetch_price(token.contract_address)
+	// Try on-chain fetch first if pools configured
+	price_data: PriceData
+	err: ErrorType
+
+	if len(token.pools) > 0 {
+		// Attempt on-chain price fetch
+		price_data, err = fetch_onchain_price(token)
+		if err != .None {
+			// Fallback to API if on-chain fails
+			fmt.eprintln("On-chain fetch failed, falling back to API...")
+			price_data, err = fetch_price(token.contract_address)
+		}
+	} else {
+		// No pools configured, use API
+		price_data, err = fetch_price(token.contract_address)
+	}
+
 	if err != .None {
 		return err
 	}
@@ -145,6 +160,30 @@ main :: proc() {
 		fmt.eprintln("  - tokens: array of token objects")
 		fmt.eprintln("  - Each token needs: symbol, name, contract_address, chain")
 		exit_code = 78  // Configuration error
+
+	case .RPCConnectionFailed:
+		fmt.eprintln("Error: Cannot connect to Solana RPC")
+		fmt.eprintln("The Solana network may be temporarily unavailable.")
+		fmt.eprintln("Try again in a few minutes.")
+		exit_code = 69  // Service unavailable
+
+	case .RPCInvalidResponse:
+		fmt.eprintln("Error: Invalid response from Solana RPC")
+		fmt.eprintln("Received malformed data from blockchain node.")
+		fmt.eprintln("Try again or report at https://github.com/dvrd/hound/issues")
+		exit_code = 70  // Internal software error
+
+	case .PoolDataInvalid:
+		fmt.eprintln("Error: Invalid pool data")
+		fmt.eprintln("Pool structure validation failed.")
+		fmt.eprintln("The pool address may be incorrect or the pool format changed.")
+		exit_code = 70  // Internal software error
+
+	case .VaultFetchFailed:
+		fmt.eprintln("Error: Failed to fetch vault balances")
+		fmt.eprintln("Could not retrieve token reserves from the pool.")
+		fmt.eprintln("The RPC node may be experiencing issues.")
+		exit_code = 69  // Service unavailable
 	}
 
 	os.exit(exit_code)

@@ -24,6 +24,12 @@ ErrorType :: enum {
 	TokenNotConfigured,   // Symbol not found in config
 	ConfigNotFound,       // Config file doesn't exist
 	ConfigParseError,     // Failed to parse config JSON
+
+	// RPC errors (on-chain fetching issues)
+	RPCConnectionFailed,  // Cannot connect to Solana RPC
+	RPCInvalidResponse,   // Malformed RPC response
+	PoolDataInvalid,      // Pool data validation failed
+	VaultFetchFailed,     // Failed to fetch vault balances
 }
 
 // API response structures matching DexScreener API
