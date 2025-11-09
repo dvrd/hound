@@ -21,6 +21,8 @@ foreign objc {
     class_addMethod :: proc(cls: Class, name: SEL, imp: IMP, types: cstring) -> bool ---
     objc_allocateClassPair :: proc(superclass: Class, name: cstring, extraBytes: uint) -> Class ---
     objc_registerClassPair :: proc(cls: Class) ---
+    class_createInstance :: proc(cls: Class, extraBytes: uint) -> id ---
+    object_getIndexedIvars :: proc(obj: id) -> rawptr ---
 }
 
 // Core Objective-C types
@@ -29,6 +31,9 @@ Class    :: ^intrinsics.objc_class
 SEL      :: ^intrinsics.objc_selector
 IMP      :: rawptr
 CGFloat  :: f64
+
+// Helper for msgSend
+msgSend :: intrinsics.objc_send
 
 // Common constants
 NSVariableStatusItemLength :: CGFloat(-2.0)
@@ -40,21 +45,49 @@ NSApplicationActivationPolicy :: enum i64 {
     Prohibited = 2,
 }
 
-// Opaque types
-NSApplication      :: distinct id
-NSStatusBar        :: distinct id
-NSStatusItem       :: distinct id
-NSMenu             :: distinct id
-NSMenuItem         :: distinct id
-NSButton           :: distinct id
-NSString           :: distinct id
-NSColor            :: distinct id
-NSAttributedString :: distinct id
-NSDictionary       :: distinct id
-NSTimer            :: distinct id
-NSUserDefaults     :: distinct id
-NSNotification     :: distinct id
-NSObject           :: struct {}  // Zero-size for @(objc_class)
+// Base object type
+Object :: struct {using _: intrinsics.objc_object}
+
+// NSObject - the root class
+@(objc_class="NSObject")
+NSObject :: struct {using _: Object}
+
+// Opaque types with objc_class attribute
+@(objc_class="NSApplication")
+NSApplication :: struct {using _: Object}
+
+@(objc_class="NSStatusBar")
+NSStatusBar :: struct {using _: Object}
+
+@(objc_class="NSStatusItem")
+NSStatusItem :: struct {using _: Object}
+
+@(objc_class="NSMenu")
+NSMenu :: struct {using _: Object}
+
+@(objc_class="NSMenuItem")
+NSMenuItem :: struct {using _: Object}
+
+@(objc_class="NSButton")
+NSButton :: struct {using _: Object}
+
+@(objc_class="NSString")
+NSString :: struct {using _: Object}
+
+@(objc_class="NSColor")
+NSColor :: struct {using _: Object}
+
+@(objc_class="NSAttributedString")
+NSAttributedString :: struct {using _: Object}
+
+@(objc_class="NSDictionary")
+NSDictionary :: struct {using _: Object}
+
+@(objc_class="NSTimer")
+NSTimer :: struct {using _: Object}
+
+@(objc_class="NSNotification")
+NSNotification :: struct {using _: Object}
 
 // Helper to get class
 get_class :: proc(name: cstring) -> Class {
@@ -70,100 +103,96 @@ selector :: proc(name: cstring) -> SEL {
 // NSApplication
 // ============================================================================
 
-NSApplication_sharedApplication :: proc() -> NSApplication {
-    class := get_class("NSApplication")
-    return NSApplication(intrinsics.objc_send(id, id(class), selector("sharedApplication")))
+NSApplication_sharedApplication :: proc() -> ^NSApplication {
+    return msgSend(^NSApplication, NSApplication, "sharedApplication")
 }
 
-NSApplication_setActivationPolicy :: proc(app: NSApplication, policy: NSApplicationActivationPolicy) {
-    intrinsics.objc_send(nil, id(app), selector("setActivationPolicy:"), policy)
+NSApplication_setActivationPolicy :: proc(app: ^NSApplication, policy: NSApplicationActivationPolicy) {
+    msgSend(nil, app, "setActivationPolicy:", policy)
 }
 
-NSApplication_run :: proc(app: NSApplication) {
-    intrinsics.objc_send(nil, id(app), selector("run"))
+NSApplication_run :: proc(app: ^NSApplication) {
+    msgSend(nil, app, "run")
 }
 
-NSApplication_terminate :: proc(app: NSApplication, sender: id = nil) {
-    intrinsics.objc_send(nil, id(app), selector("terminate:"), sender)
+NSApplication_terminate :: proc(app: ^NSApplication, sender: id = nil) {
+    msgSend(nil, app, "terminate:", sender)
 }
 
-NSApplication_setDelegate :: proc(app: NSApplication, delegate: id) {
-    intrinsics.objc_send(nil, id(app), selector("setDelegate:"), delegate)
+NSApplication_setDelegate :: proc(app: ^NSApplication, delegate: id) {
+    msgSend(nil, app, "setDelegate:", delegate)
 }
 
 // ============================================================================
 // NSStatusBar
 // ============================================================================
 
-NSStatusBar_systemStatusBar :: proc() -> NSStatusBar {
-    class := get_class("NSStatusBar")
-    return NSStatusBar(intrinsics.objc_send(id, id(class), selector("systemStatusBar")))
+NSStatusBar_systemStatusBar :: proc() -> ^NSStatusBar {
+    return msgSend(^NSStatusBar, NSStatusBar, "systemStatusBar")
 }
 
-NSStatusBar_statusItemWithLength :: proc(bar: NSStatusBar, length: CGFloat) -> NSStatusItem {
-    return NSStatusItem(intrinsics.objc_send(id, id(bar), selector("statusItemWithLength:"), length))
+NSStatusBar_statusItemWithLength :: proc(bar: ^NSStatusBar, length: CGFloat) -> ^NSStatusItem {
+    return msgSend(^NSStatusItem, bar, "statusItemWithLength:", length)
 }
 
 // ============================================================================
 // NSStatusItem
 // ============================================================================
 
-NSStatusItem_button :: proc(item: NSStatusItem) -> NSButton {
-    return NSButton(intrinsics.objc_send(id, id(item), selector("button")))
+NSStatusItem_button :: proc(item: ^NSStatusItem) -> ^NSButton {
+    return msgSend(^NSButton, item, "button")
 }
 
-NSStatusItem_setMenu :: proc(item: NSStatusItem, menu: NSMenu) {
-    intrinsics.objc_send(nil, id(item), selector("setMenu:"), id(menu))
+NSStatusItem_setMenu :: proc(item: ^NSStatusItem, menu: ^NSMenu) {
+    msgSend(nil, item, "setMenu:", menu)
 }
 
 // ============================================================================
 // NSButton
 // ============================================================================
 
-NSButton_setTitle :: proc(button: NSButton, title: NSString) {
-    intrinsics.objc_send(nil, id(button), selector("setTitle:"), id(title))
+NSButton_setTitle :: proc(button: ^NSButton, title: ^NSString) {
+    msgSend(nil, button, "setTitle:", title)
 }
 
-NSButton_setAttributedTitle :: proc(button: NSButton, title: NSAttributedString) {
-    intrinsics.objc_send(nil, id(button), selector("setAttributedTitle:"), id(title))
+NSButton_setAttributedTitle :: proc(button: ^NSButton, title: ^NSAttributedString) {
+    msgSend(nil, button, "setAttributedTitle:", title)
 }
 
 // ============================================================================
 // NSMenu
 // ============================================================================
 
-NSMenu_alloc :: proc() -> NSMenu {
-    class := get_class("NSMenu")
-    return NSMenu(intrinsics.objc_send(id, id(class), selector("alloc")))
+NSMenu_alloc :: proc() -> ^NSMenu {
+    return msgSend(^NSMenu, NSMenu, "alloc")
 }
 
-NSMenu_init :: proc(menu: NSMenu) -> NSMenu {
-    return NSMenu(intrinsics.objc_send(id, id(menu), selector("init")))
+NSMenu_init :: proc(menu: ^NSMenu) -> ^NSMenu {
+    return msgSend(^NSMenu, menu, "init")
 }
 
-NSMenu_new :: proc() -> NSMenu {
+NSMenu_new :: proc() -> ^NSMenu {
     menu := NSMenu_alloc()
     return NSMenu_init(menu)
 }
 
-NSMenu_addItem :: proc(menu: NSMenu, item: NSMenuItem) {
-    intrinsics.objc_send(nil, id(menu), selector("addItem:"), id(item))
+NSMenu_addItem :: proc(menu: ^NSMenu, item: ^NSMenuItem) {
+    msgSend(nil, menu, "addItem:", item)
 }
 
 // ============================================================================
 // NSMenuItem
 // ============================================================================
 
-NSMenuItem_alloc :: proc() -> NSMenuItem {
-    class := get_class("NSMenuItem")
-    return NSMenuItem(intrinsics.objc_send(id, id(class), selector("alloc")))
+NSMenuItem_alloc :: proc() -> ^NSMenuItem {
+    return msgSend(^NSMenuItem, NSMenuItem, "alloc")
 }
 
-NSMenuItem_initWithTitle :: proc(item: NSMenuItem, title: NSString, action: SEL, keyEquivalent: NSString) -> NSMenuItem {
-    return NSMenuItem(intrinsics.objc_send(id, id(item), selector("initWithTitle:action:keyEquivalent:"), id(title), action, id(keyEquivalent)))
+NSMenuItem_initWithTitle :: proc(item: ^NSMenuItem, title: ^NSString, action: SEL, keyEquivalent: ^NSString) -> ^NSMenuItem {
+    return msgSend(^NSMenuItem, item, "initWithTitle:action:keyEquivalent:", title, action, keyEquivalent)
 }
 
-NSMenuItem_new :: proc(title: NSString, action: SEL = nil, keyEquivalent: NSString = nil) -> NSMenuItem {
+NSMenuItem_new :: proc(title: ^NSString, action: SEL = nil, keyEquivalent: ^NSString = nil) -> ^NSMenuItem {
     item := NSMenuItem_alloc()
     key_equiv := keyEquivalent
     if key_equiv == nil {
@@ -172,13 +201,12 @@ NSMenuItem_new :: proc(title: NSString, action: SEL = nil, keyEquivalent: NSStri
     return NSMenuItem_initWithTitle(item, title, action, key_equiv)
 }
 
-NSMenuItem_separatorItem :: proc() -> NSMenuItem {
-    class := get_class("NSMenuItem")
-    return NSMenuItem(intrinsics.objc_send(id, id(class), selector("separatorItem")))
+NSMenuItem_separatorItem :: proc() -> ^NSMenuItem {
+    return msgSend(^NSMenuItem, NSMenuItem, "separatorItem")
 }
 
-NSMenuItem_setTarget :: proc(item: NSMenuItem, target: id) {
-    intrinsics.objc_send(nil, id(item), selector("setTarget:"), target)
+NSMenuItem_setTarget :: proc(item: ^NSMenuItem, target: id) {
+    msgSend(nil, item, "setTarget:", target)
 }
 
 // ============================================================================
@@ -187,29 +215,27 @@ NSMenuItem_setTarget :: proc(item: NSMenuItem, target: id) {
 
 NSUTF8StringEncoding :: uint(4)
 
-NSString_alloc :: proc() -> NSString {
-    class := get_class("NSString")
-    return NSString(intrinsics.objc_send(id, id(class), selector("alloc")))
+NSString_alloc :: proc() -> ^NSString {
+    return msgSend(^NSString, NSString, "alloc")
 }
 
-NSString_initWithBytes :: proc(str: NSString, bytes: rawptr, length: uint, encoding: uint) -> NSString {
-    return NSString(intrinsics.objc_send(id, id(str), selector("initWithBytes:length:encoding:"), bytes, length, encoding))
+NSString_initWithBytes :: proc(str: ^NSString, bytes: rawptr, length: uint, encoding: uint) -> ^NSString {
+    return msgSend(^NSString, str, "initWithBytes:length:encoding:", bytes, length, encoding)
 }
 
-NSString_fromString :: proc(s: string) -> NSString {
+NSString_fromString :: proc(s: string) -> ^NSString {
     if len(s) == 0 {
-        class := get_class("NSString")
-        return NSString(intrinsics.objc_send(id, id(class), selector("string")))
+        return msgSend(^NSString, NSString, "string")
     }
     ns_str := NSString_alloc()
     return NSString_initWithBytes(ns_str, raw_data(s), uint(len(s)), NSUTF8StringEncoding)
 }
 
-NSString_UTF8String :: proc(str: NSString) -> cstring {
-    return cstring(intrinsics.objc_send(rawptr, id(str), selector("UTF8String")))
+NSString_UTF8String :: proc(str: ^NSString) -> cstring {
+    return msgSend(cstring, str, "UTF8String")
 }
 
-NSString_toString :: proc(str: NSString) -> string {
+NSString_toString :: proc(str: ^NSString) -> string {
     cstr := NSString_UTF8String(str)
     return string(cstr)
 }
@@ -218,35 +244,31 @@ NSString_toString :: proc(str: NSString) -> string {
 // NSColor
 // ============================================================================
 
-NSColor_systemRedColor :: proc() -> NSColor {
-    class := get_class("NSColor")
-    return NSColor(intrinsics.objc_send(id, id(class), selector("systemRedColor")))
+NSColor_systemRedColor :: proc() -> ^NSColor {
+    return msgSend(^NSColor, NSColor, "systemRedColor")
 }
 
-NSColor_systemGreenColor :: proc() -> NSColor {
-    class := get_class("NSColor")
-    return NSColor(intrinsics.objc_send(id, id(class), selector("systemGreenColor")))
+NSColor_systemGreenColor :: proc() -> ^NSColor {
+    return msgSend(^NSColor, NSColor, "systemGreenColor")
 }
 
-NSColor_systemGrayColor :: proc() -> NSColor {
-    class := get_class("NSColor")
-    return NSColor(intrinsics.objc_send(id, id(class), selector("systemGrayColor")))
+NSColor_systemGrayColor :: proc() -> ^NSColor {
+    return msgSend(^NSColor, NSColor, "systemGrayColor")
 }
 
 // ============================================================================
 // NSAttributedString
 // ============================================================================
 
-NSAttributedString_alloc :: proc() -> NSAttributedString {
-    class := get_class("NSAttributedString")
-    return NSAttributedString(intrinsics.objc_send(id, id(class), selector("alloc")))
+NSAttributedString_alloc :: proc() -> ^NSAttributedString {
+    return msgSend(^NSAttributedString, NSAttributedString, "alloc")
 }
 
-NSAttributedString_initWithString :: proc(attr_str: NSAttributedString, str: NSString, attributes: NSDictionary) -> NSAttributedString {
-    return NSAttributedString(intrinsics.objc_send(id, id(attr_str), selector("initWithString:attributes:"), id(str), id(attributes)))
+NSAttributedString_initWithString :: proc(attr_str: ^NSAttributedString, str: ^NSString, attributes: ^NSDictionary) -> ^NSAttributedString {
+    return msgSend(^NSAttributedString, attr_str, "initWithString:attributes:", str, attributes)
 }
 
-NSAttributedString_new :: proc(str: NSString, attributes: NSDictionary = nil) -> NSAttributedString {
+NSAttributedString_new :: proc(str: ^NSString, attributes: ^NSDictionary = nil) -> ^NSAttributedString {
     attr_str := NSAttributedString_alloc()
     return NSAttributedString_initWithString(attr_str, str, attributes)
 }
@@ -255,9 +277,8 @@ NSAttributedString_new :: proc(str: NSString, attributes: NSDictionary = nil) ->
 // NSDictionary
 // ============================================================================
 
-NSDictionary_dictionaryWithObject :: proc(object: id, key: id) -> NSDictionary {
-    class := get_class("NSDictionary")
-    return NSDictionary(intrinsics.objc_send(id, id(class), selector("dictionaryWithObject:forKey:"), object, key))
+NSDictionary_dictionaryWithObject :: proc(object: id, key: id) -> ^NSDictionary {
+    return msgSend(^NSDictionary, NSDictionary, "dictionaryWithObject:forKey:", object, key)
 }
 
 // ============================================================================
@@ -270,33 +291,31 @@ NSTimer_scheduledTimerWithTimeInterval :: proc(
     sel: SEL,
     userInfo: id,
     repeats: bool,
-) -> NSTimer {
-    class := get_class("NSTimer")
-    return NSTimer(intrinsics.objc_send(
-        id,
-        id(class),
-        selector("scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:"),
+) -> ^NSTimer {
+    return msgSend(
+        ^NSTimer,
+        NSTimer,
+        "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:",
         interval,
         target,
         sel,
         userInfo,
         repeats,
-    ))
+    )
 }
 
 // ============================================================================
 // NSObject (for custom classes)
 // ============================================================================
 
-NSObject_alloc :: proc() -> id {
-    class := get_class("NSObject")
-    return intrinsics.objc_send(id, id(class), selector("alloc"))
+NSObject_alloc :: proc() -> ^NSObject {
+    return msgSend(^NSObject, NSObject, "alloc")
 }
 
-NSObject_init :: proc(obj: id) -> id {
-    return intrinsics.objc_send(id, obj, selector("init"))
+NSObject_init :: proc(obj: ^NSObject) -> ^NSObject {
+    return msgSend(^NSObject, obj, "init")
 }
 
 NSObject_class :: proc() -> Class {
-    return get_class("NSObject")
+    return intrinsics.objc_find_class("NSObject")
 }

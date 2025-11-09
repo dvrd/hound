@@ -6,7 +6,7 @@ import "core:fmt"
 import "base:runtime"
 
 // Global app state
-g_status_item: NSStatusItem
+g_status_item: ^NSStatusItem
 
 // Application delegate (must be zero-size for @(objc_class))
 @(objc_class="MinimalAppDelegate")
@@ -14,7 +14,7 @@ AppDelegate :: struct {}
 
 // Called when app finishes launching
 @(objc_type=AppDelegate, objc_name="applicationDidFinishLaunching", objc_is_class_method=false)
-app_did_finish_launching :: proc "c" (self: ^AppDelegate, _: SEL, notification: NSNotification) {
+app_did_finish_launching :: proc "c" (self: ^AppDelegate, _: SEL, notification: ^NSNotification) {
     context = runtime.default_context()
 
     fmt.println("App launched!")
@@ -75,10 +75,9 @@ main :: proc() {
     // Create app
     app := NSApplication_sharedApplication()
 
-    // Create and set delegate
-    delegate := NSObject_alloc()
-    delegate = NSObject_init(delegate)
-    NSApplication_setDelegate(app, id(delegate))
+    // Create and set delegate (use class_createInstance for custom class)
+    delegate := class_createInstance(delegate_class, 0)
+    NSApplication_setDelegate(app, delegate)
 
     // Hide dock icon (menu bar only mode)
     NSApplication_setActivationPolicy(app, .Accessory)
