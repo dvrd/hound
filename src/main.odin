@@ -184,6 +184,25 @@ main :: proc() {
 		fmt.eprintln("Could not retrieve token reserves from the pool.")
 		fmt.eprintln("The RPC node may be experiencing issues.")
 		exit_code = 69  // Service unavailable
+
+	// Oracle errors (Phase 4.2)
+	case .OracleConnectionFailed:
+		fmt.eprintln("Error: Cannot fetch SOL price")
+		fmt.eprintln("Unable to connect to Jupiter or CoinGecko APIs.")
+		fmt.eprintln("Check your internet connection and try again.")
+		exit_code = 69  // Service unavailable
+
+	case .OracleParseFailed:
+		fmt.eprintln("Error: Invalid SOL price response")
+		fmt.eprintln("Received malformed data from price API.")
+		fmt.eprintln("Try again or report at https://github.com/dvrd/hound/issues")
+		exit_code = 70  // Internal software error
+
+	case .OraclePriceInvalid:
+		fmt.eprintln("Error: SOL price validation failed")
+		fmt.eprintln("Received unreasonable price from API.")
+		fmt.eprintln("Try again or report at https://github.com/dvrd/hound/issues")
+		exit_code = 70  // Internal software error
 	}
 
 	os.exit(exit_code)

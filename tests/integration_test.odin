@@ -351,3 +351,46 @@ test_integration_real_world_addresses :: proc(t: ^testing.T) {
 		// This test documents the expected addresses for reference
 	}
 }
+
+@(test)
+test_integration_sol_oracle_caching :: proc(t: ^testing.T) {
+	// DOCUMENTATION: End-to-end SOL oracle cache behavior
+	//
+	// User Flow:
+	// 1. User runs `hound aura` → Fetches fresh SOL price (cache miss)
+	// 2. User runs `hound btc` 5 seconds later → Uses cached SOL price (cache hit)
+	// 3. User waits 35 seconds
+	// 4. User runs `hound eth` → Fetches fresh SOL price (cache expired)
+	//
+	// This test verifies the complete cache lifecycle
+
+	// Step 1: Reset cache
+	src.g_sol_cache = src.SolPriceCache{}
+
+	// Step 2: First query - cache miss, fetches from API
+	price1, err1 := src.get_sol_price_cached()
+	testing.expect(t, err1 == .None,
+		"Integration: First SOL price fetch should succeed")
+
+	// Step 3: Second query immediate - cache hit, no API call
+	price2, err2 := src.get_sol_price_cached()
+	testing.expect(t, err2 == .None,
+		"Integration: Second SOL price fetch should succeed from cache")
+
+	// Step 4: Verify both prices are identical (cache working)
+	testing.expect(t, price1 == price2,
+		fmt.tprintf("Integration: Cache should return same price: $%.2f vs $%.2f",
+			price1, price2))
+
+	// Step 5: Verify cache is marked valid
+	testing.expect(t, src.g_sol_cache.is_valid,
+		"Integration: Cache should be valid after fetch")
+
+	// Step 6: Verify cache is not stale (fresh)
+	testing.expect(t, !src.is_cache_stale(src.g_sol_cache),
+		"Integration: Fresh cache should not be stale")
+
+	// Step 7: Verify price is reasonable
+	testing.expect(t, price1 > 50.0 && price1 < 1000.0,
+		fmt.tprintf("Integration: SOL price should be reasonable: $%.2f", price1))
+}

@@ -167,8 +167,11 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 		pool_state.quote_decimal,
 	)
 
-	// Get SOL price (hardcoded for MVP)
-	sol_usd_price := 162.50
+	// Get live SOL price from oracle (cached for 30s)
+	sol_usd_price, oracle_err := get_sol_price_cached()
+	if oracle_err != .None {
+		return {}, oracle_err
+	}
 
 	// Convert to USD
 	price_in_usd := price_in_quote * sol_usd_price

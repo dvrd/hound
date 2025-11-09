@@ -30,6 +30,11 @@ ErrorType :: enum {
 	RPCInvalidResponse,   // Malformed RPC response
 	PoolDataInvalid,      // Pool data validation failed
 	VaultFetchFailed,     // Failed to fetch vault balances
+
+	// Oracle errors (Phase 4.2 - SOL price fetching)
+	OracleConnectionFailed, // Cannot reach Jupiter/CoinGecko APIs
+	OracleParseFailed,      // Invalid API response format
+	OraclePriceInvalid,     // Price validation failed
 }
 
 // API response structures matching DexScreener API

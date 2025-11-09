@@ -65,3 +65,34 @@ tasks:
     desc: Run tests in watch mode (requires entr)
     cmds:
       - find tests src -name "*.odin" | entr -c task test
+
+  menubar:example:
+    desc: Build minimal menu bar example
+    cmds:
+      - mkdir -p bin
+      - odin build src/menubar -out:bin/hound-menubar-example -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation"
+
+  menubar:example:run:
+    desc: Build and run minimal menu bar example immediately
+    cmds:
+      - task: menubar:example
+      - ./bin/hound-menubar-example
+
+  menubar:
+    desc: Build full menu bar app (when implemented)
+    cmds:
+      - mkdir -p bin
+      - odin build src/menubar -out:bin/hound-menubar -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation"
+
+  menubar:debug:
+    desc: Build menu bar app with debug symbols
+    cmds:
+      - mkdir -p bin
+      - odin build src/menubar -out:bin/hound-menubar-debug -debug -extra-linker-flags:"-framework AppKit -framework Foundation"
+
+  menubar:install:
+    desc: Install menu bar app to /usr/local/bin
+    cmds:
+      - task: menubar
+      - sudo cp bin/hound-menubar /usr/local/bin/
+      - sudo chmod +x /usr/local/bin/hound-menubar
