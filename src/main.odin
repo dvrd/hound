@@ -10,20 +10,34 @@ run :: proc() -> ErrorType {
 		return .MissingArgument
 	}
 
-	token := os.args[1]
+	symbol := os.args[1]
 
-	// For Phase 2, remove "aura only" restriction since we're fixing errors
-	// All Solana token addresses should work
-	// (Phase 3 will add named token resolution)
+	// Load token configuration
+	config, config_err := load_token_config()
+	if config_err != .None {
+		return config_err
+	}
 
-	// Fetch price
-	price_data, err := fetch_price_for_aura()
+	// Handle "list" command
+	if symbol == "list" {
+		list_tokens(config)
+		return .None
+	}
+
+	// Find token by symbol (case-insensitive)
+	token, found := find_token_by_symbol(config, symbol)
+	if !found {
+		return .TokenNotConfigured
+	}
+
+	// Fetch price using the contract address
+	price_data, err := fetch_price(token.contract_address)
 	if err != .None {
 		return err
 	}
 
-	// Display result
-	format_price_output("AURA", price_data)
+	// Display result with the actual token symbol
+	format_price_output(token.symbol, price_data)
 
 	return .None
 }
@@ -46,10 +60,15 @@ main :: proc() {
 		exit_code = 0
 
 	case .MissingArgument:
-		fmt.eprintln("Error: Missing token address")
+		fmt.eprintln("Error: Missing token symbol")
 		fmt.eprintln("")
-		fmt.eprintln("Usage: hound <token-address>")
-		fmt.eprintln("Example: hound DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2")
+		fmt.eprintln("Usage: hound <symbol>")
+		fmt.eprintln("       hound list")
+		fmt.eprintln("")
+		fmt.eprintln("Examples:")
+		fmt.eprintln("  hound aura       # Check AURA price")
+		fmt.eprintln("  hound sol        # Check SOL price")
+		fmt.eprintln("  hound list       # List all configured tokens")
 		exit_code = 2  // Usage error
 
 	case .InvalidToken:
@@ -93,6 +112,39 @@ main :: proc() {
 		fmt.eprintln("Received malformed data. This may be temporary.")
 		fmt.eprintln("Try again or report at https://github.com/dvrd/hound/issues")
 		exit_code = 70  // Internal software error
+
+	case .TokenNotConfigured:
+		fmt.eprintfln("Error: Token '%s' not found in configuration", token)
+		fmt.eprintln("Run 'hound list' to see available tokens.")
+		fmt.eprintln("Add new tokens to ~/.config/hound/tokens.json")
+		exit_code = 1  // General error
+
+	case .ConfigNotFound:
+		fmt.eprintln("Error: Configuration file not found")
+		fmt.eprintln("Expected location: ~/.config/hound/tokens.json")
+		fmt.eprintln("")
+		fmt.eprintln("Create a config file with your token definitions:")
+		fmt.eprintln("{")
+		fmt.eprintln("  \"version\": \"1.0.0\",")
+		fmt.eprintln("  \"tokens\": [")
+		fmt.eprintln("    {")
+		fmt.eprintln("      \"symbol\": \"aura\",")
+		fmt.eprintln("      \"name\": \"AURA Memecoin\",")
+		fmt.eprintln("      \"contract_address\": \"DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2\",")
+		fmt.eprintln("      \"chain\": \"solana\"")
+		fmt.eprintln("    }")
+		fmt.eprintln("  ]")
+		fmt.eprintln("}")
+		exit_code = 78  // Configuration error
+
+	case .ConfigParseError:
+		fmt.eprintln("Error: Failed to parse configuration file")
+		fmt.eprintln("Check that ~/.config/hound/tokens.json is valid JSON.")
+		fmt.eprintln("Required format:")
+		fmt.eprintln("  - version: string")
+		fmt.eprintln("  - tokens: array of token objects")
+		fmt.eprintln("  - Each token needs: symbol, name, contract_address, chain")
+		exit_code = 78  // Configuration error
 	}
 
 	os.exit(exit_code)

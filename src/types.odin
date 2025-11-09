@@ -19,6 +19,11 @@ ErrorType :: enum {
 
 	// Parse errors (data issues)
 	InvalidResponse,      // Malformed JSON or unexpected structure
+
+	// Config errors (configuration issues)
+	TokenNotConfigured,   // Symbol not found in config
+	ConfigNotFound,       // Config file doesn't exist
+	ConfigParseError,     // Failed to parse config JSON
 }
 
 // API response structures matching DexScreener API

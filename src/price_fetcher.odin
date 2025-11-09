@@ -7,11 +7,9 @@ import "core:net"
 import "core:strconv"
 import client "../vendor/odin-http/client"
 
-AURA_CONTRACT_ADDRESS :: "DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2"
-
-fetch_price_for_aura :: proc() -> (price: PriceData, err: ErrorType) {
+fetch_price :: proc(contract_address: string) -> (price: PriceData, err: ErrorType) {
 	// Build URL
-	url := fmt.tprintf("https://api.dexscreener.com/latest/dex/tokens/%s", AURA_CONTRACT_ADDRESS)
+	url := fmt.tprintf("https://api.dexscreener.com/latest/dex/tokens/%s", contract_address)
 	
 	// Make HTTP request with error handling
 	res, http_err := client.get(url)
