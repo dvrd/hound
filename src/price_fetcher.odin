@@ -4,6 +4,7 @@ import "core:bufio"
 import "core:encoding/hex"
 import "core:encoding/json"
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:net"
 import "core:strconv"
@@ -36,81 +37,109 @@ DexScreenerChangeResponse :: struct {
 }
 
 fetch_price :: proc(contract_address: string) -> (price: PriceData, err: ErrorType) {
+	log.debugf("Fetching price from DexScreener API for token: %s", contract_address)
+
 	// Build URL
 	url := fmt.tprintf("https://api.dexscreener.com/latest/dex/tokens/%s", contract_address)
-	
+	log.debugf("API URL: %s", url)
+
 	// Make HTTP request with error handling
 	res, http_err := client.get(url)
 	if http_err != nil {
+		log.errorf("HTTP request failed: %v", http_err)
 		// Discriminate network error types using union switching
 		#partial switch e in http_err {
 		case net.Network_Error:
 			// General network errors (includes timeouts)
+			log.debug("Network timeout detected")
 			return {}, .NetworkTimeout
 		case net.TCP_Send_Error:
+			log.debug("TCP send error detected")
 			return {}, .ConnectionFailed
 		case net.Dial_Error:
+			log.debug("Dial error detected")
 			return {}, .ConnectionFailed
 		case client.Request_Error:
+			log.debug("Request error detected")
 			return {}, .InvalidResponse
 		case net.Parse_Endpoint_Error:
+			log.debug("Parse endpoint error detected")
 			return {}, .InvalidToken
 		case bufio.Scanner_Error:
+			log.debug("Scanner error detected")
 			return {}, .InvalidResponse
 		case client.SSL_Error:
+			log.debug("SSL error detected")
 			return {}, .ConnectionFailed
 		case:
 			// Unknown network error
+			log.debug("Unknown network error detected")
 			return {}, .ConnectionFailed
 		}
 	}
 	defer client.response_destroy(&res)
 
 	// NEW: Check HTTP status code
+	log.debugf("HTTP response status: %v", res.status)
 	#partial switch res.status {
 	case .Bad_Request:
+		log.debug("Bad request (400)")
 		return {}, .InvalidToken
 	case .Not_Found:
+		log.debug("Not found (404)")
 		return {}, .TokenNotFound
 	case .Too_Many_Requests:
+		log.warn("Rate limited (429)")
 		return {}, .RateLimited
 	case .Internal_Server_Error, .Service_Unavailable:
+		log.error("Server error (500/503)")
 		return {}, .ServerError
 	case .OK:
+		log.debug("HTTP 200 OK - continuing processing")
 		// Continue processing
 	case:
 		// Unknown error code, treat as server error
+		log.warnf("Unknown status code: %v", res.status)
 		return {}, .ServerError
 	}
 
 	// Extract response body
 	body, allocation, body_err := client.response_body(&res)
 	if body_err != nil {
+		log.errorf("Failed to extract response body: %v", body_err)
 		return {}, .InvalidResponse
 	}
 	defer client.body_destroy(body, allocation)
 
+	log.debug("Parsing JSON response")
 	// Parse JSON (body is string)
 	response: DexScreenerResponse
 	json_err := json.unmarshal_string(body.(string), &response)
 	if json_err != nil {
+		log.errorf("JSON unmarshal failed: %v", json_err)
 		return {}, .InvalidResponse
 	}
 
 	// Check for empty pairs
 	if len(response.pairs) == 0 {
+		log.warn("API returned empty pairs array")
 		return {}, .TokenNotFound
 	}
+	log.debugf("Found %d pair(s) in response", len(response.pairs))
 
 	// Extract and convert price (priceUsd is string!)
 	price_str := response.pairs[0].priceUsd
+	log.debugf("Raw price string from API: %s", price_str)
 	price_val, parse_ok := strconv.parse_f64(price_str)
 	if !parse_ok {
+		log.errorf("Failed to parse price string: %s", price_str)
 		return {}, .InvalidResponse
 	}
 	change := response.pairs[0].priceChange.h24
-	
+	log.debugf("Parsed price: $%.6f, 24h change: %.2f%%", price_val, change)
+
 	// Return data
+	log.info("DexScreener API fetch successful")
 	return PriceData{price_usd = price_val, change_24h = change}, .None
 }
 
@@ -254,28 +283,39 @@ calculate_price_from_reserves :: proc(
 
 // Fetch price directly from Raydium pool on-chain
 fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
+	log.infof("Starting on-chain price fetch for token: %s", token.symbol)
+
 	// Check pools exist
 	if len(token.pools) == 0 {
+		log.error("No pools configured for token")
 		return {}, .TokenNotConfigured
 	}
 
 	pool := token.pools[0]
+	log.debugf("Using pool: %s (DEX: %s, type: %s)", pool.pool_address, pool.dex, pool.pool_type)
 
 	// Connect to RPC
 	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	log.debugf("RPC endpoint: %s, timeout: %dms", conn.endpoint, conn.timeout)
 
 	// Fetch pool data (752 bytes)
+	log.debug("Fetching pool account data from RPC")
 	pool_data, err := get_account_info(conn, pool.pool_address)
 	if err != .None {
+		log.errorf("Failed to fetch pool data: %v", err)
 		return {}, err
 	}
 	defer delete(pool_data)
+	log.debugf("Received %d bytes of pool data", len(pool_data))
 
 	// Decode pool
+	log.debug("Decoding Raydium pool state")
 	pool_state, ok := decode_raydium_pool_v4(pool_data)
 	if !ok {
+		log.error("Pool data decoding failed")
 		return {}, .PoolDataInvalid
 	}
+	log.debugf("Pool decoded - base_decimal: %d, quote_decimal: %d", pool_state.base_decimal, pool_state.quote_decimal)
 
 	// Convert vaults to base58 addresses
 	base_vault_addr := pubkey_to_base58(pool_state.base_vault)
@@ -312,23 +352,32 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 	)
 
 	// Get live SOL price from oracle (cached for 30s)
+	log.debug("Fetching SOL/USD price from oracle")
 	sol_usd_price, oracle_err := get_sol_price_cached()
 	if oracle_err != .None {
+		log.errorf("Failed to get SOL price: %v", oracle_err)
 		return {}, oracle_err
 	}
+	log.debugf("SOL/USD price: $%.2f", sol_usd_price)
 
 	// Convert to USD
 	price_in_usd := price_in_quote * sol_usd_price
+	log.debugf("Calculated USD price: $%.6f (%.9f SOL × $%.2f)", price_in_usd, price_in_quote, sol_usd_price)
 
 	// Fetch 24h change from API (graceful degradation - non-fatal if fails)
+	log.debug("Fetching 24h price change from API")
 	change_24h := 0.0  // Default fallback if API fails
 	api_change, api_err := get_24h_change_cached(token.contract_address)
 	if api_err == .None {
 		change_24h = api_change
+		log.debugf("24h change from API: %.2f%%", change_24h)
+	} else {
+		log.warnf("Failed to fetch 24h change (%v), using default 0.0%%", api_err)
 	}
 	// Note: API error is non-fatal - we have on-chain price, that's sufficient
 	// Displaying 0.0% is better than blocking the entire price display
 
+	log.info("On-chain price fetch completed successfully")
 	// Return price data with hybrid approach (on-chain price + API 24h change)
 	return PriceData{price_usd = price_in_usd, change_24h = change_24h}, .None
 }

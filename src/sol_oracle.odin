@@ -3,6 +3,7 @@ package main
 
 import "core:encoding/json"
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:strconv"
 import "core:time"

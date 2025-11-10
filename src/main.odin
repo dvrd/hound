@@ -2,68 +2,105 @@
 package main
 
 import "core:fmt"
+import "core:log"
 import "core:os"
+import "core:strconv"
 
 run :: proc() -> ErrorType {
 	// Check arguments
 	if len(os.args) < 2 {
+		log.debug("No arguments provided")
 		return .MissingArgument
 	}
 
 	symbol := os.args[1]
+	log.debugf("Processing symbol: %s", symbol)
 
 	// Handle version flags
 	if symbol == "--version" || symbol == "-v" || symbol == "version" {
+		log.debug("Version request")
 		fmt.println(get_version_info())
 		return .None
 	}
 
 	// Load token configuration
+	log.debug("Loading token configuration")
 	config, config_err := load_token_config()
 	if config_err != .None {
+		log.errorf("Failed to load token config: %v", config_err)
 		return config_err
 	}
+	log.debugf("Loaded %d tokens from configuration", len(config.tokens))
 
 	// Handle "list" command
 	if symbol == "list" {
+		log.debug("Listing all configured tokens")
 		list_tokens(config)
 		return .None
 	}
 
 	// Find token by symbol (case-insensitive)
+	log.debugf("Looking up token: %s", symbol)
 	token, found := find_token_by_symbol(config, symbol)
 	if !found {
+		log.warnf("Token not found in configuration: %s", symbol)
 		return .TokenNotConfigured
 	}
+	log.infof("Found token: %s (%s)", token.symbol, token.name)
 
 	// Try on-chain fetch first if pools configured
 	price_data: PriceData
 	err: ErrorType
 
 	if len(token.pools) > 0 {
+		log.infof("Attempting on-chain price fetch from %d configured pool(s)", len(token.pools))
 		// Attempt on-chain price fetch
 		price_data, err = fetch_onchain_price(token)
 		if err != .None {
 			// Fallback to API if on-chain fails
+			log.warnf("On-chain fetch failed (%v), falling back to API", err)
 			fmt.eprintln("On-chain fetch failed, falling back to API...")
 			price_data, err = fetch_price(token.contract_address)
+		} else {
+			log.info("On-chain price fetch successful")
 		}
 	} else {
 		// No pools configured, use API
+		log.info("No pools configured, using DexScreener API")
 		price_data, err = fetch_price(token.contract_address)
 	}
 
 	if err != .None {
+		log.errorf("Price fetch failed with error: %v", err)
 		return err
 	}
 
+	log.infof("Price fetched successfully: $%.6f", price_data.price_usd)
+
 	// Display result with the actual token symbol
 	format_price_output(token.symbol, price_data)
+
+	log.debug("Execution completed successfully")
 
 	return .None
 }
 
 main :: proc() {
+	// Initialize logger
+	// Check DEBUG environment variable to set log level
+	log_level := log.Level.Info  // Default: only important operations
+	if debug_str, found := os.lookup_env("DEBUG"); found {
+		if debug_val, ok := strconv.parse_int(debug_str); ok && debug_val == 1 {
+			log_level = log.Level.Debug  // Debug mode: show everything
+		}
+	}
+
+	// Create console logger with timestamp and location info
+	context.logger = log.create_console_logger(log_level)
+
+	log.info("Hound price fetcher starting")
+	log.debugf("Log level: %v", log_level)
+
 	err := run()
 
 	// Get token for error messages that need it
@@ -211,5 +248,7 @@ main :: proc() {
 		exit_code = 70  // Internal software error
 	}
 
+	// Cleanup logger before exit
+	log.destroy_console_logger(context.logger)
 	os.exit(exit_code)
 }

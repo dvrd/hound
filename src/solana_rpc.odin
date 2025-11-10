@@ -4,6 +4,7 @@ package main
 import "core:encoding/base64"
 import "core:encoding/json"
 import "core:fmt"
+import "core:log"
 import "core:math"
 import "core:strconv"
 import client "../vendor/odin-http/client"
