@@ -281,9 +281,57 @@ calculate_price_from_reserves :: proc(
 	return quote_actual / base_actual
 }
 
-// Fetch price directly from Raydium pool on-chain
+// Fetch price from multiple DEX sources with priority-based fallback (Phase 4.4)
+//
+// This function routes price queries through the DEX router which handles:
+// - Orca Whirlpool (CLMM) pools
+// - Raydium AMM v4 pools (legacy from Phase 4.3)
+// - Jupiter Aggregator API (fallback)
+//
+// The router automatically tries pools in priority order and falls back to
+// Jupiter API if all on-chain pools fail.
+//
+// NOTE: Raydium CLMM support is deferred to Phase 4.5.
 fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
-	log.infof("Starting on-chain price fetch for token: %s", token.symbol)
+	log.infof("Starting multi-DEX price fetch for token: %s", token.symbol)
+
+	// Route through DEX router (handles priority-based multi-pool fallback)
+	dex_result, err := route_price_query(token)
+	if err != .None {
+		log.errorf("All DEX sources failed for token %s: %v", token.symbol, err)
+		return {}, err
+	}
+
+	log.infof("Price fetched from %v: $%.6f", dex_result.source, dex_result.price_usd)
+
+	// Fetch 24h change from API (graceful degradation - non-fatal if fails)
+	log.debug("Fetching 24h price change from DexScreener API")
+	change_24h := 0.0  // Default fallback if API fails
+	api_change, api_err := get_24h_change_cached(token.contract_address)
+	if api_err == .None {
+		change_24h = api_change
+		log.debugf("24h change from API: %.2f%%", change_24h)
+	} else {
+		log.warnf("Failed to fetch 24h change (%v), using default 0.0%%", api_err)
+	}
+	// Note: API error is non-fatal - we have price from DEX, that's sufficient
+	// Displaying 0.0% is better than blocking the entire price display
+
+	log.info("Multi-DEX price fetch completed successfully")
+	// Return price data with hybrid approach (DEX router price + API 24h change)
+	return PriceData{price_usd = dex_result.price_usd, change_24h = change_24h}, .None
+}
+
+// Legacy Raydium AMM v4 on-chain price fetching (Phase 4.3)
+//
+// This function is preserved for backward compatibility and direct Raydium
+// pool queries. It is no longer used by fetch_onchain_price() which now
+// uses the DEX router (Phase 4.4).
+//
+// NOTE: This will be removed in Phase 4.5 when Raydium support is
+// migrated to the DEX router as a proper DEX type.
+fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorType) {
+	log.infof("Starting Raydium legacy on-chain price fetch for token: %s", token.symbol)
 
 	// Check pools exist
 	if len(token.pools) == 0 {
@@ -374,10 +422,7 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 	} else {
 		log.warnf("Failed to fetch 24h change (%v), using default 0.0%%", api_err)
 	}
-	// Note: API error is non-fatal - we have on-chain price, that's sufficient
-	// Displaying 0.0% is better than blocking the entire price display
 
-	log.info("On-chain price fetch completed successfully")
-	// Return price data with hybrid approach (on-chain price + API 24h change)
+	log.info("Raydium legacy on-chain price fetch completed successfully")
 	return PriceData{price_usd = price_in_usd, change_24h = change_24h}, .None
 }

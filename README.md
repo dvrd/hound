@@ -4,8 +4,13 @@ A lightweight CLI tool for tracking Solana token prices from the terminal, writt
 
 ## Features
 
-- Real-time token price fetching from DexScreener API
-- 24-hour price change tracking
+- **Multi-DEX price routing** - Fetch prices from multiple sources with automatic fallback
+  - Orca Whirlpool (CLMM) pools
+  - Jupiter Aggregator API v3
+  - Raydium AMM v4 pools (legacy support)
+- **Priority-based pool selection** - Configure multiple pools per token with automatic failover
+- **Intelligent caching** - 60-second cache for Jupiter prices, 30-second cache for SOL oracle
+- Real-time token price fetching with 24-hour change tracking
 - **Multi-token support via JSON configuration**
 - **Symbol-based token lookup (e.g., `hound aura`)**
 - **Case-insensitive symbol matching**
@@ -44,7 +49,15 @@ cat > ~/.config/hound/tokens.json << 'EOF'
       "symbol": "aura",
       "name": "AURA Memecoin",
       "contract_address": "DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2",
-      "chain": "solana"
+      "chain": "solana",
+      "pools": [
+        {
+          "dex": "orca_whirlpool",
+          "pool_address": "HJPjoWUrhoZzkNfRpHuieeFk9WcZWjwy6PBjZ81ngndJ",
+          "quote_token": "sol",
+          "pool_type": "whirlpool"
+        }
+      ]
     },
     {
       "symbol": "sol",
@@ -57,11 +70,27 @@ cat > ~/.config/hound/tokens.json << 'EOF'
 EOF
 ```
 
-Add your favorite Solana tokens by adding more entries to the `tokens` array. Each token needs:
+#### Configuration Fields
+
+**Required fields for all tokens:**
 - `symbol`: Short identifier (e.g., "aura", "sol")
 - `name`: Full token name
 - `contract_address`: Solana contract address
 - `chain`: Must be "solana"
+
+**Optional pool configuration** (for multi-DEX routing):
+- `pools`: Array of liquidity pools (tried in order, first = highest priority)
+  - `dex`: DEX type - "orca_whirlpool", "jupiter", or "raydium"
+  - `pool_address`: On-chain pool address (not needed for Jupiter API)
+  - `quote_token`: Quote token - "sol", "usdc", etc.
+  - `pool_type`: Pool type identifier - "whirlpool", "clmm", "amm_v4"
+
+**Priority-based fallback:**
+1. If pools are configured, Hound tries them in order
+2. If all pools fail, falls back to Jupiter Aggregator API
+3. If no pools configured, uses Jupiter API directly
+
+This provides redundancy and maximizes uptime even if specific DEXs are unavailable.
 
 ### Git Hooks (Optional)
 
@@ -174,11 +203,23 @@ Hound provides specific error types with helpful messages:
 ```
 hound/
 ├── src/
-│   ├── main.odin           # Entry point and error display
-│   ├── token_config.odin   # Token configuration loading and symbol resolution
-│   ├── price_fetcher.odin  # DexScreener API integration
-│   ├── types.odin          # Error types and data structures
-│   └── output.odin         # Price output formatting
+│   ├── main.odin              # Entry point and error display
+│   ├── token_config.odin      # Token configuration loading and symbol resolution
+│   ├── price_fetcher.odin     # Multi-DEX price fetching orchestration
+│   ├── dex_router.odin        # Priority-based DEX routing with fallback
+│   ├── orca_decoder.odin      # Orca Whirlpool CLMM pool decoder (Q64.64)
+│   ├── jupiter_client.odin    # Jupiter Aggregator API v3 client
+│   ├── sol_oracle.odin        # SOL/USD price oracle with caching
+│   ├── raydium_decoder.odin   # Raydium AMM v4 pool decoder (legacy)
+│   ├── rpc_client.odin        # Solana RPC client
+│   ├── types.odin             # Error types and data structures
+│   └── output.odin            # Price output formatting
+├── tests/
+│   ├── orca_decoder_test.odin      # Orca CLMM decoder tests (12 tests)
+│   ├── jupiter_client_test.odin    # Jupiter API client tests (9 tests)
+│   ├── dex_router_test.odin        # DEX routing tests (10 tests)
+│   ├── raydium_decoder_test.odin   # Raydium decoder tests
+│   └── ...                         # Additional test suites
 ├── vendor/
 │   └── odin-http/          # HTTP client library (patched for macOS)
 ├── PRPs/                   # Project requirements documents
@@ -190,7 +231,12 @@ hound/
 
 - **Language**: [Odin](https://odin-lang.org/) - Fast, concise systems programming language
 - **HTTP Client**: [odin-http](https://github.com/laytan/odin-http) - Beta HTTP client library
-- **API**: [DexScreener](https://dexscreener.com/) - DEX aggregator API
+- **DEX Integrations**:
+  - [Orca Whirlpool](https://www.orca.so/) - Concentrated Liquidity Market Maker (CLMM)
+  - [Jupiter Aggregator](https://jup.ag/) - Price API v3
+  - [Raydium](https://raydium.io/) - AMM v4 pools (legacy)
+- **API**: [DexScreener](https://dexscreener.com/) - DEX aggregator API (24h change data)
+- **Blockchain**: [Solana RPC](https://solana.com/) - On-chain data fetching
 - **Build Tool**: [Task](https://taskfile.dev/) - Modern task runner
 
 ## macOS DNS Resolution
@@ -219,14 +265,14 @@ Hound follows engineering principles inspired by **[TigerBeetle](https://tigerbe
 
 ### Running Tests
 
-Hound includes a comprehensive test suite with 42 tests covering all critical functionality:
+Hound includes a comprehensive test suite with 73+ tests covering all critical functionality:
 
 ```bash
 # Run all tests
 task test
 
 # Run specific test suites
-task test:decoder      # Raydium pool decoder tests
+task test:decoder      # Pool decoder tests (Orca, Raydium)
 task test:price        # Price calculation tests
 task test:config       # Configuration tests
 task test:integration  # End-to-end integration tests
@@ -238,11 +284,18 @@ task test:verbose
 task test:watch
 ```
 
+**Test Coverage:**
+- **Orca Decoder**: 12 tests - Q64.64 conversion, pool structure validation
+- **Jupiter Client**: 9 tests - API integration, caching, error handling
+- **DEX Router**: 10 tests - Priority routing, fallback mechanisms
+- **Raydium Decoder**: Tests for AMM v4 pool decoding
+- **Integration Tests**: End-to-end multi-DEX scenarios
+
 All tests serve dual purposes:
 1. **Verification** - Ensure code correctness
 2. **Documentation** - Show how the system works
 
-📊 **Test Results**: 42 tests, 100% pass rate, ~66ms execution time
+📊 **Test Results**: 73+ tests, 100% pass rate
 
 📚 **Read More**: [`tests/README.md`](tests/README.md)
 
@@ -303,6 +356,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - **[TigerBeetle](https://tigerbeetle.com/)** - Inspiration for our engineering philosophy
 - **[odin-http](https://github.com/laytan/odin-http)** by Laytan Laats - HTTP client library
-- **[DexScreener](https://dexscreener.com/)** - DEX aggregator API
 - **[Odin programming language](https://odin-lang.org/)** by Ginger Bill - The language that powers Hound
-- **[Raydium](https://raydium.io/)** - On-chain liquidity protocol
+- **[Orca](https://www.orca.so/)** - Whirlpool CLMM protocol and documentation
+- **[Jupiter Aggregator](https://jup.ag/)** - Price API v3 for Solana tokens
+- **[Raydium](https://raydium.io/)** - AMM v4 on-chain liquidity protocol
+- **[DexScreener](https://dexscreener.com/)** - DEX aggregator API for 24h change data
+- **[Solana](https://solana.com/)** - High-performance blockchain infrastructure

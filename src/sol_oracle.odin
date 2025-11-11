@@ -9,14 +9,8 @@ import "core:strconv"
 import "core:time"
 import client "../vendor/odin-http/client"
 
-// Jupiter Price API v6 response structure
-JupiterPriceResponse :: struct {
-	data: map[string]JupiterPriceData,
-}
-
-JupiterPriceData :: struct {
-	price: f64,
-}
+// NOTE: Jupiter types are now defined in jupiter_client.odin
+// This file uses the shared Jupiter client for fetching SOL price
 
 // CoinGecko API response structure
 CoinGeckoResponse :: struct {
@@ -43,47 +37,18 @@ CACHE_TTL :: 30 * time.Second
 // SOL mint address constant
 SOL_MINT :: "So11111111111111111111111111111111111111112"
 
-// Fetch SOL price from Jupiter Price API v6
-fetch_jupiter_price :: proc() -> (f64, ErrorType) {
-	// Assertion 1: Ensure we're building a valid URL
+// Fetch SOL price from Jupiter Price API v3 (using shared jupiter_client)
+fetch_sol_price_jupiter :: proc() -> (f64, ErrorType) {
+	// Assertion 1: Ensure we're using valid SOL mint address
 	assert(len(SOL_MINT) > 0, "SOL_MINT constant must not be empty")
 
-	// Build URL - Jupiter v6 endpoint
-	url := "https://price.jup.ag/v6/price?ids=SOL"
-
-	// Make GET request
-	res, http_err := client.get(url)
-	if http_err != nil {
-		return 0, .OracleConnectionFailed
-	}
-	defer client.response_destroy(&res)
-
-	// Check HTTP status
-	if res.status != .OK {
+	// Use the shared Jupiter client
+	price_info, err := get_jupiter_price_cached(SOL_MINT)
+	if err != .None {
 		return 0, .OracleConnectionFailed
 	}
 
-	// Extract body
-	body, allocation, body_err := client.response_body(&res)
-	if body_err != nil {
-		return 0, .OracleParseFailed
-	}
-	defer client.body_destroy(body, allocation)
-
-	// Parse JSON
-	response: JupiterPriceResponse
-	json_err := json.unmarshal_string(body.(string), &response)
-	if json_err != nil {
-		return 0, .OracleParseFailed
-	}
-
-	// Extract SOL price
-	sol_data, has_sol := response.data["SOL"]
-	if !has_sol {
-		return 0, .OracleParseFailed
-	}
-
-	price := sol_data.price
+	price := price_info.usd_price
 
 	// Assertion 2: Validate price is reasonable ($50-$1000 range)
 	assert(price >= 0, "Price must be non-negative")
@@ -176,7 +141,7 @@ get_sol_price_cached :: proc() -> (f64, ErrorType) {
 	}
 
 	// Try Jupiter first
-	price, err := fetch_jupiter_price()
+	price, err := fetch_sol_price_jupiter()
 	if err == .None {
 		// Update cache
 		g_sol_cache.price = price

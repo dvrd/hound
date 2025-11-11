@@ -28,15 +28,15 @@ import "../src"
 
 @(test)
 test_jupiter_price_fetch :: proc(t: ^testing.T) {
-	// DOCUMENTATION: Verify Jupiter Price API v6 integration
+	// DOCUMENTATION: Verify Jupiter Price API v3 integration (via sol_oracle)
 	//
 	// Why: Jupiter is the primary price source for SOL/USD
 	//
 	// Example: Tool calls Jupiter API to get live SOL price
 	// Expected: Returns price in $50-$1000 range (reasonable for SOL)
 
-	// Act: Fetch price from Jupiter
-	price, err := src.fetch_jupiter_price()
+	// Act: Fetch SOL price from Jupiter (using shared jupiter_client)
+	price, err := src.fetch_sol_price_jupiter()
 
 	// Assert 1: Fetch should succeed
 	testing.expect(t, err == .None, "Jupiter API should be accessible")
