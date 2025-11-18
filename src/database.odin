@@ -691,7 +691,7 @@ migrate_from_json :: proc(db: ^Database, config: TokenConfig) -> ErrorType {
 	return .None
 }
 
-// get_default_db_path returns the default database path (~/.config/hound/tokens.db)
+// get_default_db_path returns the default database path (~/.config/hound/hound.db)
 //
 // Returns: Database path or empty string if home directory not found
 get_default_db_path :: proc() -> string {
@@ -701,7 +701,7 @@ get_default_db_path :: proc() -> string {
 		return ""
 	}
 
-	db_path := filepath.join({home, ".config", "hound", "tokens.db"})
+	db_path := filepath.join({home, ".config", "hound", "hound.db"})
 	return db_path
 }
 

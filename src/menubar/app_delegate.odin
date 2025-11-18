@@ -43,7 +43,7 @@ app_did_finish_launching :: proc "c" (
     // Check if database exists to determine mode
     home, found := os.lookup_env("HOME")
     if found && len(home) > 0 {
-        db_path := filepath.join({home, ".config", "hound", "tokens.db"})
+        db_path := filepath.join({home, ".config", "hound", "hound.db"})
         if os.exists(db_path) {
             fmt.println("Database found - enabling wallet mode")
             g_wallet_mode_enabled = true

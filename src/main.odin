@@ -328,12 +328,12 @@ main :: proc() {
 	case .DatabaseError:
 		fmt.eprintln("Error: Database operation failed")
 		fmt.eprintln("Could not read or write to the token database.")
-		fmt.eprintln("Check file permissions at ~/.config/hound/tokens.db")
+		fmt.eprintln("Check file permissions at ~/.config/hound/hound.db")
 		exit_code = 74  // I/O error
 
 	case .DatabaseCorrupted:
 		fmt.eprintln("Error: Database integrity check failed")
-		fmt.eprintln("The database file at ~/.config/hound/tokens.db is corrupted.")
+		fmt.eprintln("The database file at ~/.config/hound/hound.db is corrupted.")
 		fmt.eprintln("Delete the file to recreate it from tokens.json backup.")
 		exit_code = 74  // I/O error
 

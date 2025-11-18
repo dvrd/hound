@@ -49,7 +49,7 @@ TokenConfig :: struct {
 // Returns the configuration and an error type
 //
 // Strategy (Phase 5.1):
-// 1. Try loading from ~/.config/hound/tokens.db
+// 1. Try loading from ~/.config/hound/hound.db
 // 2. If DB doesn't exist but tokens.json exists, migrate JSON -> DB
 // 3. If neither exists, return ConfigNotFound
 //
@@ -66,7 +66,7 @@ load_token_config :: proc() -> (TokenConfig, ErrorType) {
 	}
 	log.debugf("Home directory: %s", home)
 
-	db_path := filepath.join({home, ".config", "hound", "tokens.db"})
+	db_path := filepath.join({home, ".config", "hound", "hound.db"})
 	json_path := filepath.join({home, ".config", "hound", "tokens.json"})
 
 	if os.exists(db_path) {
@@ -396,7 +396,7 @@ get_database_path :: proc() -> string {
 	home, found := os.lookup_env("HOME")
 	if !found || len(home) == 0 {
 		// Fallback to /tmp if HOME not set (should never happen)
-		return "/tmp/hound_tokens.db"
+		return "/tmp/hound.db"
 	}
-	return filepath.join({home, ".config", "hound", "tokens.db"})
+	return filepath.join({home, ".config", "hound", "hound.db"})
 }
