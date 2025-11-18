@@ -912,6 +912,62 @@ get_balances_for_wallet :: proc(
 // POOL STATISTICS - Phase 5.3
 // =============================================================================
 
+// delete_pools_for_token deletes all pools for a given token
+//
+// ASSERTION 1: Validate db is not nil
+// ASSERTION 2: Validate token_symbol is not empty
+//
+// Used for refresh workflow to remove old pools before re-discovery
+//
+// Returns: Error status
+delete_pools_for_token :: proc(db: ^Database, token_symbol: string) -> ErrorType {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+	assert(len(token_symbol) > 0, "Token symbol cannot be empty")
+
+	log.debugf("Deleting pools for token: %s", token_symbol)
+
+	// First get token_id
+	get_id_sql := `SELECT id FROM tokens WHERE symbol = ?1 COLLATE NOCASE`
+	id_stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(get_id_sql)), i32(len(get_id_sql)), &id_stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to prepare token lookup: %v", prep_result)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(id_stmt)
+
+	sqlite3.bind_text(id_stmt, 1, cstring(raw_data(token_symbol)), i32(len(token_symbol)), nil)
+	if sqlite3.step(id_stmt) != .Row {
+		log.debugf("Token %s not found", token_symbol)
+		return .None // Not an error - token might not exist yet
+	}
+	token_id := sqlite3.column_int64(id_stmt, 0)
+
+	// Delete all pools for this token
+	delete_sql := `DELETE FROM pools WHERE token_id = ?1`
+	delete_stmt: ^sqlite3.Statement
+	prep_result2 := sqlite3.prepare_v2(db.handle, cstring(raw_data(delete_sql)), i32(len(delete_sql)), &delete_stmt, nil)
+	if prep_result2 != .Ok {
+		log.errorf("Failed to prepare delete: %v", prep_result2)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(delete_stmt)
+
+	sqlite3.bind_int64(delete_stmt, 1, token_id)
+
+	step_result := sqlite3.step(delete_stmt)
+	if step_result != .Done {
+		log.errorf("Failed to delete pools: %v", step_result)
+		return .DatabaseError
+	}
+
+	deleted_count := sqlite3.changes(db.handle)
+	log.debugf("Deleted %d pool(s) for token %s", deleted_count, token_symbol)
+
+	return .None
+}
+
 // get_pool_stats retrieves aggregated statistics for a token's pools
 //
 // ASSERTION 1: Validate db is not nil

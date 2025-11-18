@@ -356,6 +356,15 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 	}
 	defer database_close(db)
 
+	// Step 3.5: If force_refresh, delete old pools first to avoid duplicates
+	if force_refresh {
+		log.debugf("Force refresh: deleting old pools for %s", token.symbol)
+		delete_err := delete_pools_for_token(db, token.symbol)
+		if delete_err != .None {
+			log.warnf("Failed to delete old pools (non-fatal): %v", delete_err)
+		}
+	}
+
 	// Step 4: Store top N pools with metadata (Phase 5.3)
 	stored_count := 0
 	for i := 0; i < pools_to_store; i += 1 {
