@@ -5,6 +5,7 @@ import "core:fmt"
 import "core:log"
 import "core:os"
 import "core:strconv"
+import "core:strings"
 
 // handle_fetch_command implements the "hound fetch <symbol>" workflow (Phase 5.3)
 //
@@ -105,6 +106,117 @@ discover_and_store_pools_with_refresh :: proc(token: Token, force_refresh: bool)
 	return discover_and_store_pools(token, force_refresh)
 }
 
+// handle_add_command implements "hound add <symbol> <name> <address>" workflow
+//
+// Workflow:
+// 1. Validate arguments (symbol, name, contract address)
+// 2. Validate address format (basic Solana address check)
+// 3. Check if token already exists in database
+// 4. Insert token into database
+// 5. Optionally run pool discovery
+//
+// Returns: ErrorType
+handle_add_command :: proc(symbol: string, name: string, address: string) -> ErrorType {
+	log.debugf("Add command: symbol=%s, name=%s, address=%s", symbol, name, address)
+
+	// Validate contract address format (Solana addresses are base58, typically 32-44 chars)
+	if len(address) < 32 || len(address) > 44 {
+		log.errorf("Invalid contract address length: %d", len(address))
+		fmt.eprintln("Error: Invalid Solana contract address")
+		fmt.eprintfln("Address must be 32-44 characters (base58)")
+		fmt.eprintfln("Example: DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")
+		return .InvalidToken
+	}
+
+	// Open database
+	db_path := get_database_path()
+	db, db_err := database_open(db_path)
+	if db_err != .None {
+		log.errorf("Failed to open database: %v", db_err)
+		fmt.eprintln("Error: Could not open database")
+		return .DatabaseError
+	}
+	defer database_close(db)
+
+	// Check if token already exists (case-insensitive)
+	existing_token, found, lookup_err := get_token_by_symbol(db, symbol)
+	if lookup_err != .None {
+		log.errorf("Database lookup failed: %v", lookup_err)
+		fmt.eprintln("Error: Database operation failed")
+		return .DatabaseError
+	}
+
+	if found {
+		log.warnf("Token '%s' already exists in database", symbol)
+		fmt.eprintfln("Error: Token '%s' already exists", symbol)
+		fmt.eprintfln("Existing: %s (%s)", existing_token.name, existing_token.contract_address)
+		return .InvalidToken
+	}
+
+	// Create token struct
+	token := Token{
+		symbol           = symbol,
+		name             = name,
+		contract_address = address,
+		chain            = "solana",
+		is_quote_token   = false,
+		usd_price        = 0.0,
+		pools            = []PoolInfo{},
+	}
+
+	// Insert token into database
+	fmt.eprintfln("Adding token: %s (%s)", name, symbol)
+	insert_err := insert_token(db, token)
+	if insert_err != .None {
+		log.errorf("Failed to insert token: %v", insert_err)
+		fmt.eprintln("Error: Failed to add token to database")
+		return .DatabaseError
+	}
+
+	fmt.eprintfln("✓ Token added successfully!")
+	fmt.eprintln("")
+
+	// Ask if user wants to discover pools now
+	fmt.eprintln("Discover liquidity pools for this token? (y/n)")
+	fmt.eprint("> ")
+
+	// Read user input
+	buffer: [256]byte
+	n, read_err := os.read(os.stdin, buffer[:])
+	if read_err != 0 {
+		log.debug("Failed to read user input, skipping pool discovery")
+		return .None
+	}
+
+	response := string(buffer[:n])
+	response = strings.trim_space(response)
+	response_lower := strings.to_lower(response)
+
+	if response_lower == "y" || response_lower == "yes" {
+		fmt.eprintln("")
+		fmt.eprintln("Discovering liquidity pools...")
+
+		pool_info, discovery_err := discover_and_store_pools(token, false)
+		if discovery_err == .None {
+			fmt.eprintfln("✓ Found pool on %s", pool_info.dex)
+			fmt.eprintfln("  Address: %s", pool_info.pool_address)
+			if pool_info.liquidity_usd > 0 {
+				fmt.eprintfln("  Liquidity: $%.0f", pool_info.liquidity_usd)
+			}
+			fmt.eprintln("")
+			fmt.eprintfln("Try it: hound fetch %s", symbol)
+		} else {
+			fmt.eprintln("⚠ Pool discovery failed")
+			fmt.eprintfln("You can try again later: hound fetch %s --refresh", symbol)
+		}
+	} else {
+		fmt.eprintln("")
+		fmt.eprintfln("Pool discovery skipped. Run 'hound fetch %s' when ready.", symbol)
+	}
+
+	return .None
+}
+
 run :: proc() -> ErrorType {
 	// Check arguments
 	if len(os.args) < 2 {
@@ -136,6 +248,28 @@ run :: proc() -> ErrorType {
 		log.debug("Listing all configured tokens with statistics")
 		list_tokens_with_stats(config)
 		return .None
+	}
+
+	// Phase 5.3: Parse "add" command to add new tokens
+	// Syntax: hound add <symbol> <name> <address>
+	if first_arg == "add" {
+		if len(os.args) < 5 {
+			log.error("Missing arguments for add command")
+			fmt.eprintln("Error: Missing arguments")
+			fmt.eprintln("")
+			fmt.eprintln("Usage: hound add <symbol> <name> <address>")
+			fmt.eprintln("")
+			fmt.eprintln("Example:")
+			fmt.eprintln("  hound add bonk \"Bonk\" DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263")
+			return .MissingArgument
+		}
+
+		symbol := os.args[2]
+		name := os.args[3]
+		address := os.args[4]
+
+		log.debugf("Add command: symbol=%s, name=%s", symbol, name)
+		return handle_add_command(symbol, name, address)
 	}
 
 	// Phase 5.3: Parse "fetch" command with optional --refresh flag
