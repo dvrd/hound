@@ -332,17 +332,24 @@ is_pool_search_cache_stale :: proc(cache: PoolSearchCache, token_address: string
 //
 // PATTERN: jupiter_client.odin:244-275 (cache wrapper with fetch)
 // This is the main entry point for pool discovery
-get_pools_cached :: proc(token_address: string) -> ([]DexScreenerPair, ErrorType) {
+//
+// Phase 5.3: Added force_refresh parameter to bypass cache
+get_pools_cached :: proc(token_address: string, force_refresh: bool = false) -> ([]DexScreenerPair, ErrorType) {
 	// ASSERTION 1: Cache TTL is positive (configuration check)
 	assert(POOL_SEARCH_CACHE_TTL > 0, "Cache TTL must be positive")
 
-	// Check cache freshness
-	if !is_pool_search_cache_stale(g_pool_search_cache, token_address) {
-		log.debugf("Cache hit for token: %s", token_address)
-		return g_pool_search_cache.pairs, .None
+	// Phase 5.3: Skip cache check if force refresh requested
+	if force_refresh {
+		log.info("Force refresh requested, bypassing cache")
+	} else {
+		// Check cache freshness
+		if !is_pool_search_cache_stale(g_pool_search_cache, token_address) {
+			log.debugf("Cache hit for token: %s", token_address)
+			return g_pool_search_cache.pairs, .None
+		}
 	}
 
-	log.debugf("Cache miss for token: %s", token_address)
+	log.debugf("Cache miss or force refresh for token: %s", token_address)
 
 	// Cache miss or stale - fetch fresh data with retry
 	pairs, err := fetch_pools_with_retry(token_address)

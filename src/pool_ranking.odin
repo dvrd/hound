@@ -30,6 +30,7 @@ package main
 import "core:log"
 import "core:slice"
 import "core:strconv"
+import "core:time"
 
 // =============================================================================
 // DATA STRUCTURES
@@ -273,7 +274,7 @@ select_best_pool :: proc(pairs: []DexScreenerPair) -> (DexScreenerPair, bool) {
 
 // Convert DexScreenerPair to PoolInfo (for database storage)
 //
-// Extracts essential pool metadata for token configuration
+// Extracts essential pool metadata for token configuration (Phase 5.3)
 pair_to_pool_info :: proc(pair: DexScreenerPair) -> PoolInfo {
 	// Determine pool type from labels
 	pool_type := infer_pool_type(pair)
@@ -281,11 +282,21 @@ pair_to_pool_info :: proc(pair: DexScreenerPair) -> PoolInfo {
 	// Extract quote token symbol (e.g., "SOL", "USDC", "USDT")
 	quote_symbol := pair.quoteToken.symbol
 
+	// Phase 5.3: Extract pool metadata for database storage
+	liquidity_usd := pair.liquidity.usd
+	volume_24h := pair.volume.h24
+	fee_percent := estimate_pool_fee(pair)
+	discovered_at := time.now()._nsec / 1_000_000_000 // Unix timestamp
+
 	return PoolInfo{
-		dex          = pair.dexId,
-		pool_address = pair.pairAddress,
-		quote_token  = quote_symbol,
-		pool_type    = pool_type,
+		dex           = pair.dexId,
+		pool_address  = pair.pairAddress,
+		quote_token   = quote_symbol,
+		pool_type     = pool_type,
+		liquidity_usd = liquidity_usd,
+		volume_24h    = volume_24h,
+		fee_percent   = fee_percent,
+		discovered_at = i64(discovered_at),
 	}
 }
 

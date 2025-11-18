@@ -9,10 +9,15 @@ import "core:strings"
 
 // PoolInfo represents a liquidity pool for a token
 PoolInfo :: struct {
-	dex:          string, // "raydium"
-	pool_address: string, // Pool account address
-	quote_token:  string, // "sol", "usdc", etc.
-	pool_type:    string, // "amm_v4"
+	dex:           string, // "raydium"
+	pool_address:  string, // Pool account address
+	quote_token:   string, // "sol", "usdc", etc.
+	pool_type:     string, // "amm_v4"
+	// Phase 5.3: Pool metadata
+	liquidity_usd: f64,    // Current pool liquidity in USD (0.0 if unknown)
+	volume_24h:    f64,    // 24-hour trading volume (0.0 if unknown)
+	fee_percent:   f64,    // Trading fee percentage (0.0 if unknown)
+	discovered_at: i64,    // Unix timestamp when auto-discovered (0 for manual)
 }
 
 // Token represents a single cryptocurrency token configuration
@@ -90,6 +95,12 @@ load_token_config :: proc() -> (TokenConfig, ErrorType) {
 			return {}, schema_err
 		}
 
+		// Apply schema migrations after initial schema creation
+		migrate_schema_err := migrate_schema_5_3(db)
+		if migrate_schema_err != .None {
+			log.warnf("Schema migration failed (non-fatal): %v", migrate_schema_err)
+		}
+
 		migrate_err := migrate_from_json(db, json_config)
 		if migrate_err != .None {
 			log.errorf("Failed to migrate JSON to database")
@@ -118,6 +129,13 @@ load_token_config_from_db :: proc(db_path: string) -> (TokenConfig, ErrorType) {
 		return {}, .DatabaseError
 	}
 	defer database_close(db)
+
+	// Apply any pending schema migrations
+	migrate_err := migrate_schema_5_3(db)
+	if migrate_err != .None {
+		log.warnf("Schema migration failed (non-fatal): %v", migrate_err)
+		// Continue anyway - migration failures are non-fatal
+	}
 
 	// Integrity check
 	if !database_integrity_check(db) {
@@ -207,8 +225,11 @@ list_tokens :: proc(config: TokenConfig) {
 }
 
 // =============================================================================
-// POOL DISCOVERY INTEGRATION - Phase 5.2
+// POOL DISCOVERY INTEGRATION - Phase 5.2/5.3
 // =============================================================================
+
+// Phase 5.3: Store top N pools (not just best)
+TOP_POOLS_TO_STORE :: 3
 
 // discover_and_store_pools performs automatic pool discovery for a token
 //
@@ -240,43 +261,70 @@ discover_and_store_pools :: proc(token: Token) -> (PoolInfo, ErrorType) {
 
 	log.infof("DexScreener returned %d pool(s)", len(pairs))
 
-	// Step 2: Filter + Rank + Select best pool
-	log.debug("Step 2: Selecting best pool via ranking algorithm")
-	best_pair, found := select_best_pool(pairs)
-	if !found {
+	// Step 2: Filter + Rank pools (Phase 5.3: store top N, not just best)
+	log.debug("Step 2: Filtering and ranking pools")
+	filtered := filter_pools(pairs)
+	defer delete(filtered)
+
+	if len(filtered) == 0 {
 		log.warn("No pools passed filtering criteria (min $1K liquidity, max 1% fee)")
 		return PoolInfo{}, .NoPoolsFound
 	}
 
-	log.infof("Selected best pool: %s on %s (liquidity: $%.2f)",
-		best_pair.pairAddress, best_pair.dexId, best_pair.liquidity.usd)
+	ranked := rank_pools(filtered)
+	defer delete(ranked)
 
-	// Step 3: Convert DexScreenerPair to PoolInfo
-	pool_info := pair_to_pool_info(best_pair)
+	// Determine how many pools to store (top N or all if fewer)
+	pools_to_store := min(TOP_POOLS_TO_STORE, len(ranked))
+	log.infof("Found %d valid pool(s), storing top %d", len(ranked), pools_to_store)
 
-	// Step 4: Store pool in database (for future fast lookups)
-	log.debug("Step 3: Storing pool in database")
+	// Best pool for immediate use
+	best_pair := ranked[0].pair
+	log.infof("Best pool: %s on %s (score: %.2f, liquidity: $%.2f)",
+		best_pair.pairAddress, best_pair.dexId, ranked[0].score, best_pair.liquidity.usd)
+
+	// Step 3: Open database for storage
+	log.debug("Step 3: Storing pools in database")
 	db_path := get_database_path()
 	db, db_err := database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		// Non-fatal: we have pool info, just can't cache it
-		return pool_info, .None
+		// Non-fatal: return best pool even if storage fails
+		return pair_to_pool_info(best_pair), .None
 	}
 	defer database_close(db)
 
-	// Insert pool into database (linked to token)
-	insert_err := insert_pool(db, token.symbol, pool_info)
-	if insert_err != .None {
-		log.warnf("Failed to store pool in database: %v (non-fatal)", insert_err)
-		// Non-fatal: pool discovery succeeded, storage failed
-		return pool_info, .None
+	// Step 4: Store top N pools with metadata (Phase 5.3)
+	stored_count := 0
+	for i := 0; i < pools_to_store; i += 1 {
+		pool_pair := ranked[i].pair
+		pool_info := pair_to_pool_info(pool_pair)
+
+		insert_err := insert_pool(
+			db,
+			token.symbol,
+			pool_info,
+			pool_info.liquidity_usd,
+			pool_info.volume_24h,
+			pool_info.fee_percent,
+			pool_info.discovered_at,
+		)
+
+		if insert_err != .None {
+			log.warnf("Failed to store pool #%d (%s): %v", i+1, pool_pair.pairAddress, insert_err)
+			continue
+		}
+
+		stored_count += 1
+		log.debugf("Stored pool #%d: %s on %s ($%.2f liquidity)",
+			i+1, pool_pair.pairAddress, pool_pair.dexId, pool_pair.liquidity.usd)
 	}
 
-	log.infof("Pool discovery completed: %s pool at %s stored for future use",
-		pool_info.dex, pool_info.pool_address)
+	log.infof("Pool discovery completed: stored %d pool(s) for %s",
+		stored_count, token.symbol)
 
-	return pool_info, .None
+	// Return best pool for immediate use
+	return pair_to_pool_info(best_pair), .None
 }
 
 // get_database_path returns the standard database path

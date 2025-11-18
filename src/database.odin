@@ -44,6 +44,12 @@ Database :: struct {
 	path:   string,
 }
 
+// PoolStats represents aggregated statistics for a token's pools (Phase 5.3)
+PoolStats :: struct {
+	pool_count:      int, // Number of configured pools
+	total_liquidity: f64, // Sum of liquidity across all pools (USD)
+}
+
 // database_open opens or creates a SQLite database at the given path
 //
 // ASSERTION 1: Validate db_path is not empty
@@ -183,6 +189,79 @@ create_schema :: proc(db: ^Database) -> ErrorType {
 	return .None
 }
 
+// migrate_schema_5_3 adds Phase 5.3 pool metadata columns
+//
+// ASSERTION 1: Validate db is not nil
+//
+// Adds columns to pools table (idempotent - checks before adding):
+// - liquidity_usd REAL: Current pool liquidity in USD
+// - volume_24h REAL: 24-hour trading volume in USD
+// - fee_percent REAL: Pool trading fee percentage
+// - discovered_at INTEGER: Unix timestamp when pool was auto-discovered
+//
+// Returns: Error status
+migrate_schema_5_3 :: proc(db: ^Database) -> ErrorType {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+
+	log.debug("Checking for Phase 5.3 schema migration")
+
+	// Check if liquidity_usd column exists (indicator for whether migration is needed)
+	check_sql := "PRAGMA table_info(pools)"
+	stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(check_sql)), i32(len(check_sql)), &stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to check schema: %v", prep_result)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	// Look for liquidity_usd column
+	has_liquidity_column := false
+	for {
+		step_result := sqlite3.step(stmt)
+		if step_result == .Row {
+			col_name := string(sqlite3.column_text(stmt, 1))
+			if col_name == "liquidity_usd" {
+				has_liquidity_column = true
+				break
+			}
+		} else if step_result == .Done {
+			break
+		} else {
+			log.errorf("Failed to read schema: %v", step_result)
+			return .DatabaseError
+		}
+	}
+
+	// If column exists, migration already applied
+	if has_liquidity_column {
+		log.debug("Phase 5.3 migration already applied")
+		return .None
+	}
+
+	log.info("Applying Phase 5.3 schema migration")
+
+	// Add new columns to pools table
+	migration_sql := `
+		ALTER TABLE pools ADD COLUMN liquidity_usd REAL DEFAULT 0.0;
+		ALTER TABLE pools ADD COLUMN volume_24h REAL DEFAULT 0.0;
+		ALTER TABLE pools ADD COLUMN fee_percent REAL DEFAULT 0.0;
+		ALTER TABLE pools ADD COLUMN discovered_at INTEGER DEFAULT 0;
+	`
+
+	errmsg: cstring
+	result := sqlite3.exec(db.handle, cstring(raw_data(migration_sql)), nil, nil, &errmsg)
+	if result != .Ok {
+		log.errorf("Failed to apply migration: %s", errmsg)
+		sqlite3.free(cast(rawptr)errmsg)
+		return .DatabaseError
+	}
+
+	log.info("Phase 5.3 migration completed successfully")
+	return .None
+}
+
 // insert_token inserts a token into the database
 //
 // ASSERTION 1: Validate db is not nil
@@ -242,14 +321,28 @@ insert_token :: proc(db: ^Database, token: Token) -> ErrorType {
 // ASSERTION 2: Validate token_symbol is not empty
 // ASSERTION 3: Validate pool has required fields
 //
+// Parameters:
+// - liquidity_usd: Pool liquidity in USD (0.0 if unknown)
+// - volume_24h: 24-hour trading volume (0.0 if unknown)
+// - fee_percent: Trading fee percentage (0.0 if unknown)
+// - discovered_at: Unix timestamp when auto-discovered (0 for manually configured pools)
+//
 // Returns: Error status
-insert_pool :: proc(db: ^Database, token_symbol: string, pool: PoolInfo) -> ErrorType {
+insert_pool :: proc(
+	db: ^Database,
+	token_symbol: string,
+	pool: PoolInfo,
+	liquidity_usd: f64 = 0.0,
+	volume_24h: f64 = 0.0,
+	fee_percent: f64 = 0.0,
+	discovered_at: i64 = 0,
+) -> ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(token_symbol) > 0, "Token symbol cannot be empty")
 	assert(len(pool.dex) > 0, "Pool DEX cannot be empty")
 
-	log.debugf("Inserting pool for token %s: %s/%s", token_symbol, pool.dex, pool.pool_address)
+	log.debugf("Inserting pool for token %s: %s/%s (liquidity: $%.2f)", token_symbol, pool.dex, pool.pool_address, liquidity_usd)
 
 	// First get token_id
 	get_id_sql := `SELECT id FROM tokens WHERE symbol = ?1 COLLATE NOCASE`
@@ -267,9 +360,10 @@ insert_pool :: proc(db: ^Database, token_symbol: string, pool: PoolInfo) -> Erro
 	}
 	token_id := sqlite3.column_int64(id_stmt, 0)
 
-	// Now insert pool
-	sql := `INSERT INTO pools (token_id, dex, pool_address, quote_token, pool_type)
-	        VALUES (?1, ?2, ?3, ?4, ?5)`
+	// Now insert pool with metadata (Phase 5.3)
+	sql := `INSERT INTO pools (token_id, dex, pool_address, quote_token, pool_type,
+	        liquidity_usd, volume_24h, fee_percent, discovered_at)
+	        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
 
 	stmt: ^sqlite3.Statement
 	prep_result2 := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
@@ -285,6 +379,10 @@ insert_pool :: proc(db: ^Database, token_symbol: string, pool: PoolInfo) -> Erro
 	sqlite3.bind_text(stmt, 3, cstring(raw_data(pool.pool_address)), i32(len(pool.pool_address)), nil)
 	sqlite3.bind_text(stmt, 4, cstring(raw_data(pool.quote_token)), i32(len(pool.quote_token)), nil)
 	sqlite3.bind_text(stmt, 5, cstring(raw_data(pool.pool_type)), i32(len(pool.pool_type)), nil)
+	sqlite3.bind_double(stmt, 6, liquidity_usd)
+	sqlite3.bind_double(stmt, 7, volume_24h)
+	sqlite3.bind_double(stmt, 8, fee_percent)
+	sqlite3.bind_int64(stmt, 9, discovered_at)
 
 	step_result := sqlite3.step(stmt)
 	if step_result != .Done {
@@ -366,7 +464,10 @@ get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo,
 
 	log.debugf("Fetching pools for token_id=%d", token_id)
 
-	sql := `SELECT dex, pool_address, quote_token, pool_type FROM pools WHERE token_id = ?1`
+	// Phase 5.3: Include metadata columns
+	sql := `SELECT dex, pool_address, quote_token, pool_type,
+	        liquidity_usd, volume_24h, fee_percent, discovered_at
+	        FROM pools WHERE token_id = ?1`
 
 	stmt: ^sqlite3.Statement
 	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
@@ -385,10 +486,14 @@ get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo,
 		step_result := sqlite3.step(stmt)
 		if step_result == .Row {
 			pool := PoolInfo{
-				dex          = strings.clone(string(sqlite3.column_text(stmt, 0))),
-				pool_address = strings.clone(string(sqlite3.column_text(stmt, 1))),
-				quote_token  = strings.clone(string(sqlite3.column_text(stmt, 2))),
-				pool_type    = strings.clone(string(sqlite3.column_text(stmt, 3))),
+				dex           = strings.clone(string(sqlite3.column_text(stmt, 0))),
+				pool_address  = strings.clone(string(sqlite3.column_text(stmt, 1))),
+				quote_token   = strings.clone(string(sqlite3.column_text(stmt, 2))),
+				pool_type     = strings.clone(string(sqlite3.column_text(stmt, 3))),
+				liquidity_usd = sqlite3.column_double(stmt, 4),
+				volume_24h    = sqlite3.column_double(stmt, 5),
+				fee_percent   = sqlite3.column_double(stmt, 6),
+				discovered_at = sqlite3.column_int64(stmt, 7),
 			}
 			append(&pool_list, pool)
 		} else if step_result == .Done {
@@ -801,4 +906,66 @@ get_balances_for_wallet :: proc(
 
 	log.infof("Fetched %d balance(s) for wallet", len(balance_map))
 	return balance_map, .None
+}
+
+// =============================================================================
+// POOL STATISTICS - Phase 5.3
+// =============================================================================
+
+// get_pool_stats retrieves aggregated statistics for a token's pools
+//
+// ASSERTION 1: Validate db is not nil
+// ASSERTION 2: Validate token_symbol is not empty
+//
+// Returns: Pool statistics (count + total liquidity) and error status
+get_pool_stats :: proc(db: ^Database, token_symbol: string) -> (stats: PoolStats, err: ErrorType) {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+	assert(len(token_symbol) > 0, "Token symbol cannot be empty")
+
+	log.debugf("Fetching pool stats for token: %s", token_symbol)
+
+	// First get token_id (case-insensitive lookup)
+	get_id_sql := `SELECT id FROM tokens WHERE symbol = ?1 COLLATE NOCASE`
+	id_stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(get_id_sql)), i32(len(get_id_sql)), &id_stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to prepare token lookup: %v", prep_result)
+		return {}, .DatabaseError
+	}
+	defer sqlite3.finalize(id_stmt)
+
+	sqlite3.bind_text(id_stmt, 1, cstring(raw_data(token_symbol)), i32(len(token_symbol)), nil)
+	if sqlite3.step(id_stmt) != .Row {
+		log.debugf("Token %s not found", token_symbol)
+		return PoolStats{}, .None // Return zero stats if token not found
+	}
+	token_id := sqlite3.column_int64(id_stmt, 0)
+
+	// Get aggregated pool statistics
+	stats_sql := `SELECT COUNT(*), COALESCE(SUM(liquidity_usd), 0.0)
+	              FROM pools WHERE token_id = ?1`
+
+	stats_stmt: ^sqlite3.Statement
+	prep_result2 := sqlite3.prepare_v2(db.handle, cstring(raw_data(stats_sql)), i32(len(stats_sql)), &stats_stmt, nil)
+	if prep_result2 != .Ok {
+		log.errorf("Failed to prepare stats query: %v", prep_result2)
+		return {}, .DatabaseError
+	}
+	defer sqlite3.finalize(stats_stmt)
+
+	sqlite3.bind_int64(stats_stmt, 1, token_id)
+
+	step_result := sqlite3.step(stats_stmt)
+	if step_result == .Row {
+		stats.pool_count = int(sqlite3.column_int(stats_stmt, 0))
+		stats.total_liquidity = sqlite3.column_double(stats_stmt, 1)
+
+		log.debugf("Pool stats for %s: %d pool(s), $%.2f total liquidity",
+			token_symbol, stats.pool_count, stats.total_liquidity)
+		return stats, .None
+	} else {
+		log.errorf("Failed to fetch pool stats: %v", step_result)
+		return {}, .DatabaseError
+	}
 }
