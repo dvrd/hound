@@ -224,6 +224,66 @@ list_tokens :: proc(config: TokenConfig) {
 	}
 }
 
+// list_tokens_with_stats prints tokens with pool metadata (Phase 5.3)
+//
+// Enhanced list output showing:
+// - Pool count for each token
+// - Total liquidity across pools
+// - ✨ indicator for auto-discovered tokens (discovered_at > 0)
+//
+// Fallback: If database unavailable, uses basic list_tokens()
+list_tokens_with_stats :: proc(config: TokenConfig) {
+	log.debug("Listing tokens with pool statistics")
+
+	// Try to open database for stats
+	db_path := get_database_path()
+	db, db_err := database_open(db_path)
+	if db_err != .None {
+		log.warnf("Database unavailable, falling back to basic list")
+		list_tokens(config)
+		return
+	}
+	defer database_close(db)
+
+	fmt.println("Available tokens:")
+	fmt.println("")
+
+	for token in config.tokens {
+		// Get pool stats for this token
+		stats, stats_err := get_pool_stats(db, token.symbol)
+
+		if stats_err != .None || stats.pool_count == 0 {
+			// No pools configured
+			fmt.printfln("  %s - %s (no pools)", token.symbol, token.name)
+			continue
+		}
+
+		// Check if any pool was auto-discovered
+		has_discovered_pools := false
+		for pool in token.pools {
+			if pool.discovered_at > 0 {
+				has_discovered_pools = true
+				break
+			}
+		}
+
+		// Format output with pool stats
+		discovery_indicator := has_discovered_pools ? " ✨" : ""
+		if stats.total_liquidity > 0 {
+			fmt.printfln("  %s - %s (%d pool%s, $%.0f liquidity)%s",
+				token.symbol, token.name,
+				stats.pool_count, stats.pool_count == 1 ? "" : "s",
+				stats.total_liquidity, discovery_indicator)
+		} else {
+			// Pools exist but no liquidity data
+			fmt.printfln("  %s - %s (%d pool%s)%s",
+				token.symbol, token.name,
+				stats.pool_count, stats.pool_count == 1 ? "" : "s",
+				discovery_indicator)
+		}
+	}
+}
+
 // =============================================================================
 // POOL DISCOVERY INTEGRATION - Phase 5.2/5.3
 // =============================================================================
@@ -243,16 +303,18 @@ TOP_POOLS_TO_STORE :: 3
 // This is called during "hound fetch <symbol>" when no pools are configured
 // for the token yet. It enables zero-configuration price fetching.
 //
+// Phase 5.3: Added force_refresh parameter to bypass cache
+//
 // Returns: Best pool and .None on success, or empty pool and error on failure
-discover_and_store_pools :: proc(token: Token) -> (PoolInfo, ErrorType) {
-	log.infof("Starting automatic pool discovery for token: %s", token.symbol)
+discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (PoolInfo, ErrorType) {
+	log.infof("Starting automatic pool discovery for token: %s (force_refresh=%v)", token.symbol, force_refresh)
 
 	// ASSERTION 1: Token must have contract address
 	assert(len(token.contract_address) > 0, "Token contract address must not be empty")
 
 	// Step 1: Query DexScreener API for pools (with retry and caching)
 	log.debug("Step 1: Fetching pools from DexScreener API")
-	pairs, api_err := get_pools_cached(token.contract_address)
+	pairs, api_err := get_pools_cached(token.contract_address, force_refresh)
 	if api_err != .None {
 		log.errorf("Failed to fetch pools from DexScreener: %v", api_err)
 		return PoolInfo{}, api_err

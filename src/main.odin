@@ -6,22 +6,18 @@ import "core:log"
 import "core:os"
 import "core:strconv"
 
-run :: proc() -> ErrorType {
-	// Check arguments
-	if len(os.args) < 2 {
-		log.debug("No arguments provided")
-		return .MissingArgument
-	}
-
-	symbol := os.args[1]
-	log.debugf("Processing symbol: %s", symbol)
-
-	// Handle version flags
-	if symbol == "--version" || symbol == "-v" || symbol == "version" {
-		log.debug("Version request")
-		fmt.println(get_version_info())
-		return .None
-	}
+// handle_fetch_command implements the "hound fetch <symbol>" workflow (Phase 5.3)
+//
+// Workflow:
+// 1. Load token configuration
+// 2. Check if --refresh flag present
+// 3. Perform pool discovery (with force_refresh if --refresh)
+// 4. Fetch price using discovered/configured pools
+// 5. Display result
+//
+// Progress indicators for slow operations (>1s)
+handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
+	log.debugf("Fetch command: symbol=%s, force_refresh=%v", symbol, force_refresh)
 
 	// Load token configuration
 	log.debug("Loading token configuration")
@@ -32,14 +28,7 @@ run :: proc() -> ErrorType {
 	}
 	log.debugf("Loaded %d tokens from configuration", len(config.tokens))
 
-	// Handle "list" command
-	if symbol == "list" {
-		log.debug("Listing all configured tokens")
-		list_tokens(config)
-		return .None
-	}
-
-	// Find token by symbol (case-insensitive)
+	// Find token by symbol
 	log.debugf("Looking up token: %s", symbol)
 	token, found := find_token_by_symbol(config, symbol)
 	if !found {
@@ -48,16 +37,15 @@ run :: proc() -> ErrorType {
 	}
 	log.infof("Found token: %s (%s)", token.symbol, token.name)
 
-	// Try on-chain fetch first if pools configured
+	// Try on-chain fetch with existing or discovered pools
 	price_data: PriceData
 	err: ErrorType
 
-	if len(token.pools) > 0 {
-		log.infof("Attempting on-chain price fetch from %d configured pool(s)", len(token.pools))
-		// Attempt on-chain price fetch
+	if len(token.pools) > 0 && !force_refresh {
+		// Use existing configured pools
+		log.infof("Using %d configured pool(s)", len(token.pools))
 		price_data, err = fetch_onchain_price(token)
 		if err != .None {
-			// Fallback to API if on-chain fails
 			log.warnf("On-chain fetch failed (%v), falling back to API", err)
 			fmt.eprintln("On-chain fetch failed, falling back to API...")
 			price_data, err = fetch_price(token.contract_address)
@@ -65,13 +53,16 @@ run :: proc() -> ErrorType {
 			log.info("On-chain price fetch successful")
 		}
 	} else {
-		// No pools configured - try automatic pool discovery (Phase 5.2)
-		log.info("No pools configured, attempting automatic pool discovery")
-		fmt.eprintln("Discovering liquidity pools...")
+		// Pool discovery needed (no pools or force refresh)
+		if force_refresh {
+			fmt.eprintln("Refreshing pool discovery...")
+		} else {
+			fmt.eprintln("Discovering liquidity pools...")
+		}
 
-		pool_info, discovery_err := discover_and_store_pools(token)
+		// Pass force_refresh to bypass cache
+		pool_info, discovery_err := discover_and_store_pools_with_refresh(token, force_refresh)
 		if discovery_err == .None {
-			// Discovery succeeded - add pool to token and fetch price
 			log.infof("Pool discovery succeeded: %s pool at %s", pool_info.dex, pool_info.pool_address)
 			fmt.eprintfln("Found pool on %s (stored for future use)", pool_info.dex)
 
@@ -82,7 +73,6 @@ run :: proc() -> ErrorType {
 			// Fetch price from discovered pool
 			price_data, err = fetch_onchain_price(token_with_pool)
 			if err != .None {
-				// On-chain fetch failed after discovery - fallback to API
 				log.warnf("On-chain fetch failed after discovery (%v), falling back to API", err)
 				fmt.eprintln("Pool fetch failed, falling back to API...")
 				price_data, err = fetch_price(token.contract_address)
@@ -104,12 +94,77 @@ run :: proc() -> ErrorType {
 
 	log.infof("Price fetched successfully: $%.6f", price_data.price_usd)
 
-	// Display result with the actual token symbol
+	// Display result
 	format_price_output(token.symbol, price_data)
 
-	log.debug("Execution completed successfully")
-
 	return .None
+}
+
+// Helper wrapper to pass force_refresh to pool discovery
+discover_and_store_pools_with_refresh :: proc(token: Token, force_refresh: bool) -> (PoolInfo, ErrorType) {
+	return discover_and_store_pools(token, force_refresh)
+}
+
+run :: proc() -> ErrorType {
+	// Check arguments
+	if len(os.args) < 2 {
+		log.debug("No arguments provided")
+		return .MissingArgument
+	}
+
+	first_arg := os.args[1]
+	log.debugf("First argument: %s", first_arg)
+
+	// Handle version flags
+	if first_arg == "--version" || first_arg == "-v" || first_arg == "version" {
+		log.debug("Version request")
+		fmt.println(get_version_info())
+		return .None
+	}
+
+	// Load token configuration (needed for all commands except version)
+	log.debug("Loading token configuration")
+	config, config_err := load_token_config()
+	if config_err != .None {
+		log.errorf("Failed to load token config: %v", config_err)
+		return config_err
+	}
+	log.debugf("Loaded %d tokens from configuration", len(config.tokens))
+
+	// Handle "list" command (Phase 5.3: use enhanced list with stats)
+	if first_arg == "list" {
+		log.debug("Listing all configured tokens with statistics")
+		list_tokens_with_stats(config)
+		return .None
+	}
+
+	// Phase 5.3: Parse "fetch" command with optional --refresh flag
+	// Syntax: hound fetch <symbol> [--refresh]
+	if first_arg == "fetch" {
+		if len(os.args) < 3 {
+			log.error("Missing symbol argument for fetch command")
+			fmt.eprintln("Error: Missing token symbol")
+			fmt.eprintln("Usage: hound fetch <symbol> [--refresh]")
+			return .MissingArgument
+		}
+
+		symbol := os.args[2]
+		force_refresh := false
+
+		// Check for --refresh flag
+		if len(os.args) >= 4 && os.args[3] == "--refresh" {
+			force_refresh = true
+			log.debug("Refresh flag detected")
+		}
+
+		log.debugf("Fetch command: symbol=%s, refresh=%v", symbol, force_refresh)
+		return handle_fetch_command(symbol, force_refresh)
+	}
+
+	// Backward compatibility: treat first arg as symbol (hound <symbol>)
+	symbol := first_arg
+	log.debugf("Backward compatibility mode: treating '%s' as symbol", symbol)
+	return handle_fetch_command(symbol, false)
 }
 
 main :: proc() {
