@@ -36,7 +36,7 @@ CGFloat  :: f64
 msgSend :: intrinsics.objc_send
 
 // Common constants
-NSVariableStatusItemLength :: CGFloat(-2.0)
+NSVariableStatusItemLength :: CGFloat(-1.0)
 
 // Activation policies for NSApplication
 NSApplicationActivationPolicy :: enum i64 {
@@ -89,6 +89,9 @@ NSTimer :: struct {using _: Object}
 @(objc_class="NSNotification")
 NSNotification :: struct {using _: Object}
 
+@(objc_class="NSAutoreleasePool")
+NSAutoreleasePool :: struct {using _: Object}
+
 // Helper to get class
 get_class :: proc(name: cstring) -> Class {
     return objc_getClass(name)
@@ -97,6 +100,15 @@ get_class :: proc(name: cstring) -> Class {
 // Helper to get selector
 selector :: proc(name: cstring) -> SEL {
     return sel_registerName(name)
+}
+
+// Memory management helpers
+retain :: proc(obj: $T) -> T where intrinsics.type_is_subtype_of(T, id) {
+    return msgSend(T, obj, "retain")
+}
+
+release :: proc(obj: $T) where intrinsics.type_is_subtype_of(T, id) {
+    msgSend(nil, obj, "release")
 }
 
 // ============================================================================
@@ -145,6 +157,10 @@ NSStatusItem_button :: proc(item: ^NSStatusItem) -> ^NSButton {
 
 NSStatusItem_setMenu :: proc(item: ^NSStatusItem, menu: ^NSMenu) {
     msgSend(nil, item, "setMenu:", menu)
+}
+
+NSStatusItem_setVisible :: proc(item: ^NSStatusItem, visible: bool) {
+    msgSend(nil, item, "setVisible:", visible)
 }
 
 // ============================================================================
@@ -207,6 +223,14 @@ NSMenuItem_separatorItem :: proc() -> ^NSMenuItem {
 
 NSMenuItem_setTarget :: proc(item: ^NSMenuItem, target: id) {
     msgSend(nil, item, "setTarget:", target)
+}
+
+NSMenuItem_setTitle :: proc(item: ^NSMenuItem, title: ^NSString) {
+    msgSend(nil, item, "setTitle:", title)
+}
+
+NSMenuItem_itemAtIndex :: proc(menu: ^NSMenu, index: int) -> ^NSMenuItem {
+    return msgSend(^NSMenuItem, menu, "itemAtIndex:", index)
 }
 
 // ============================================================================
@@ -281,6 +305,36 @@ NSDictionary_dictionaryWithObject :: proc(object: id, key: id) -> ^NSDictionary 
     return msgSend(^NSDictionary, NSDictionary, "dictionaryWithObject:forKey:", object, key)
 }
 
+// Attributed string key constant
+NSForegroundColorAttributeName :: "NSForegroundColor"
+
+// Helper to create single-key dictionary for color attribute
+NSDictionary_withColorAttribute :: proc(color: ^NSColor) -> ^NSDictionary {
+    key := NSString_fromString(NSForegroundColorAttributeName)
+    return NSDictionary_dictionaryWithObject(color, key)
+}
+
+// ============================================================================
+// NSAutoreleasePool (from Foundation)
+// ============================================================================
+
+NSAutoreleasePool_alloc :: proc() -> ^NSAutoreleasePool {
+    return msgSend(^NSAutoreleasePool, NSAutoreleasePool, "alloc")
+}
+
+NSAutoreleasePool_init :: proc(pool: ^NSAutoreleasePool) -> ^NSAutoreleasePool {
+    return msgSend(^NSAutoreleasePool, pool, "init")
+}
+
+NSAutoreleasePool_drain :: proc(pool: ^NSAutoreleasePool) {
+    msgSend(nil, pool, "drain")
+}
+
+NSAutoreleasePool_new :: proc() -> ^NSAutoreleasePool {
+    pool := NSAutoreleasePool_alloc()
+    return NSAutoreleasePool_init(pool)
+}
+
 // ============================================================================
 // NSTimer
 // ============================================================================
@@ -302,6 +356,10 @@ NSTimer_scheduledTimerWithTimeInterval :: proc(
         userInfo,
         repeats,
     )
+}
+
+NSTimer_invalidate :: proc(timer: ^NSTimer) {
+    msgSend(nil, timer, "invalidate")
 }
 
 // ============================================================================

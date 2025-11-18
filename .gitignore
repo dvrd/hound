@@ -27,3 +27,7 @@ Thumbs.db
 PRPs/
 bin/
 docs/
+
+# macOS App Bundle (generated)
+*.app/
+*.dmg

@@ -34,12 +34,7 @@ tasks:
   test:
     desc: Run all unit tests
     cmds:
-      - odin test tests -all-packages
-
-  test:verbose:
-    desc: Run tests with verbose output
-    cmds:
-      - odin test tests -all-packages -verbose
+      - odin test tests
 
   test:decoder:
     desc: Run raydium decoder tests only
@@ -66,36 +61,47 @@ tasks:
     cmds:
       - find tests src -name "*.odin" | entr -c task test
 
-  menubar:example:
-    desc: Build minimal menu bar example
+  menubar:build:
+    desc: Build full menu bar app
     cmds:
       - mkdir -p bin
-      - odin build src/menubar -out:bin/hound-menubar-example -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation"
-
-  menubar:example:run:
-    desc: Build and run minimal menu bar example immediately
-    cmds:
-      - task: menubar:example
-      - ./bin/hound-menubar-example
-
-  menubar:
-    desc: Build full menu bar app (when implemented)
-    cmds:
-      - mkdir -p bin
-      - odin build src/menubar -out:bin/hound-menubar -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation"
+      - odin build src/menubar -out:bin/hound-menubar -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation -lsqlite3"
 
   menubar:debug:
     desc: Build menu bar app with debug symbols
     cmds:
       - mkdir -p bin
-      - odin build src/menubar -out:bin/hound-menubar-debug -debug -extra-linker-flags:"-framework AppKit -framework Foundation"
+      - odin build src/menubar -out:bin/hound-menubar-debug -debug -extra-linker-flags:"-framework AppKit -framework Foundation -lsqlite3"
+
+  menubar:run:
+    desc: Build and run menu bar app immediately
+    cmds:
+      - task: menubar:build
+      - ./bin/hound-menubar
 
   menubar:install:
     desc: Install menu bar app to /usr/local/bin
     cmds:
-      - task: menubar
+      - task: menubar:build
       - sudo cp bin/hound-menubar /usr/local/bin/
       - sudo chmod +x /usr/local/bin/hound-menubar
+
+  menubar:bundle:
+    desc: Create Hound.app bundle
+    cmds:
+      - ./scripts/create_app_bundle.sh
+
+  menubar:dmg:
+    desc: Create DMG installer
+    deps: [menubar:bundle]
+    cmds:
+      - ./scripts/create_dmg.sh
+
+  menubar:clean:
+    desc: Remove app bundle and DMG
+    cmds:
+      - rm -rf Hound.app
+      - rm -f Hound-*.dmg
 
   version:
     desc: Display current version

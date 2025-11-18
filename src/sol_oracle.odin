@@ -42,11 +42,16 @@ fetch_sol_price_jupiter :: proc() -> (f64, ErrorType) {
 	// Assertion 1: Ensure we're using valid SOL mint address
 	assert(len(SOL_MINT) > 0, "SOL_MINT constant must not be empty")
 
+	log.info("Fetching SOL/USD price from Jupiter (price oracle)")
+
 	// Use the shared Jupiter client
 	price_info, err := get_jupiter_price_cached(SOL_MINT)
 	if err != .None {
+		log.warnf("Jupiter oracle failed: %v", err)
 		return 0, .OracleConnectionFailed
 	}
+
+	log.infof("Jupiter oracle: SOL/USD = $%.2f", price_info.usd_price)
 
 	price := price_info.usd_price
 
@@ -66,21 +71,26 @@ fetch_coingecko_price :: proc() -> (f64, ErrorType) {
 	// Build URL - CoinGecko endpoint
 	url := "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd"
 
+	log.info("Fetching SOL/USD price from CoinGecko (fallback oracle)")
+
 	// Make GET request
 	res, http_err := client.get(url)
 	if http_err != nil {
+		log.warnf("CoinGecko oracle connection failed: %v", http_err)
 		return 0, .OracleConnectionFailed
 	}
 	defer client.response_destroy(&res)
 
 	// Check HTTP status
 	if res.status != .OK {
+		log.warnf("CoinGecko oracle returned status: %v", res.status)
 		return 0, .OracleConnectionFailed
 	}
 
 	// Extract body
 	body, allocation, body_err := client.response_body(&res)
 	if body_err != nil {
+		log.warnf("CoinGecko oracle body parsing failed: %v", body_err)
 		return 0, .OracleParseFailed
 	}
 	defer client.body_destroy(body, allocation)
@@ -89,6 +99,7 @@ fetch_coingecko_price :: proc() -> (f64, ErrorType) {
 	response: CoinGeckoResponse
 	json_err := json.unmarshal_string(body.(string), &response)
 	if json_err != nil {
+		log.warnf("CoinGecko oracle JSON parsing failed: %v", json_err)
 		return 0, .OracleParseFailed
 	}
 
@@ -99,8 +110,11 @@ fetch_coingecko_price :: proc() -> (f64, ErrorType) {
 
 	// Validate price is reasonable ($50-$1000 range)
 	if price < 50.0 || price > 1000.0 {
+		log.errorf("CoinGecko oracle returned unreasonable price: $%.2f", price)
 		return 0, .OraclePriceInvalid
 	}
+
+	log.infof("CoinGecko oracle: SOL/USD = $%.2f", price)
 
 	return price, .None
 }
@@ -137,8 +151,11 @@ get_sol_price_cached :: proc() -> (f64, ErrorType) {
 	if !is_cache_stale(g_sol_cache) {
 		// Assertion 2: Cached price is valid
 		assert(g_sol_cache.price > 0, "Cached price must be positive")
+		log.debugf("Using cached SOL/USD price: $%.2f", g_sol_cache.price)
 		return g_sol_cache.price, .None
 	}
+
+	log.debug("SOL price cache stale, fetching fresh price from oracle")
 
 	// Try Jupiter first
 	price, err := fetch_sol_price_jupiter()
@@ -147,16 +164,19 @@ get_sol_price_cached :: proc() -> (f64, ErrorType) {
 		g_sol_cache.price = price
 		g_sol_cache.cached_at = time.now()
 		g_sol_cache.is_valid = true
+		log.debugf("SOL/USD price cached for next %d seconds", CACHE_TTL / time.Second)
 		return price, .None
 	}
 
 	// Fallback to CoinGecko
+	log.warn("Jupiter oracle failed, trying CoinGecko fallback")
 	price, err = fetch_coingecko_price()
 	if err == .None {
 		// Update cache
 		g_sol_cache.price = price
 		g_sol_cache.cached_at = time.now()
 		g_sol_cache.is_valid = true
+		log.debugf("SOL/USD price cached for next %d seconds", CACHE_TTL / time.Second)
 		return price, .None
 	}
 

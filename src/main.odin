@@ -65,9 +65,36 @@ run :: proc() -> ErrorType {
 			log.info("On-chain price fetch successful")
 		}
 	} else {
-		// No pools configured, use API
-		log.info("No pools configured, using DexScreener API")
-		price_data, err = fetch_price(token.contract_address)
+		// No pools configured - try automatic pool discovery (Phase 5.2)
+		log.info("No pools configured, attempting automatic pool discovery")
+		fmt.eprintln("Discovering liquidity pools...")
+
+		pool_info, discovery_err := discover_and_store_pools(token)
+		if discovery_err == .None {
+			// Discovery succeeded - add pool to token and fetch price
+			log.infof("Pool discovery succeeded: %s pool at %s", pool_info.dex, pool_info.pool_address)
+			fmt.eprintfln("Found pool on %s (stored for future use)", pool_info.dex)
+
+			// Create temporary token with discovered pool
+			token_with_pool := token
+			token_with_pool.pools = []PoolInfo{pool_info}
+
+			// Fetch price from discovered pool
+			price_data, err = fetch_onchain_price(token_with_pool)
+			if err != .None {
+				// On-chain fetch failed after discovery - fallback to API
+				log.warnf("On-chain fetch failed after discovery (%v), falling back to API", err)
+				fmt.eprintln("Pool fetch failed, falling back to API...")
+				price_data, err = fetch_price(token.contract_address)
+			} else {
+				log.info("On-chain price fetch successful from discovered pool")
+			}
+		} else {
+			// Pool discovery failed - fallback to API
+			log.warnf("Pool discovery failed (%v), falling back to API", discovery_err)
+			fmt.eprintln("Pool discovery failed, using API...")
+			price_data, err = fetch_price(token.contract_address)
+		}
 	}
 
 	if err != .None {
@@ -86,17 +113,12 @@ run :: proc() -> ErrorType {
 }
 
 main :: proc() {
-	// Initialize logger
-	// Check DEBUG environment variable to set log level
-	log_level := log.Level.Info  // Default: only important operations
-	if debug_str, found := os.lookup_env("DEBUG"); found {
-		if debug_val, ok := strconv.parse_int(debug_str); ok && debug_val == 1 {
-			log_level = log.Level.Debug  // Debug mode: show everything
-		}
+	log_level := log.Level.Info
+	if ODIN_DEBUG {
+	  log_level = log.Level.Debug
 	}
 
-	// Create console logger with timestamp and location info
-	context.logger = log.create_console_logger(log_level)
+	context.logger = log.create_console_logger(log_level, {.Level, .Terminal_Color})
 
 	log.info("Hound price fetcher starting")
 	log.debugf("Log level: %v", log_level)
@@ -112,7 +134,7 @@ main :: proc() {
 	exit_code := 0
 
 	// Map errors to exit codes and messages
-	switch err {
+	#partial switch err {
 	case .None:
 		// Success - no message
 		exit_code = 0
@@ -246,6 +268,38 @@ main :: proc() {
 		fmt.eprintln("Received unreasonable price from API.")
 		fmt.eprintln("Try again or report at https://github.com/dvrd/hound/issues")
 		exit_code = 70  // Internal software error
+
+	// Database errors (Phase 5.1)
+	case .DatabaseError:
+		fmt.eprintln("Error: Database operation failed")
+		fmt.eprintln("Could not read or write to the token database.")
+		fmt.eprintln("Check file permissions at ~/.config/hound/tokens.db")
+		exit_code = 74  // I/O error
+
+	case .DatabaseCorrupted:
+		fmt.eprintln("Error: Database integrity check failed")
+		fmt.eprintln("The database file at ~/.config/hound/tokens.db is corrupted.")
+		fmt.eprintln("Delete the file to recreate it from tokens.json backup.")
+		exit_code = 74  // I/O error
+
+	case .MigrationFailed:
+		fmt.eprintln("Error: JSON to database migration failed")
+		fmt.eprintln("Could not migrate tokens.json to database.")
+		fmt.eprintln("Check file permissions and ensure tokens.json is valid.")
+		exit_code = 65  // Data format error
+
+	// Pool Discovery errors (Phase 5.2)
+	case .PoolSearchFailed:
+		fmt.eprintln("Error: Pool search failed")
+		fmt.eprintln("Could not retrieve pool data from DexScreener API.")
+		fmt.eprintln("This may be a temporary API issue. Try again in a few moments.")
+		exit_code = 69  // Service unavailable
+
+	case .NoPoolsFound:
+		fmt.eprintfln("Error: No liquidity pools found for token '%s'", token)
+		fmt.eprintln("This token may not have active trading pools yet.")
+		fmt.eprintln("Pools must have at least $1,000 liquidity and max 1% fees.")
+		exit_code = 1  // General error
 	}
 
 	// Cleanup logger before exit

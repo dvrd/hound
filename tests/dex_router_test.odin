@@ -64,19 +64,42 @@ test_parse_dex_type_jupiter :: proc(t: ^testing.T) {
 }
 
 @(test)
-test_parse_dex_type_raydium :: proc(t: ^testing.T) {
-	// DOCUMENTATION: Test Raydium DEX type parsing
-	// Raydium CLMM (deferred to Phase 4.5):
-	// - "raydium"
-	// - "raydium_clmm"
-	// Should parse to .Raydium_CLMM
+test_parse_dex_type_raydium_clmm :: proc(t: ^testing.T) {
+	// DOCUMENTATION: Test Raydium CLMM DEX type parsing
+	// Raydium without pool_type or with pool_type="clmm" should parse to CLMM
 
 	test_cases := []string{"raydium", "RAYDIUM", "raydium_clmm", "Raydium_CLMM"}
 
 	for test_case in test_cases {
+		// No pool_type specified - defaults to CLMM
 		dex_type := src.parse_dex_type(test_case)
 		testing.expect(t, dex_type == .Raydium_CLMM,
-			fmt.tprintf("'%s' should parse to .Raydium_CLMM, got %v", test_case, dex_type))
+			fmt.tprintf("'%s' without pool_type should parse to .Raydium_CLMM, got %v", test_case, dex_type))
+
+		// Explicit pool_type="clmm"
+		dex_type_clmm := src.parse_dex_type(test_case, "clmm")
+		testing.expect(t, dex_type_clmm == .Raydium_CLMM,
+			fmt.tprintf("'%s' with pool_type='clmm' should parse to .Raydium_CLMM, got %v", test_case, dex_type_clmm))
+	}
+}
+
+@(test)
+test_parse_dex_type_raydium_amm_v4 :: proc(t: ^testing.T) {
+	// DOCUMENTATION: Test Raydium AMM V4 DEX type parsing
+	// Raydium with pool_type="amm_v4" or "amm" should parse to AMM V4
+
+	test_cases := []string{"raydium", "RAYDIUM", "raydium_amm"}
+
+	for test_case in test_cases {
+		// pool_type="amm_v4"
+		dex_type_v4 := src.parse_dex_type(test_case, "amm_v4")
+		testing.expect(t, dex_type_v4 == .Raydium_AMM_V4,
+			fmt.tprintf("'%s' with pool_type='amm_v4' should parse to .Raydium_AMM_V4, got %v", test_case, dex_type_v4))
+
+		// pool_type="amm" (legacy)
+		dex_type_amm := src.parse_dex_type(test_case, "amm")
+		testing.expect(t, dex_type_amm == .Raydium_AMM_V4,
+			fmt.tprintf("'%s' with pool_type='amm' should parse to .Raydium_AMM_V4, got %v", test_case, dex_type_amm))
 	}
 }
 
@@ -270,4 +293,79 @@ test_route_price_query_jupiter_fallback :: proc(t: ^testing.T) {
 
 	testing.expect(t, price_diff < 0.1,
 		fmt.tprintf("USDC price should be close to $1.00, got $%.6f", result.price_usd))
+}
+
+@(test)
+test_pool_info_to_dex_config_raydium_clmm :: proc(t: ^testing.T) {
+	// DOCUMENTATION: Test PoolInfo to DexPoolConfig conversion for Raydium CLMM
+	// Validates that Raydium CLMM configuration is correctly handled
+
+	pool_info := src.PoolInfo{
+		dex          = "raydium_clmm",
+		pool_address = "CLMMPoolAddress123...",
+		quote_token  = "sol",
+		pool_type    = "clmm",
+	}
+
+	priority := 1
+	dex_config := src.pool_info_to_dex_config(pool_info, priority)
+
+	// Verify DEX type parsing
+	testing.expect(t, dex_config.dex_type == .Raydium_CLMM,
+		fmt.tprintf("Expected .Raydium_CLMM, got %v", dex_config.dex_type))
+
+	// Verify fields preserved
+	testing.expect(t, dex_config.pool_address == pool_info.pool_address,
+		fmt.tprintf("Pool address mismatch: expected %s, got %s",
+			pool_info.pool_address, dex_config.pool_address))
+
+	testing.expect(t, dex_config.quote_token == pool_info.quote_token,
+		fmt.tprintf("Quote token mismatch: expected %s, got %s",
+			pool_info.quote_token, dex_config.quote_token))
+
+	testing.expect(t, dex_config.priority == priority,
+		fmt.tprintf("Priority mismatch: expected %d, got %d",
+			priority, dex_config.priority))
+
+	testing.expect(t, dex_config.pool_type == pool_info.pool_type,
+		fmt.tprintf("Pool type mismatch: expected %s, got %s",
+			pool_info.pool_type, dex_config.pool_type))
+}
+
+@(test)
+test_pool_info_to_dex_config_raydium_amm_v4 :: proc(t: ^testing.T) {
+	// DOCUMENTATION: Test PoolInfo to DexPoolConfig conversion for Raydium AMM V4
+	// Validates that Raydium AMM V4 configuration is correctly handled
+	// This is the pool type used by AURA and other legacy Raydium pools
+
+	pool_info := src.PoolInfo{
+		dex          = "raydium",
+		pool_address = "9ViX1VductEoC2wERTSp2TuDxXPwAf69aeET8ENPJpsN", // AURA pool
+		quote_token  = "SOL",
+		pool_type    = "amm_v4",
+	}
+
+	priority := 1
+	dex_config := src.pool_info_to_dex_config(pool_info, priority)
+
+	// Verify DEX type parsing - should be AMM V4, not CLMM
+	testing.expect(t, dex_config.dex_type == .Raydium_AMM_V4,
+		fmt.tprintf("Expected .Raydium_AMM_V4, got %v", dex_config.dex_type))
+
+	// Verify fields preserved
+	testing.expect(t, dex_config.pool_address == pool_info.pool_address,
+		fmt.tprintf("Pool address mismatch: expected %s, got %s",
+			pool_info.pool_address, dex_config.pool_address))
+
+	testing.expect(t, dex_config.quote_token == pool_info.quote_token,
+		fmt.tprintf("Quote token mismatch: expected %s, got %s",
+			pool_info.quote_token, dex_config.quote_token))
+
+	testing.expect(t, dex_config.priority == priority,
+		fmt.tprintf("Priority mismatch: expected %d, got %d",
+			priority, dex_config.priority))
+
+	testing.expect(t, dex_config.pool_type == pool_info.pool_type,
+		fmt.tprintf("Pool type mismatch: expected %s, got %s",
+			pool_info.pool_type, dex_config.pool_type))
 }

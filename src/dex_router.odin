@@ -3,6 +3,7 @@ package main
 
 import "core:fmt"
 import "core:log"
+import "core:strconv"
 import "core:strings"
 import client "../vendor/odin-http/client"
 
@@ -33,7 +34,8 @@ import client "../vendor/odin-http/client"
 DexType :: enum {
 	Orca_Whirlpool,   // Orca CLMM pools
 	Jupiter_API,      // Jupiter Aggregator API
-	Raydium_CLMM,     // Raydium CLMM (Phase 4.5)
+	Raydium_CLMM,     // Raydium CLMM
+	Raydium_AMM_V4,   // Raydium AMM V4 (standard AMM)
 	Unknown,          // Unsupported DEX
 }
 
@@ -56,7 +58,7 @@ DexPriceResult :: struct {
 // Parse DEX type from string (from config)
 //
 // ASSERTION 1: Validate dex string is not empty
-parse_dex_type :: proc(dex: string) -> DexType {
+parse_dex_type :: proc(dex: string, pool_type: string = "") -> DexType {
 	assert(len(dex) > 0, "DEX type string cannot be empty")
 
 	lower_dex := strings.to_lower(dex)
@@ -66,8 +68,12 @@ parse_dex_type :: proc(dex: string) -> DexType {
 		return .Orca_Whirlpool
 	case "jupiter", "jupiter_api", "jupiter_aggregator":
 		return .Jupiter_API
-	case "raydium", "raydium_clmm":
-		return .Raydium_CLMM
+	case "raydium", "raydium_clmm", "raydium_amm":
+		// For Raydium, distinguish between CLMM and AMM V4 based on pool_type
+		if pool_type == "amm_v4" || pool_type == "amm" {
+			return .Raydium_AMM_V4
+		}
+		return .Raydium_CLMM  // Default to CLMM if not specified
 	case:
 		log.warnf("Unknown DEX type: %s", dex)
 		return .Unknown
@@ -76,14 +82,19 @@ parse_dex_type :: proc(dex: string) -> DexType {
 
 // Convert PoolInfo (from config) to DexPoolConfig (for routing)
 //
-// ASSERTION 1: Validate pool address is not empty
-// ASSERTION 2: Validate quote token is not empty
+// ASSERTION 1: Validate pool address for on-chain DEXs (not Jupiter API)
+// ASSERTION 2: Validate quote token is not empty (except for Jupiter API)
 pool_info_to_dex_config :: proc(pool: PoolInfo, priority: int = 1) -> DexPoolConfig {
-	assert(len(pool.pool_address) > 0, "Pool address cannot be empty")
-	assert(len(pool.quote_token) > 0, "Quote token cannot be empty")
+	// Parse DEX type, passing pool_type for Raydium disambiguation
+	dex_type := parse_dex_type(pool.dex, pool.pool_type)
+
+	// Jupiter API doesn't need pool address or quote token
+	if dex_type != .Jupiter_API {
+		assert(len(pool.pool_address) > 0, "Pool address cannot be empty for on-chain DEXs")
+	}
 
 	return DexPoolConfig{
-		dex_type     = parse_dex_type(pool.dex),
+		dex_type     = dex_type,
 		pool_address = pool.pool_address,
 		quote_token  = pool.quote_token,
 		priority     = priority,
@@ -181,8 +192,12 @@ fetch_from_dex :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, 
 		return fetch_jupiter_api_price(token)
 
 	case .Raydium_CLMM:
-		log.warn("Raydium CLMM support deferred to Phase 4.5")
-		return {}, .PoolDataInvalid
+		assert(len(config.pool_address) > 0, "Raydium CLMM pool address cannot be empty")
+		return fetch_raydium_clmm_price(config, token)
+
+	case .Raydium_AMM_V4:
+		assert(len(config.pool_address) > 0, "Raydium AMM V4 pool address cannot be empty")
+		return fetch_raydium_amm_v4_price(config, token)
 
 	case .Unknown:
 		log.error("Attempted to fetch from unknown DEX type")
@@ -217,7 +232,7 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 	// 6. Calculate token USD price
 	//
 	// This requires:
-	// - RPC client integration (from existing rpc_client.odin)
+	// - RPC client integration (from existing solana_rpc.odin)
 	// - Token mint account fetching for decimals
 	// - Quote token price oracle (SOL from sol_oracle, USDC = $1)
 
@@ -247,5 +262,195 @@ fetch_jupiter_api_price :: proc(token: Token) -> (DexPriceResult, ErrorType) {
 		price_usd    = price_info.usd_price,
 		source       = .Jupiter_API,
 		pool_address = "",
+	}, .None
+}
+
+// Fetch price from Raydium CLMM pool
+//
+// ASSERTION 1: Validate pool address
+// ASSERTION 2: Validate quote token
+//
+// Steps:
+// 1. Fetch pool account data from Solana RPC
+// 2. Decode Raydium CLMM PoolState
+// 3. Convert sqrt_price_x64 to price (reuse Q64.64 conversion)
+// 4. Fetch quote token price (SOL/USDC) and convert to USD
+fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, ErrorType) {
+	assert(len(config.pool_address) > 0, "Raydium CLMM pool address cannot be empty")
+	assert(len(config.quote_token) > 0, "Quote token cannot be empty")
+
+	log.infof("Fetching from Raydium CLMM: %s (quote: %s)", config.pool_address, config.quote_token)
+
+	// 1. Fetch pool account from RPC
+	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	pool_data, err := get_account_info(conn, config.pool_address)
+	if err != .None {
+		log.errorf("Failed to fetch Raydium CLMM pool data: %v", err)
+		return {}, err
+	}
+	defer delete(pool_data)
+
+	log.debugf("Received %d bytes of Raydium CLMM pool data", len(pool_data))
+
+	// 2. Decode pool state
+	pool_state, ok := decode_raydium_clmm_pool(pool_data)
+	if !ok {
+		log.error("Raydium CLMM pool decoding failed")
+		return {}, .PoolDataInvalid
+	}
+
+	log.debugf("Pool decoded - decimals: (%d, %d), tick_spacing: %d",
+		pool_state.mint_decimals_0, pool_state.mint_decimals_1, pool_state.tick_spacing)
+
+	// 3. Calculate price in quote token
+	// Raydium has embedded decimals - no need to fetch mint accounts
+	price_in_quote := calculate_raydium_clmm_price(pool_state)
+
+	log.debugf("Price in quote token: %.18f", price_in_quote)
+
+	// 4. Convert to USD (get quote token price)
+	quote_usd_price: f64
+	lower_quote := strings.to_lower(config.quote_token)
+	switch lower_quote {
+	case "sol":
+		sol_price, sol_err := get_sol_price_cached()
+		if sol_err != .None {
+			log.errorf("Failed to get SOL price: %v", sol_err)
+			return {}, sol_err
+		}
+		quote_usd_price = sol_price
+		log.debugf("SOL/USD price: $%.2f", sol_price)
+	case "usdc", "usdt":
+		quote_usd_price = 1.0  // USDC/USDT = $1.00
+		log.debugf("Using %s = $1.00", config.quote_token)
+	case:
+		log.errorf("Unsupported quote token: %s", config.quote_token)
+		return {}, .PoolDataInvalid
+	}
+
+	// 5. Calculate final USD price
+	price_usd := price_in_quote * quote_usd_price
+
+	log.infof("Raydium CLMM price: $%.6f (%.9f %s × $%.2f)",
+		price_usd, price_in_quote, config.quote_token, quote_usd_price)
+
+	return DexPriceResult{
+		price_usd    = price_usd,
+		source       = .Raydium_CLMM,
+		pool_address = config.pool_address,
+	}, .None
+}
+
+// Fetch price from Raydium AMM V4 pool
+//
+// ASSERTION 1: Validate pool address
+// ASSERTION 2: Validate quote token
+//
+// Steps:
+// 1. Fetch pool account data from Solana RPC (752 bytes)
+// 2. Decode Raydium AMM V4 PoolState
+// 3. Fetch vault balances for both tokens
+// 4. Calculate price from reserves (x*y=k formula)
+// 5. Fetch quote token price (SOL/USDC) and convert to USD
+fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, ErrorType) {
+	assert(len(config.pool_address) > 0, "Raydium AMM V4 pool address cannot be empty")
+	assert(len(config.quote_token) > 0, "Quote token cannot be empty")
+
+	log.infof("Fetching from Raydium AMM V4: %s (quote: %s)", config.pool_address, config.quote_token)
+
+	// 1. Fetch pool account from RPC
+	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	pool_data, err := get_account_info(conn, config.pool_address)
+	if err != .None {
+		log.errorf("Failed to fetch Raydium AMM V4 pool data: %v", err)
+		return {}, err
+	}
+	defer delete(pool_data)
+
+	log.debugf("Received %d bytes of Raydium AMM V4 pool data", len(pool_data))
+
+	// 2. Decode pool state
+	pool_state, ok := decode_raydium_pool_v4(pool_data)
+	if !ok {
+		log.error("Raydium AMM V4 pool decoding failed")
+		return {}, .PoolDataInvalid
+	}
+
+	log.debugf("Pool decoded - base_decimal: %d, quote_decimal: %d",
+		pool_state.base_decimal, pool_state.quote_decimal)
+
+	// 3. Fetch vault balances
+	base_vault_addr := pubkey_to_base58(pool_state.base_vault)
+	quote_vault_addr := pubkey_to_base58(pool_state.quote_vault)
+
+	log.debugf("Base vault: %s, Quote vault: %s", base_vault_addr, quote_vault_addr)
+
+	base_balance, base_err := get_token_balance(conn, base_vault_addr)
+	if base_err != .None {
+		log.errorf("Failed to fetch base vault balance: %v", base_err)
+		return {}, .VaultFetchFailed
+	}
+
+	quote_balance, quote_err := get_token_balance(conn, quote_vault_addr)
+	if quote_err != .None {
+		log.errorf("Failed to fetch quote vault balance: %v", quote_err)
+		return {}, .VaultFetchFailed
+	}
+
+	// Parse amounts
+	base_reserve, base_parse_ok := strconv.parse_u64(base_balance.amount)
+	if !base_parse_ok {
+		log.error("Failed to parse base vault balance")
+		return {}, .VaultFetchFailed
+	}
+
+	quote_reserve, quote_parse_ok := strconv.parse_u64(quote_balance.amount)
+	if !quote_parse_ok {
+		log.error("Failed to parse quote vault balance")
+		return {}, .VaultFetchFailed
+	}
+
+	log.debugf("Base reserve: %d, Quote reserve: %d", base_reserve, quote_reserve)
+
+	// 4. Calculate price in quote token
+	price_in_quote := calculate_price_from_reserves(
+		base_reserve,
+		quote_reserve,
+		pool_state.base_decimal,
+		pool_state.quote_decimal,
+	)
+
+	log.debugf("Price in quote token: %.18f", price_in_quote)
+
+	// 5. Convert to USD (get quote token price)
+	quote_usd_price: f64
+	lower_quote := strings.to_lower(config.quote_token)
+	switch lower_quote {
+	case "sol":
+		sol_price, sol_err := get_sol_price_cached()
+		if sol_err != .None {
+			log.errorf("Failed to get SOL price: %v", sol_err)
+			return {}, sol_err
+		}
+		quote_usd_price = sol_price
+		log.debugf("SOL/USD price: $%.2f", sol_price)
+	case "usdc", "usdt":
+		quote_usd_price = 1.0  // USDC/USDT = $1.00
+		log.debugf("Using %s = $1.00", config.quote_token)
+	case:
+		log.errorf("Unsupported quote token: %s", config.quote_token)
+		return {}, .PoolDataInvalid
+	}
+
+	// 6. Calculate final USD price
+	price_usd := price_in_quote * quote_usd_price
+
+	log.infof("Raydium AMM V4 price: $%.6f (%.9f %s × $%.2f)",
+		price_usd, price_in_quote, config.quote_token, quote_usd_price)
+
+	return DexPriceResult{
+		price_usd    = price_usd,
+		source       = .Raydium_AMM_V4,
+		pool_address = config.pool_address,
 	}, .None
 }
