@@ -302,8 +302,6 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 		return {}, err
 	}
 
-	log.infof("Price fetched from %v: $%.6f", dex_result.source, dex_result.price_usd)
-
 	// Fetch 24h change from API (graceful degradation - non-fatal if fails)
 	log.debug("Fetching 24h price change from DexScreener API")
 	change_24h := 0.0  // Default fallback if API fails

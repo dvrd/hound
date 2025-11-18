@@ -82,7 +82,7 @@ database_open :: proc(db_path: string) -> (^Database, ErrorType) {
 		sqlite3.free(cast(rawptr)errmsg)
 	}
 
-	log.infof("Database opened: %s", db_path)
+	log.debugf("Database opened: %s", db_path)
 	return db, .None
 }
 
@@ -459,7 +459,7 @@ get_all_tokens :: proc(db: ^Database) -> (tokens: []Token, err: ErrorType) {
 		}
 	}
 
-	log.infof("Fetched %d token(s)", len(token_list))
+	log.debugf("Fetched %d token(s)", len(token_list))
 	return token_list[:], .None
 }
 
@@ -487,7 +487,7 @@ database_integrity_check :: proc(db: ^Database) -> (ok: bool) {
 	if step_result == .Row {
 		result_text := string(sqlite3.column_text(stmt, 0))
 		if result_text == "ok" {
-			log.info("Database integrity check: OK")
+			log.debug("Database integrity check: OK")
 			return true
 		} else {
 			log.errorf("Database integrity check failed: %s", result_text)

@@ -203,7 +203,7 @@ fetch_jupiter_price :: proc(token_mint: string) -> (JupiterPriceInfo, ErrorType)
 		fmt.tprintf("24h change outside reasonable range: %.2f%%", price_change),
 	)
 
-	log.info("Jupiter API fetch successful")
+	log.debug("Jupiter API fetch successful")
 
 	return JupiterPriceInfo{
 		usd_price = f64(usd_price_float),

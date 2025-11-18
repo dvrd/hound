@@ -61,27 +61,22 @@ load_token_config :: proc() -> (TokenConfig, ErrorType) {
 	}
 	log.debugf("Home directory: %s", home)
 
-	// Build paths
 	db_path := filepath.join({home, ".config", "hound", "tokens.db"})
 	json_path := filepath.join({home, ".config", "hound", "tokens.json"})
 
-	// Try loading from database first
 	if os.exists(db_path) {
-		log.infof("Loading tokens from database: %s", db_path)
+		log.debugf("Loading tokens from database: %s", db_path)
 		return load_token_config_from_db(db_path)
 	}
 
-	// DB doesn't exist - check if JSON exists for migration
 	if os.exists(json_path) {
-		log.infof("Database not found, migrating from JSON: %s", json_path)
+		log.debugf("Database not found, migrating from JSON: %s", json_path)
 
-		// Load JSON
 		json_config, json_err := load_token_config_from_json(json_path)
 		if json_err != .None {
 			return {}, json_err
 		}
 
-		// Migrate to DB
 		db, db_err := database_open(db_path)
 		if db_err != .None {
 			log.errorf("Failed to create database for migration")
@@ -89,14 +84,12 @@ load_token_config :: proc() -> (TokenConfig, ErrorType) {
 		}
 		defer database_close(db)
 
-		// Create schema
 		schema_err := create_schema(db)
 		if schema_err != .None {
 			log.errorf("Failed to create database schema")
 			return {}, schema_err
 		}
 
-		// Migrate data
 		migrate_err := migrate_from_json(db, json_config)
 		if migrate_err != .None {
 			log.errorf("Failed to migrate JSON to database")
@@ -139,7 +132,7 @@ load_token_config_from_db :: proc(db_path: string) -> (TokenConfig, ErrorType) {
 		return {}, .DatabaseError
 	}
 
-	log.infof("Loaded %d tokens from database", len(tokens))
+	log.debugf("Loaded %d tokens from database", len(tokens))
 
 	config := TokenConfig{
 		version = "2.0.0",

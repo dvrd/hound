@@ -148,7 +148,7 @@ route_price_query :: proc(token: Token) -> (DexPriceResult, ErrorType) {
 		price_result, err := fetch_from_dex(config, token)
 
 		if err == .None {
-			log.infof("Successfully fetched price from %v: $%.6f", config.dex_type, price_result.price_usd)
+			log.debugf("Successfully fetched price from %v: $%.6f", config.dex_type, price_result.price_usd)
 			return price_result, .None
 		}
 
@@ -331,8 +331,10 @@ fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPri
 	// 5. Calculate final USD price
 	price_usd := price_in_quote * quote_usd_price
 
-	log.infof("Raydium CLMM price: $%.6f (%.9f %s × $%.2f)",
-		price_usd, price_in_quote, config.quote_token, quote_usd_price)
+	log.infof("Raydium CLMM price: $%.6f %s",
+		price_usd)
+	log.infof("Raydium CLMM price: %.9f %s",
+		price_in_quote, config.quote_token)
 
 	return DexPriceResult{
 		price_usd    = price_usd,
@@ -445,8 +447,10 @@ fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 	// 6. Calculate final USD price
 	price_usd := price_in_quote * quote_usd_price
 
-	log.infof("Raydium AMM V4 price: $%.6f (%.9f %s × $%.2f)",
-		price_usd, price_in_quote, config.quote_token, quote_usd_price)
+	log.infof("Raydium AMM V4 price: $%.6f",
+		price_usd)
+	log.infof("Raydium AMM V4 price: %.9f %s",
+		price_in_quote, config.quote_token)
 
 	return DexPriceResult{
 		price_usd    = price_usd,

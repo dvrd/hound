@@ -120,7 +120,7 @@ main :: proc() {
 
 	context.logger = log.create_console_logger(log_level, {.Level, .Terminal_Color})
 
-	log.info("Hound price fetcher starting")
+	log.debug("Hound price fetcher starting")
 	log.debugf("Log level: %v", log_level)
 
 	err := run()
