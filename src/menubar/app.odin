@@ -5,6 +5,7 @@ import "core:strings"
 import "core:time"
 import "base:runtime"
 import hound "../"
+import wallet "../wallet"
 
 // ============================================================================
 // Global State
@@ -17,6 +18,11 @@ g_current_symbol: string
 g_current_price: hound.PriceData
 g_price_db: PriceDB
 g_token_config: hound.TokenConfig  // Cached config (loaded once)
+
+// Wallet support (Phase 1)
+g_wallet_manager: wallet.WalletManager
+g_current_portfolio: wallet.PortfolioBalance
+g_wallet_mode_enabled: bool = false  // Toggle between price tracking and wallet tracking
 
 // Menu item indices (hardcoded based on create_menu structure)
 MENU_INDEX_PRICE :: 2
@@ -239,4 +245,39 @@ time_now_string :: proc() -> string {
     now := time.now()
     hour, min, sec := time.clock(now)
     return fmt.tprintf("%02d:%02d:%02d", hour, min, sec)
+}
+
+// ============================================================================
+// Wallet Portfolio Functions (Phase 1)
+// ============================================================================
+
+// fetch_and_update_portfolio refreshes wallet portfolios and updates UI
+fetch_and_update_portfolio :: proc() {
+	fmt.printfln("[%s] Refreshing wallet portfolios...", time_now_string())
+
+	// Refresh all portfolios
+	err := wallet.refresh_all_portfolios(&g_wallet_manager)
+	if err != .None {
+		fmt.eprintfln("[%s] Error refreshing portfolios: %v", time_now_string(), err)
+
+		// Update display with error indicator
+		button := NSStatusItem_button(g_status_item)
+		error_text := NSString_fromString("🐕 Error")
+		NSButton_setTitle(button, error_text)
+
+		return
+	}
+
+	// Get aggregated portfolio
+	portfolio := wallet.get_aggregated_portfolio(&g_wallet_manager)
+	g_current_portfolio = portfolio
+
+	// Update display
+	update_wallet_display(portfolio)
+
+	// Update menu
+	update_wallet_menu(portfolio)
+
+	fmt.printfln("[%s] Portfolio updated: $%.2f total",
+		time_now_string(), portfolio.total_usd)
 }

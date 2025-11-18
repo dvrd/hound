@@ -2,8 +2,11 @@
 package menubar
 
 import "core:fmt"
+import "core:os"
+import "core:path/filepath"
 import "base:runtime"
 import src "../"
+import wallet "../wallet"
 
 // ============================================================================
 // Delegate Class Definition
@@ -26,11 +29,6 @@ app_did_finish_launching :: proc "c" (
 
     fmt.println("Hound menu bar app launched!")
 
-    // Parse symbol from command line args (or default to AURA)
-    // For MVP, hardcode AURA (TODO: Add arg parsing)
-    symbol := "aura"
-    g_current_symbol = symbol
-
     // Load token config (once at startup)
     config, config_err := src.load_token_config()
     if config_err != .None {
@@ -42,23 +40,69 @@ app_did_finish_launching :: proc "c" (
         fmt.printfln("Loaded %d tokens from configuration", len(config.tokens))
     }
 
-    // Initialize database
-    db, db_err := init_price_db(symbol)
-    if db_err != .None {
-        fmt.eprintln("ERROR: Failed to initialize database")
-        // Continue anyway - app still usable without history
+    // Check if database exists to determine mode
+    home, found := os.lookup_env("HOME")
+    if found && len(home) > 0 {
+        db_path := filepath.join({home, ".config", "hound", "tokens.db"})
+        if os.exists(db_path) {
+            fmt.println("Database found - enabling wallet mode")
+            g_wallet_mode_enabled = true
+
+            // Open database
+            db, db_err := src.database_open(db_path)
+            if db_err != .None {
+                fmt.eprintfln("ERROR: Failed to open database: %v", db_err)
+                g_wallet_mode_enabled = false
+            } else {
+                // Initialize wallet manager
+                rpc_endpoint := "https://api.mainnet-beta.solana.com"
+                backup_endpoints: []string = nil
+
+                manager, init_err := wallet.init_wallet_manager(&g_token_config, db, rpc_endpoint, backup_endpoints)
+                if init_err != .None {
+                    fmt.eprintfln("ERROR: Failed to initialize wallet manager: %v", init_err)
+                    g_wallet_mode_enabled = false
+                } else {
+                    g_wallet_manager = manager
+                    fmt.println("Wallet manager initialized")
+                }
+            }
+        } else {
+            fmt.println("Database not found - using price tracking mode")
+        }
     }
-    g_price_db = db
 
     // Create status item
     g_status_item = create_status_item()
 
-    // Create menu and store reference for dynamic updates
-    g_menu = create_menu(symbol)
+    // Create menu based on mode
+    if g_wallet_mode_enabled {
+        g_menu = create_wallet_menu(&g_wallet_manager)
+        fmt.println("Created wallet portfolio menu")
+    } else {
+        // Fallback to price tracking mode
+        symbol := "aura"
+        g_current_symbol = symbol
+
+        // Initialize price database
+        db, db_err := init_price_db(symbol)
+        if db_err != .None {
+            fmt.eprintln("ERROR: Failed to initialize database")
+        }
+        g_price_db = db
+
+        g_menu = create_menu(symbol)
+        fmt.println("Created price tracking menu")
+    }
+
     NSStatusItem_setMenu(g_status_item, g_menu)
 
-    // Fetch initial price
-    fetch_and_update(symbol)
+    // Fetch initial data
+    if g_wallet_mode_enabled {
+        fetch_and_update_portfolio()
+    } else {
+        fetch_and_update(g_current_symbol)
+    }
 
     // Start timer (5 second interval, repeating)
     g_timer = NSTimer_scheduledTimerWithTimeInterval(
@@ -88,10 +132,14 @@ timer_fired :: proc "c" (
     pool := NSAutoreleasePool_new()
     defer NSAutoreleasePool_drain(pool)
 
-    fmt.println("Timer fired - fetching new price")
+    fmt.println("Timer fired - refreshing data")
 
-    // Fetch and update display
-    fetch_and_update(g_current_symbol)
+    // Handle both modes
+    if g_wallet_mode_enabled {
+        fetch_and_update_portfolio()
+    } else {
+        fetch_and_update(g_current_symbol)
+    }
 }
 
 // ============================================================================
@@ -108,6 +156,37 @@ refresh_price_action :: proc "c" (
 
     fmt.println("Manual refresh triggered")
     fetch_and_update(g_current_symbol)
+}
+
+@(objc_type=HoundAppDelegate, objc_name="refreshPortfolio", objc_is_class_method=false)
+refresh_portfolio_action :: proc "c" (
+    self: ^HoundAppDelegate,
+    _: SEL,
+    sender: id,
+) {
+    context = runtime.default_context()
+
+    fmt.println("Manual portfolio refresh triggered")
+    fetch_and_update_portfolio()
+}
+
+@(objc_type=HoundAppDelegate, objc_name="manageWallets", objc_is_class_method=false)
+manage_wallets_action :: proc "c" (
+    self: ^HoundAppDelegate,
+    _: SEL,
+    sender: id,
+) {
+    context = runtime.default_context()
+
+    fmt.println("Manage Wallets triggered")
+
+    // Show add wallet dialog
+    success := show_add_wallet_dialog(&g_wallet_manager)
+    if success {
+        fmt.println("Wallet added successfully")
+        // Refresh portfolio to include new wallet
+        fetch_and_update_portfolio()
+    }
 }
 
 @(objc_type=HoundAppDelegate, objc_name="quitApp", objc_is_class_method=false)
@@ -163,6 +242,20 @@ main :: proc() {
         delegate_class,
         selector("refreshPrice:"),
         auto_cast refresh_price_action,
+        "v@:@",  // void, self, SEL, id
+    )
+
+    class_addMethod(
+        delegate_class,
+        selector("refreshPortfolio:"),
+        auto_cast refresh_portfolio_action,
+        "v@:@",  // void, self, SEL, id
+    )
+
+    class_addMethod(
+        delegate_class,
+        selector("manageWallets:"),
+        auto_cast manage_wallets_action,
         "v@:@",  // void, self, SEL, id
     )
 

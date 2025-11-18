@@ -102,22 +102,22 @@ fetch_portfolio_balance :: proc(
 
 	// Step 2: Get SOL price in USD
 	log.debug("Step 2: Fetching SOL price")
-	sol_price_data, price_err := src.get_sol_price()
+	sol_price, price_err := src.get_sol_price_cached()
 	if price_err != .None {
 		log.warnf("Failed to fetch SOL price: %v (defaulting to $0)", price_err)
-		sol_price_data = src.PriceData{price_usd = 0.0}
+		sol_price = 0.0
 	}
-	log.debugf("SOL price: $%.2f", sol_price_data.price_usd)
+	log.debugf("SOL price: $%.2f", sol_price)
 
 	// Calculate SOL value in USD
-	sol_usd_value := sol_amount * sol_price_data.price_usd
+	sol_usd_value := sol_amount * sol_price
 
 	portfolio.sol_balance = TokenBalance{
 		mint      = "So11111111111111111111111111111111111111112",  // Wrapped SOL mint
 		symbol    = "SOL",
 		amount    = sol_amount,
 		decimals  = 9,
-		usd_price = sol_price_data.price_usd,
+		usd_price = sol_price,
 		usd_value = sol_usd_value,
 	}
 	portfolio.total_usd = sol_usd_value

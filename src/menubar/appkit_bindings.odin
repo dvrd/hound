@@ -92,6 +92,20 @@ NSNotification :: struct {using _: Object}
 @(objc_class="NSAutoreleasePool")
 NSAutoreleasePool :: struct {using _: Object}
 
+@(objc_class="NSAlert")
+NSAlert :: struct {using _: Object}
+
+@(objc_class="NSTextField")
+NSTextField :: struct {using _: Object}
+
+@(objc_class="NSView")
+NSView :: struct {using _: Object}
+
+// NSRect for view frames
+NSRect :: struct {
+	x, y, width, height: CGFloat,
+}
+
 // Helper to get class
 get_class :: proc(name: cstring) -> Class {
     return objc_getClass(name)
@@ -376,4 +390,87 @@ NSObject_init :: proc(obj: ^NSObject) -> ^NSObject {
 
 NSObject_class :: proc() -> Class {
     return intrinsics.objc_find_class("NSObject")
+}
+
+// ============================================================================
+// NSAlert
+// ============================================================================
+
+NSAlert_alloc :: proc() -> ^NSAlert {
+	return msgSend(^NSAlert, NSAlert, "alloc")
+}
+
+NSAlert_init :: proc(alert: ^NSAlert) -> ^NSAlert {
+	return msgSend(^NSAlert, alert, "init")
+}
+
+NSAlert_new :: proc() -> ^NSAlert {
+	alert := NSAlert_alloc()
+	return NSAlert_init(alert)
+}
+
+NSAlert_setMessageText :: proc(alert: ^NSAlert, text: ^NSString) {
+	msgSend(nil, alert, "setMessageText:", text)
+}
+
+NSAlert_setInformativeText :: proc(alert: ^NSAlert, text: ^NSString) {
+	msgSend(nil, alert, "setInformativeText:", text)
+}
+
+NSAlert_addButtonWithTitle :: proc(alert: ^NSAlert, title: ^NSString) {
+	msgSend(nil, alert, "addButtonWithTitle:", title)
+}
+
+NSAlert_setAccessoryView :: proc(alert: ^NSAlert, view: ^NSView) {
+	msgSend(nil, alert, "setAccessoryView:", view)
+}
+
+NSAlert_runModal :: proc(alert: ^NSAlert) -> int {
+	return msgSend(int, alert, "runModal")
+}
+
+// ============================================================================
+// NSTextField
+// ============================================================================
+
+NSTextField_alloc :: proc() -> ^NSTextField {
+	return msgSend(^NSTextField, NSTextField, "alloc")
+}
+
+NSTextField_initWithFrame :: proc(field: ^NSTextField, frame: NSRect) -> ^NSTextField {
+	return msgSend(^NSTextField, field, "initWithFrame:", frame)
+}
+
+NSTextField_newWithFrame :: proc(frame: NSRect) -> ^NSTextField {
+	field := NSTextField_alloc()
+	return NSTextField_initWithFrame(field, frame)
+}
+
+NSTextField_setPlaceholderString :: proc(field: ^NSTextField, placeholder: ^NSString) {
+	msgSend(nil, field, "setPlaceholderString:", placeholder)
+}
+
+NSTextField_stringValue :: proc(field: ^NSTextField) -> ^NSString {
+	return msgSend(^NSString, field, "stringValue")
+}
+
+// ============================================================================
+// NSView
+// ============================================================================
+
+NSView_alloc :: proc() -> ^NSView {
+	return msgSend(^NSView, NSView, "alloc")
+}
+
+NSView_initWithFrame :: proc(view: ^NSView, frame: NSRect) -> ^NSView {
+	return msgSend(^NSView, view, "initWithFrame:", frame)
+}
+
+NSView_newWithFrame :: proc(frame: NSRect) -> ^NSView {
+	view := NSView_alloc()
+	return NSView_initWithFrame(view, frame)
+}
+
+NSView_addSubview :: proc(view: ^NSView, subview: ^NSView) {
+	msgSend(nil, view, "addSubview:", subview)
 }

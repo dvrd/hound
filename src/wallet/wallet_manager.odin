@@ -138,14 +138,14 @@ get_wallets :: proc(manager: ^WalletManager) -> (wallets: []src.Wallet, err: src
 
 	log.debug("Fetching all wallets from database")
 
-	wallets, db_err := src.get_all_wallets(manager.db)
+	wallet_list, db_err := src.get_all_wallets(manager.db)
 	if db_err != .None {
 		log.errorf("Failed to fetch wallets: %v", db_err)
 		return nil, db_err
 	}
 
-	log.infof("Fetched %d wallet(s)", len(wallets))
-	return wallets, .None
+	log.infof("Fetched %d wallet(s)", len(wallet_list))
+	return wallet_list, .None
 }
 
 // ============================================================================
@@ -168,14 +168,14 @@ refresh_portfolio :: proc(
 	log.infof("Refreshing portfolio for address: %s", address)
 
 	// Fetch portfolio balance
-	portfolio, fetch_err := fetch_portfolio_balance(&manager.balance_fetcher, address, manager.config)
+	fetched_portfolio, fetch_err := fetch_portfolio_balance(&manager.balance_fetcher, address, manager.config)
 	if fetch_err != .None {
 		log.errorf("Failed to fetch portfolio: %v", fetch_err)
 		return {}, fetch_err
 	}
 
 	// Store in cache
-	manager.portfolios[address] = portfolio
+	manager.portfolios[address] = fetched_portfolio
 	log.debugf("Portfolio cached for address: %s", address)
 
 	// Update database with balances
@@ -185,18 +185,18 @@ refresh_portfolio :: proc(
 	sol_err := src.update_balance(
 		manager.db,
 		address,
-		portfolio.sol_balance.mint,
-		portfolio.sol_balance.symbol,
-		portfolio.sol_balance.amount,
-		portfolio.sol_balance.usd_price,
-		portfolio.sol_balance.usd_value,
+		fetched_portfolio.sol_balance.mint,
+		fetched_portfolio.sol_balance.symbol,
+		fetched_portfolio.sol_balance.amount,
+		fetched_portfolio.sol_balance.usd_price,
+		fetched_portfolio.sol_balance.usd_value,
 	)
 	if sol_err != .None {
 		log.warnf("Failed to update SOL balance in database: %v", sol_err)
 	}
 
 	// Update token balances
-	for token_balance in portfolio.token_balances {
+	for token_balance in fetched_portfolio.token_balances {
 		token_err := src.update_balance(
 			manager.db,
 			address,
@@ -212,9 +212,9 @@ refresh_portfolio :: proc(
 	}
 
 	log.infof("Portfolio refresh complete: %d token(s), $%.2f total",
-		len(portfolio.token_balances), portfolio.total_usd)
+		len(fetched_portfolio.token_balances), fetched_portfolio.total_usd)
 
-	return portfolio, .None
+	return fetched_portfolio, .None
 }
 
 // get_cached_portfolio retrieves portfolio from cache without refreshing

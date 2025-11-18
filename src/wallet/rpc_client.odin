@@ -440,12 +440,19 @@ rpc_request :: proc(
 			continue
 		}
 
-		// Parse JSON response
-		response_str := strings.clone_from_bytes(res._body[:])
-		defer delete(response_str)
+		// Extract response body using helper function
+		body, allocation, body_err := http_client.response_body(&res)
+		if body_err != nil {
+			log.errorf("Failed to extract response body: %v", body_err)
+			// Try next endpoint
+			client.current_endpoint_index += 1
+			continue
+		}
+		defer http_client.body_destroy(body, allocation)
 
+		// Parse JSON (body is string)
 		response: RPCResponse
-		parse_err := json.unmarshal_string(response_str, &response)
+		parse_err := json.unmarshal_string(body.(string), &response)
 		if parse_err != nil {
 			log.errorf("Failed to parse RPC response: %v", parse_err)
 			// Try next endpoint
