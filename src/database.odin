@@ -454,6 +454,62 @@ get_token_by_symbol :: proc(db: ^Database, symbol: string) -> (token: Token, fou
 	}
 }
 
+// get_token_by_contract_address queries a token by its contract address
+//
+// ASSERTION 1: Database handle must not be nil
+// ASSERTION 2: Contract address must not be empty
+//
+// Returns: Token, found flag, and error status
+get_token_by_contract_address :: proc(db: ^Database, contract_address: string) -> (token: Token, found: bool, err: ErrorType) {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+	assert(len(contract_address) > 0, "Contract address cannot be empty")
+
+	log.debugf("Looking up token by contract address: %s", contract_address)
+
+	sql := `SELECT id, symbol, name, contract_address, chain, is_quote_token, usd_price, cache_ttl
+	        FROM tokens WHERE contract_address = ?1`
+
+	stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to prepare select: %v", prep_result)
+		return {}, false, .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	sqlite3.bind_text(stmt, 1, cstring(raw_data(contract_address)), i32(len(contract_address)), nil)
+
+	step_result := sqlite3.step(stmt)
+	if step_result == .Row {
+		// Extract token fields
+		token_id := sqlite3.column_int64(stmt, 0)
+		token.symbol = strings.clone(string(sqlite3.column_text(stmt, 1)))
+		token.name = strings.clone(string(sqlite3.column_text(stmt, 2)))
+		token.contract_address = strings.clone(string(sqlite3.column_text(stmt, 3)))
+		token.chain = strings.clone(string(sqlite3.column_text(stmt, 4)))
+		token.is_quote_token = sqlite3.column_int(stmt, 5) == 1
+		token.usd_price = sqlite3.column_double(stmt, 6)
+
+		// Fetch associated pools
+		pools, pool_err := get_pools_for_token(db, token_id)
+		if pool_err != .None {
+			log.warnf("Failed to fetch pools for token %s", contract_address)
+			return {}, false, pool_err
+		}
+		token.pools = pools
+
+		log.debugf("Found token by contract address: %s (%s)", token.symbol, token.contract_address)
+		return token, true, .None
+	} else if step_result == .Done {
+		log.debugf("Token not found by contract address: %s", contract_address)
+		return {}, false, .None
+	} else {
+		log.errorf("Query failed: %v", step_result)
+		return {}, false, .DatabaseError
+	}
+}
+
 // get_pools_for_token retrieves all pools for a given token ID
 //
 // ASSERTION 1: Validate db is not nil

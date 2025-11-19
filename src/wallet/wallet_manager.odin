@@ -169,7 +169,7 @@ refresh_portfolio :: proc(
 	log.infof("Refreshing portfolio for address: %s", address)
 
 	// Fetch portfolio balance
-	fetched_portfolio, fetch_err := fetch_portfolio_balance(&manager.balance_fetcher, address, manager.config)
+	fetched_portfolio, fetch_err := fetch_portfolio_balance(&manager.balance_fetcher, address, manager.config, manager.db)
 	if fetch_err != .None {
 		log.errorf("Failed to fetch portfolio: %v", fetch_err)
 		return {}, fetch_err

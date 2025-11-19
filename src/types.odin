@@ -16,9 +16,11 @@ ErrorType :: enum {
 	// Network errors (connection issues)
 	NetworkTimeout,       // Timeout waiting for response
 	ConnectionFailed,     // Cannot establish connection
+	NetworkError,         // Generic network error
 
 	// Parse errors (data issues)
 	InvalidResponse,      // Malformed JSON or unexpected structure
+	ParseError,           // JSON parsing failed
 
 	// Config errors (configuration issues)
 	TokenNotConfigured,   // Symbol not found in config

@@ -79,10 +79,12 @@ fetch_portfolio_balance :: proc(
 	fetcher: ^BalanceFetcher,
 	address: string,
 	config: ^src.TokenConfig,
+	db: ^src.Database,
 ) -> (portfolio: PortfolioBalance, err: src.ErrorType) {
 	assert(fetcher != nil, "Balance fetcher cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 	assert(config != nil, "Token config cannot be nil")
+	assert(db != nil, "Database cannot be nil")
 
 	log.infof("Fetching portfolio balance for address: %s", address)
 
@@ -148,7 +150,17 @@ fetch_portfolio_balance :: proc(
 			account.account.mint, account.account.ui_amount)
 
 		// Try to find token in config for symbol and pricing info
+		// First check in-memory config, then check database for auto-discovered tokens
 		token, found := find_token_by_mint(config, account.account.mint)
+		if !found {
+			// Not in config - check database for previously discovered tokens
+			db_token, db_found, db_err := src.get_token_by_contract_address(db, account.account.mint)
+			if db_err == .None && db_found {
+				token = db_token
+				found = true
+				log.debugf("Token found in database: %s", token.symbol)
+			}
+		}
 
 		symbol := ""
 		usd_price := 0.0
@@ -190,19 +202,48 @@ fetch_portfolio_balance :: proc(
 
 			usd_value = account.account.ui_amount * usd_price
 		} else {
-			// Token not in config - use mint address as symbol
-			symbol = fmt.tprintf("%s..%s",
-				account.account.mint[:4], account.account.mint[len(account.account.mint)-4:])
-			log.warnf("Token %s not found in config (using shortened mint as symbol)", symbol)
+			// Token not in config - attempt auto-discovery via Jupiter Token List
+			log.infof("Token %s not found in config, attempting auto-discovery", account.account.mint)
 
-			// Try to fetch price by contract address
-			price_data, api_err := src.fetch_price(account.account.mint)
-			if api_err == .None {
-				usd_price = price_data.price_usd
-				usd_value = account.account.ui_amount * usd_price
-				log.debugf("API price for unknown token: $%.6f", usd_price)
+			metadata, lookup_err := lookup_token_metadata(account.account.mint)
+			if lookup_err == .None {
+				// Successfully discovered token metadata
+				symbol = metadata.symbol
+				log.infof("Auto-discovered token: %s (%s)", symbol, metadata.name)
+
+				// Save discovered token to database for future use
+				save_err := save_discovered_token(db, metadata)
+				if save_err != .None {
+					log.warnf("Failed to save discovered token to database: %v", save_err)
+					// Non-fatal - continue with display
+				} else {
+					log.infof("Saved discovered token %s to database", symbol)
+				}
+
+				// Try to fetch price by contract address
+				price_data, api_err := src.fetch_price(account.account.mint)
+				if api_err == .None {
+					usd_price = price_data.price_usd
+					usd_value = account.account.ui_amount * usd_price
+					log.debugf("API price for %s: $%.6f", symbol, usd_price)
+				} else {
+					log.warnf("Failed to fetch price for %s: %v", symbol, api_err)
+				}
 			} else {
-				log.warnf("Failed to fetch price for unknown token: %v", api_err)
+				// Auto-discovery failed - fall back to truncated address
+				symbol = fmt.tprintf("%s..%s",
+					account.account.mint[:4], account.account.mint[len(account.account.mint)-4:])
+				log.warnf("Token %s not found in Jupiter Token List (using shortened mint as symbol)", account.account.mint)
+
+				// Try to fetch price by contract address
+				price_data, api_err := src.fetch_price(account.account.mint)
+				if api_err == .None {
+					usd_price = price_data.price_usd
+					usd_value = account.account.ui_amount * usd_price
+					log.debugf("API price for unknown token: $%.6f", usd_price)
+				} else {
+					log.warnf("Failed to fetch price for unknown token: %v", api_err)
+				}
 			}
 		}
 
