@@ -7,7 +7,7 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
-// handle_fetch_command implements the "hound fetch <symbol>" workflow (Phase 5.3)
+// handle_fetch_command implements the "hound fetch <symbol>" workflow
 //
 // Workflow:
 // 1. Load token configuration
@@ -128,8 +128,10 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 		return .InvalidToken
 	}
 
-	// Open database
+	// Open or create database
 	db_path := get_database_path()
+	db_exists := os.exists(db_path)
+
 	db, db_err := database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
@@ -137,6 +139,17 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 		return .DatabaseError
 	}
 	defer database_close(db)
+
+	// Create schema if database is new
+	if !db_exists {
+		log.debug("Creating new database schema")
+		schema_err := create_schema(db)
+		if schema_err != .None {
+			log.errorf("Failed to create schema: %v", schema_err)
+			fmt.eprintln("Error: Could not create database schema")
+			return .DatabaseError
+		}
+	}
 
 	// Check if token already exists (case-insensitive)
 	existing_token, found, lookup_err := get_token_by_symbol(db, symbol)
@@ -234,24 +247,9 @@ run :: proc() -> ErrorType {
 		return .None
 	}
 
-	// Load token configuration (needed for all commands except version)
-	log.debug("Loading token configuration")
-	config, config_err := load_token_config()
-	if config_err != .None {
-		log.errorf("Failed to load token config: %v", config_err)
-		return config_err
-	}
-	log.debugf("Loaded %d tokens from configuration", len(config.tokens))
-
-	// Handle "list" command (Phase 5.3: use enhanced list with stats)
-	if first_arg == "list" {
-		log.debug("Listing all configured tokens with statistics")
-		list_tokens_with_stats(config)
-		return .None
-	}
-
-	// Phase 5.3: Parse "add" command to add new tokens
+	// Parse "add" command to add new tokens
 	// Syntax: hound add <symbol> <name> <address>
+	// Note: "add" command doesn't need existing config (it creates/updates it)
 	if first_arg == "add" {
 		if len(os.args) < 5 {
 			log.error("Missing arguments for add command")
@@ -272,7 +270,23 @@ run :: proc() -> ErrorType {
 		return handle_add_command(symbol, name, address)
 	}
 
-	// Phase 5.3: Parse "fetch" command with optional --refresh flag
+	// Load token configuration (needed for all other commands)
+	log.debug("Loading token configuration")
+	config, config_err := load_token_config()
+	if config_err != .None {
+		log.errorf("Failed to load token config: %v", config_err)
+		return config_err
+	}
+	log.debugf("Loaded %d tokens from configuration", len(config.tokens))
+
+	// Handle "list" command (use enhanced list with stats)
+	if first_arg == "list" {
+		log.debug("Listing all configured tokens with statistics")
+		list_tokens_with_stats(config)
+		return .None
+	}
+
+	// Parse "fetch" command with optional --refresh flag
 	// Syntax: hound fetch <symbol> [--refresh]
 	if first_arg == "fetch" {
 		if len(os.args) < 3 {
@@ -439,7 +453,7 @@ main :: proc() {
 		fmt.eprintln("The RPC node may be experiencing issues.")
 		exit_code = 69  // Service unavailable
 
-	// Oracle errors (Phase 4.2)
+	// Oracle errors
 	case .OracleConnectionFailed:
 		fmt.eprintln("Error: Cannot fetch SOL price")
 		fmt.eprintln("Unable to connect to Jupiter or CoinGecko APIs.")
@@ -458,7 +472,7 @@ main :: proc() {
 		fmt.eprintln("Try again or report at https://github.com/dvrd/hound/issues")
 		exit_code = 70  // Internal software error
 
-	// Database errors (Phase 5.1)
+	// Database errors
 	case .DatabaseError:
 		fmt.eprintln("Error: Database operation failed")
 		fmt.eprintln("Could not read or write to the token database.")
@@ -477,7 +491,7 @@ main :: proc() {
 		fmt.eprintln("Check file permissions and ensure tokens.json is valid.")
 		exit_code = 65  // Data format error
 
-	// Pool Discovery errors (Phase 5.2)
+	// Pool Discovery errors
 	case .PoolSearchFailed:
 		fmt.eprintln("Error: Pool search failed")
 		fmt.eprintln("Could not retrieve pool data from DexScreener API.")

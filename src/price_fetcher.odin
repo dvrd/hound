@@ -281,17 +281,17 @@ calculate_price_from_reserves :: proc(
 	return quote_actual / base_actual
 }
 
-// Fetch price from multiple DEX sources with priority-based fallback (Phase 4.4)
+// Fetch price from multiple DEX sources with priority-based fallback
 //
 // This function routes price queries through the DEX router which handles:
 // - Orca Whirlpool (CLMM) pools
-// - Raydium AMM v4 pools (legacy from Phase 4.3)
+// - Raydium AMM v4 pools (legacy implementation)
 // - Jupiter Aggregator API (fallback)
 //
 // The router automatically tries pools in priority order and falls back to
 // Jupiter API if all on-chain pools fail.
 //
-// NOTE: Raydium CLMM support is deferred to Phase 4.5.
+// NOTE: Raydium CLMM support is planned for future.
 fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 	log.infof("Starting multi-DEX price fetch for token: %s", token.symbol)
 
@@ -320,13 +320,13 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 	return PriceData{price_usd = dex_result.price_usd, change_24h = change_24h}, .None
 }
 
-// Legacy Raydium AMM v4 on-chain price fetching (Phase 4.3)
+// Legacy Raydium AMM v4 on-chain price fetching
 //
 // This function is preserved for backward compatibility and direct Raydium
 // pool queries. It is no longer used by fetch_onchain_price() which now
-// uses the DEX router (Phase 4.4).
+// uses the DEX router.
 //
-// NOTE: This will be removed in Phase 4.5 when Raydium support is
+// NOTE: This may be removed in future when Raydium support is
 // migrated to the DEX router as a proper DEX type.
 fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorType) {
 	log.infof("Starting Raydium legacy on-chain price fetch for token: %s", token.symbol)

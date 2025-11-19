@@ -16,7 +16,7 @@ import client "../vendor/odin-http/client"
 // Supported DEX Types:
 // - Orca Whirlpool (CLMM pools)
 // - Jupiter Aggregator API (v3)
-// - Raydium CLMM (deferred to Phase 4.5)
+// - Raydium CLMM (planned for future)
 //
 // Routing Strategy:
 // 1. Sort pools by priority (lowest number = highest priority)
@@ -223,7 +223,7 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 
 	log.infof("Fetching from Orca Whirlpool: %s (quote: %s)", config.pool_address, config.quote_token)
 
-	// TODO Phase 4.4: Implement Orca Whirlpool price fetching
+	// TODO: Implement Orca Whirlpool price fetching
 	// 1. Fetch pool account data via RPC
 	// 2. Decode Whirlpool state
 	// 3. Get token decimals for both tokens

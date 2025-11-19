@@ -10,7 +10,7 @@ import "core:path/filepath"
 import sqlite3 "../vendor/odin-sqlite3"
 
 // =============================================================================
-// DATABASE MODULE - SQLite Token and Pool Storage (Phase 5.1)
+// DATABASE MODULE - SQLite Token and Pool Storage
 // =============================================================================
 // This module implements persistent storage for token configuration and pool
 // data using SQLite3. It replaces the JSON-based storage with a proper database
@@ -44,7 +44,7 @@ Database :: struct {
 	path:   string,
 }
 
-// PoolStats represents aggregated statistics for a token's pools (Phase 5.3)
+// PoolStats represents aggregated statistics for a token's pools
 PoolStats :: struct {
 	pool_count:      int, // Number of configured pools
 	total_liquidity: f64, // Sum of liquidity across all pools (USD)
@@ -121,7 +121,7 @@ create_schema :: proc(db: ^Database) -> ErrorType {
 
 	log.debug("Creating database schema")
 
-	// Schema SQL from PRP (Phase 5.1 + Phase 1 Wallet Extension)
+	// Schema SQL with all tables and constraints
 	schema_sql := `
 		CREATE TABLE IF NOT EXISTS tokens (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -146,12 +146,13 @@ create_schema :: proc(db: ^Database) -> ErrorType {
 			pool_address TEXT NOT NULL,
 			quote_token TEXT NOT NULL,
 			pool_type TEXT NOT NULL,
-			FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE
+			FOREIGN KEY (token_id) REFERENCES tokens(id) ON DELETE CASCADE,
+			UNIQUE(token_id, pool_address)
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_pools_token ON pools(token_id);
 
-		-- Wallet Tables (Phase 1: Watch-Only Wallet Foundation)
+		-- Wallet Tables (Watch-Only Wallet Foundation)
 		CREATE TABLE IF NOT EXISTS wallets (
 			address TEXT PRIMARY KEY,
 			label TEXT NOT NULL,
@@ -189,7 +190,8 @@ create_schema :: proc(db: ^Database) -> ErrorType {
 	return .None
 }
 
-// migrate_schema_5_3 adds Phase 5.3 pool metadata columns
+
+// migrate_schema_5_3 adds pool metadata columns
 //
 // ASSERTION 1: Validate db is not nil
 //
@@ -204,7 +206,7 @@ migrate_schema_5_3 :: proc(db: ^Database) -> ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 
-	log.debug("Checking for Phase 5.3 schema migration")
+	log.debug("Checking for schema migration (pool metadata columns)")
 
 	// Check if liquidity_usd column exists (indicator for whether migration is needed)
 	check_sql := "PRAGMA table_info(pools)"
@@ -236,11 +238,11 @@ migrate_schema_5_3 :: proc(db: ^Database) -> ErrorType {
 
 	// If column exists, migration already applied
 	if has_liquidity_column {
-		log.debug("Phase 5.3 migration already applied")
+		log.debug("Pool metadata migration already applied")
 		return .None
 	}
 
-	log.info("Applying Phase 5.3 schema migration")
+	log.info("Applying pool metadata schema migration")
 
 	// Add new columns to pools table
 	migration_sql := `
@@ -258,7 +260,7 @@ migrate_schema_5_3 :: proc(db: ^Database) -> ErrorType {
 		return .DatabaseError
 	}
 
-	log.info("Phase 5.3 migration completed successfully")
+	log.info("Pool metadata migration completed successfully")
 	return .None
 }
 
@@ -360,8 +362,9 @@ insert_pool :: proc(
 	}
 	token_id := sqlite3.column_int64(id_stmt, 0)
 
-	// Now insert pool with metadata (Phase 5.3)
-	sql := `INSERT INTO pools (token_id, dex, pool_address, quote_token, pool_type,
+	// Now insert/update pool with metadata
+	// INSERT OR REPLACE ensures no duplicates (token_id, pool_address must be unique)
+	sql := `INSERT OR REPLACE INTO pools (token_id, dex, pool_address, quote_token, pool_type,
 	        liquidity_usd, volume_24h, fee_percent, discovered_at)
 	        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
 
@@ -464,7 +467,7 @@ get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo,
 
 	log.debugf("Fetching pools for token_id=%d", token_id)
 
-	// Phase 5.3: Include metadata columns
+	// Include metadata columns
 	sql := `SELECT dex, pool_address, quote_token, pool_type,
 	        liquidity_usd, volume_24h, fee_percent, discovered_at
 	        FROM pools WHERE token_id = ?1`
@@ -706,7 +709,7 @@ get_default_db_path :: proc() -> string {
 }
 
 // =============================================================================
-// WALLET DATABASE OPERATIONS - Phase 1
+// WALLET DATABASE OPERATIONS
 // =============================================================================
 
 // insert_wallet adds a new wallet to the database
@@ -909,7 +912,7 @@ get_balances_for_wallet :: proc(
 }
 
 // =============================================================================
-// POOL STATISTICS - Phase 5.3
+// POOL STATISTICS
 // =============================================================================
 
 // delete_pools_for_token deletes all pools for a given token

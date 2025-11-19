@@ -1,5 +1,5 @@
 // =============================================================================
-// POOL RANKING MODULE - Phase 5.2
+// POOL RANKING MODULE
 // =============================================================================
 // This module implements liquidity-based pool ranking for selecting optimal
 // DEX pools for price fetching.
@@ -14,7 +14,7 @@
 // - Maximum fee: 1.0% (prevents exploitative pools)
 //
 // Design Decisions:
-// - Simple scoring for MVP (Phase 5.2), multi-factor scoring deferred to Phase 5.3+
+// - Simple scoring for MVP, multi-factor scoring can be added later
 // - Liquidity is king: research shows 30-40% weight in major aggregators
 // - Conservative thresholds: $1K min liquidity is low barrier, 1% max fee is generous
 //
@@ -274,7 +274,7 @@ select_best_pool :: proc(pairs: []DexScreenerPair) -> (DexScreenerPair, bool) {
 
 // Convert DexScreenerPair to PoolInfo (for database storage)
 //
-// Extracts essential pool metadata for token configuration (Phase 5.3)
+// Extracts essential pool metadata for token configuration
 pair_to_pool_info :: proc(pair: DexScreenerPair) -> PoolInfo {
 	// Determine pool type from labels
 	pool_type := infer_pool_type(pair)
@@ -282,7 +282,7 @@ pair_to_pool_info :: proc(pair: DexScreenerPair) -> PoolInfo {
 	// Extract quote token symbol (e.g., "SOL", "USDC", "USDT")
 	quote_symbol := pair.quoteToken.symbol
 
-	// Phase 5.3: Extract pool metadata for database storage
+	// Extract pool metadata for database storage
 	liquidity_usd := pair.liquidity.usd
 	volume_24h := pair.volume.h24
 	fee_percent := estimate_pool_fee(pair)

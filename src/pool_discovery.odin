@@ -1,5 +1,5 @@
 // =============================================================================
-// POOL DISCOVERY MODULE - Phase 5.2
+// POOL DISCOVERY MODULE
 // =============================================================================
 // This module implements automatic DEX pool discovery via the DexScreener API.
 // It handles:
@@ -333,12 +333,12 @@ is_pool_search_cache_stale :: proc(cache: PoolSearchCache, token_address: string
 // PATTERN: jupiter_client.odin:244-275 (cache wrapper with fetch)
 // This is the main entry point for pool discovery
 //
-// Phase 5.3: Added force_refresh parameter to bypass cache
+// The force_refresh parameter allows bypassing cache to get fresh pool data
 get_pools_cached :: proc(token_address: string, force_refresh: bool = false) -> ([]DexScreenerPair, ErrorType) {
 	// ASSERTION 1: Cache TTL is positive (configuration check)
 	assert(POOL_SEARCH_CACHE_TTL > 0, "Cache TTL must be positive")
 
-	// Phase 5.3: Skip cache check if force refresh requested
+	// Skip cache check if force refresh requested
 	if force_refresh {
 		log.info("Force refresh requested, bypassing cache")
 	} else {

@@ -13,7 +13,7 @@ PoolInfo :: struct {
 	pool_address:  string, // Pool account address
 	quote_token:   string, // "sol", "usdc", etc.
 	pool_type:     string, // "amm_v4"
-	// Phase 5.3: Pool metadata
+	// Pool metadata
 	liquidity_usd: f64,    // Current pool liquidity in USD (0.0 if unknown)
 	volume_24h:    f64,    // 24-hour trading volume (0.0 if unknown)
 	fee_percent:   f64,    // Trading fee percentage (0.0 if unknown)
@@ -45,15 +45,12 @@ TokenConfig :: struct {
 	wallets: []Wallet, // Watch-only wallet addresses
 }
 
-// load_token_config loads the token configuration from database or JSON fallback
+// load_token_config loads the token configuration from database
 // Returns the configuration and an error type
 //
-// Strategy (Phase 5.1):
+// Strategy:
 // 1. Try loading from ~/.config/hound/hound.db
-// 2. If DB doesn't exist but tokens.json exists, migrate JSON -> DB
-// 3. If neither exists, return ConfigNotFound
-//
-// This provides automatic migration on first use after Phase 5.1 deployment
+// 2. If DB doesn't exist, return ConfigNotFound
 load_token_config :: proc() -> (TokenConfig, ErrorType) {
 	log.debug("Starting token config load")
 
@@ -67,54 +64,15 @@ load_token_config :: proc() -> (TokenConfig, ErrorType) {
 	log.debugf("Home directory: %s", home)
 
 	db_path := filepath.join({home, ".config", "hound", "hound.db"})
-	json_path := filepath.join({home, ".config", "hound", "tokens.json"})
 
-	if os.exists(db_path) {
-		log.debugf("Loading tokens from database: %s", db_path)
-		return load_token_config_from_db(db_path)
+	if !os.exists(db_path) {
+		log.errorf("Database not found at %s", db_path)
+		fmt.eprintfln("Database not found. Use 'hound add' to add your first token.")
+		return {}, .ConfigNotFound
 	}
 
-	if os.exists(json_path) {
-		log.debugf("Database not found, migrating from JSON: %s", json_path)
-
-		json_config, json_err := load_token_config_from_json(json_path)
-		if json_err != .None {
-			return {}, json_err
-		}
-
-		db, db_err := database_open(db_path)
-		if db_err != .None {
-			log.errorf("Failed to create database for migration")
-			return {}, db_err
-		}
-		defer database_close(db)
-
-		schema_err := create_schema(db)
-		if schema_err != .None {
-			log.errorf("Failed to create database schema")
-			return {}, schema_err
-		}
-
-		// Apply schema migrations after initial schema creation
-		migrate_schema_err := migrate_schema_5_3(db)
-		if migrate_schema_err != .None {
-			log.warnf("Schema migration failed (non-fatal): %v", migrate_schema_err)
-		}
-
-		migrate_err := migrate_from_json(db, json_config)
-		if migrate_err != .None {
-			log.errorf("Failed to migrate JSON to database")
-			return {}, migrate_err
-		}
-
-		log.info("Migration completed successfully")
-		return json_config, .None
-	}
-
-	// Neither DB nor JSON exists
-	log.errorf("No config found at %s or %s", db_path, json_path)
-	fmt.eprintfln("Config not found. Please create a config file.")
-	return {}, .ConfigNotFound
+	log.debugf("Loading tokens from database: %s", db_path)
+	return load_token_config_from_db(db_path)
 }
 
 // load_token_config_from_db loads tokens from the database
@@ -160,42 +118,6 @@ load_token_config_from_db :: proc(db_path: string) -> (TokenConfig, ErrorType) {
 	return config, .None
 }
 
-// load_token_config_from_json loads tokens from the JSON file
-//
-// Internal helper for migration path
-load_token_config_from_json :: proc(json_path: string) -> (TokenConfig, ErrorType) {
-	log.debugf("Loading JSON config: %s", json_path)
-
-	// Read file
-	data, read_ok := os.read_entire_file_from_filename(json_path)
-	if !read_ok {
-		log.error("Failed to read config file")
-		fmt.eprintln("Failed to read config file")
-		return {}, .ConfigNotFound
-	}
-	defer delete(data)
-	log.debugf("Read %d bytes from config file", len(data))
-
-	// Parse JSON
-	config: TokenConfig
-	err := json.unmarshal(data, &config)
-	if err != nil {
-		log.errorf("Failed to parse config JSON: %v", err)
-		fmt.eprintfln("Failed to parse config: %v", err)
-		return {}, .ConfigParseError
-	}
-	log.debugf("Parsed config version: %s", config.version)
-
-	// Validate config has tokens
-	if len(config.tokens) == 0 {
-		log.error("Config file contains no tokens")
-		fmt.eprintln("Config file contains no tokens")
-		return {}, .ConfigParseError
-	}
-	log.infof("Loaded %d tokens from JSON", len(config.tokens))
-
-	return config, .None
-}
 
 // find_token_by_symbol searches for a token by its symbol (case-insensitive)
 // Returns the token and true if found, or an empty token and false if not found
@@ -224,7 +146,7 @@ list_tokens :: proc(config: TokenConfig) {
 	}
 }
 
-// list_tokens_with_stats prints tokens with pool metadata (Phase 5.3)
+// list_tokens_with_stats prints tokens with pool metadata
 //
 // Enhanced list output showing:
 // - Pool count for each token
@@ -285,10 +207,10 @@ list_tokens_with_stats :: proc(config: TokenConfig) {
 }
 
 // =============================================================================
-// POOL DISCOVERY INTEGRATION - Phase 5.2/5.3
+// POOL DISCOVERY INTEGRATION
 // =============================================================================
 
-// Phase 5.3: Store top N pools (not just best)
+// Store top N pools (not just best)
 TOP_POOLS_TO_STORE :: 3
 
 // discover_and_store_pools performs automatic pool discovery for a token
@@ -303,7 +225,7 @@ TOP_POOLS_TO_STORE :: 3
 // This is called during "hound fetch <symbol>" when no pools are configured
 // for the token yet. It enables zero-configuration price fetching.
 //
-// Phase 5.3: Added force_refresh parameter to bypass cache
+// The force_refresh parameter bypasses the cache to get fresh pool data
 //
 // Returns: Best pool and .None on success, or empty pool and error on failure
 discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (PoolInfo, ErrorType) {
@@ -323,7 +245,7 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 
 	log.infof("DexScreener returned %d pool(s)", len(pairs))
 
-	// Step 2: Filter + Rank pools (Phase 5.3: store top N, not just best)
+	// Step 2: Filter + Rank pools (store top N, not just best)
 	log.debug("Step 2: Filtering and ranking pools")
 	filtered := filter_pools(pairs)
 	defer delete(filtered)
@@ -365,7 +287,7 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 		}
 	}
 
-	// Step 4: Store top N pools with metadata (Phase 5.3)
+	// Step 4: Store top N pools with metadata
 	stored_count := 0
 	for i := 0; i < pools_to_store; i += 1 {
 		pool_pair := ranked[i].pair

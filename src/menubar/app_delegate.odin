@@ -97,14 +97,18 @@ app_did_finish_launching :: proc "c" (
 
     NSStatusItem_setMenu(g_status_item, g_menu)
 
-    // Fetch initial data
-    if g_wallet_mode_enabled {
-        fetch_and_update_portfolio()
-    } else {
-        fetch_and_update(g_current_symbol)
-    }
+    // Schedule initial fetch after 0.5s delay (avoid crash during app launch)
+    // This gives macOS networking stack time to fully initialize
+    initial_timer := NSTimer_scheduledTimerWithTimeInterval(
+        0.5,                          // 0.5 second delay
+        id(self),                     // target (retained by timer)
+        selector("timerFired:"),      // selector
+        nil,                          // userInfo
+        false,                        // repeats = false (one-shot)
+    )
+    fmt.println("Scheduled initial fetch (0.5s delay)")
 
-    // Start timer (5 second interval, repeating)
+    // Start recurring timer (5 second interval, repeating)
     g_timer = NSTimer_scheduledTimerWithTimeInterval(
         5.0,                          // seconds
         id(self),                     // target (retained by timer)

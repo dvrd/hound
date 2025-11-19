@@ -31,17 +31,17 @@ ErrorType :: enum {
 	PoolDataInvalid,      // Pool data validation failed
 	VaultFetchFailed,     // Failed to fetch vault balances
 
-	// Oracle errors (Phase 4.2 - SOL price fetching)
+	// Oracle errors (SOL price fetching)
 	OracleConnectionFailed, // Cannot reach Jupiter/CoinGecko APIs
 	OracleParseFailed,      // Invalid API response format
 	OraclePriceInvalid,     // Price validation failed
 
-	// Database errors (Phase 5.1 - Database Foundation)
+	// Database errors
 	DatabaseError,          // Generic database operation failure
 	DatabaseCorrupted,      // Integrity check failed (PRAGMA integrity_check)
 	MigrationFailed,        // JSON to database migration error
 
-	// Pool Discovery errors (Phase 5.2 - Dynamic Pool Discovery)
+	// Pool Discovery errors
 	PoolSearchFailed,       // DexScreener API call succeeded but returned invalid/unexpected data
 	NoPoolsFound,           // No pools meet filtering criteria (min liquidity, max fees, etc.)
 }
