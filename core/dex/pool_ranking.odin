@@ -25,12 +25,13 @@
 // - Uniswap Auto Router (multi-pool splitting)
 // =============================================================================
 
-package main
+package dex
 
 import "core:log"
 import "core:slice"
 import "core:strconv"
 import "core:time"
+import "../models"
 
 // =============================================================================
 // DATA STRUCTURES
@@ -275,7 +276,7 @@ select_best_pool :: proc(pairs: []DexScreenerPair) -> (DexScreenerPair, bool) {
 // Convert DexScreenerPair to PoolInfo (for database storage)
 //
 // Extracts essential pool metadata for token configuration
-pair_to_pool_info :: proc(pair: DexScreenerPair) -> PoolInfo {
+pair_to_pool_info :: proc(pair: DexScreenerPair) -> models.PoolInfo {
 	// Determine pool type from labels
 	pool_type := infer_pool_type(pair)
 
@@ -288,7 +289,7 @@ pair_to_pool_info :: proc(pair: DexScreenerPair) -> PoolInfo {
 	fee_percent := estimate_pool_fee(pair)
 	discovered_at := time.now()._nsec / 1_000_000_000 // Unix timestamp
 
-	return PoolInfo{
+	return models.PoolInfo{
 		dex           = pair.dexId,
 		pool_address  = pair.pairAddress,
 		quote_token   = quote_symbol,

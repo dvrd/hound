@@ -6,7 +6,8 @@ import "core:os"
 import "core:path/filepath"
 import "core:time"
 import "core:c"
-import src "../"  // Import parent package for PriceData, ErrorType
+import models "../../core/models"
+import memory "../../core/memory"
 import sqlite3 "../../vendor/odin-sqlite3"
 
 // ============================================================================
@@ -30,7 +31,7 @@ PriceHistoryEntry :: struct {
 // Database Initialization
 // ============================================================================
 
-init_price_db :: proc(symbol: string, db_path: string = "") -> (PriceDB, src.ErrorType) {
+init_price_db :: proc(symbol: string, db_path: string = "") -> (PriceDB, models.ErrorType) {
     // Determine database path
     db_path_to_use: string
 
@@ -141,8 +142,8 @@ close_price_db :: proc(db: ^PriceDB) {
 save_price :: proc(
     db: ^PriceDB,
     symbol: string,
-    data: src.PriceData,
-) -> src.ErrorType {
+    data: models.PriceData,
+) -> models.ErrorType {
     if db.insert_stmt == nil {
         fmt.eprintln("ERROR: Database not initialized")
         return .ConfigNotFound
@@ -181,9 +182,9 @@ get_recent_prices :: proc(
     db: ^PriceDB,
     symbol: string,
     limit: int = 10,
-) -> ([]PriceHistoryEntry, src.ErrorType) {
+) -> ([]PriceHistoryEntry, models.ErrorType) {
     // Use command arena for all allocations - data lives until command completes
-    context.allocator = src.command_allocator()
+    context.allocator = memory.command_allocator()
 
     query_sql := fmt.ctprintf(
         "SELECT id, symbol, price_usd, change_24h, timestamp FROM prices WHERE symbol = ? ORDER BY timestamp DESC, id DESC LIMIT %d",

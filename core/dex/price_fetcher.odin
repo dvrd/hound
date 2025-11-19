@@ -1,4 +1,4 @@
-package main
+package dex
 
 import "core:bufio"
 import "core:encoding/hex"
@@ -9,7 +9,10 @@ import "core:math"
 import "core:net"
 import "core:strconv"
 import "core:time"
-import client "../vendor/odin-http/client"
+import client "../../vendor/odin-http/client"
+import "../models"
+import "../memory"
+import "../blockchain"
 
 // API Change Cache - 5 minute TTL (less volatile than SOL price)
 APIChangeCache :: struct {
@@ -36,7 +39,7 @@ DexScreenerChangeResponse :: struct {
 	},
 }
 
-fetch_price :: proc(contract_address: string) -> (price: PriceData, err: ErrorType) {
+fetch_price :: proc(contract_address: string) -> (price: models.PriceData, err: models.ErrorType) {
 	log.debugf("Fetching price from DexScreener API for token: %s", contract_address)
 
 	// Build URL
@@ -113,7 +116,7 @@ fetch_price :: proc(contract_address: string) -> (price: PriceData, err: ErrorTy
 
 	log.debug("Parsing JSON response")
 	// Parse JSON (body is string)
-	response: DexScreenerResponse
+	response: models.DexScreenerResponse
 	json_err := json.unmarshal_string(body.(string), &response)
 	if json_err != nil {
 		log.errorf("JSON unmarshal failed: %v", json_err)
@@ -140,11 +143,11 @@ fetch_price :: proc(contract_address: string) -> (price: PriceData, err: ErrorTy
 
 	// Return data
 	log.info("DexScreener API fetch successful")
-	return PriceData{price_usd = price_val, change_24h = change}, .None
+	return models.PriceData{price_usd = price_val, change_24h = change}, .None
 }
 
 // Fetch 24h change from DexScreener API (for hybrid pricing)
-fetch_24h_change :: proc(contract_address: string) -> (f64, ErrorType) {
+fetch_24h_change :: proc(contract_address: string) -> (f64, models.ErrorType) {
 	// ASSERTION 1: TigerBeetle safety - validate input
 	assert(len(contract_address) > 0, "Contract address must not be empty")
 
@@ -234,7 +237,7 @@ is_api_cache_stale :: proc(cache: APIChangeCache, contract_address: string) -> b
 }
 
 // Get 24h change with caching (5-minute TTL)
-get_24h_change_cached :: proc(contract_address: string) -> (f64, ErrorType) {
+get_24h_change_cached :: proc(contract_address: string) -> (f64, models.ErrorType) {
 	// ASSERTION 1: Cache TTL is positive (configuration check)
 	assert(API_CHANGE_CACHE_TTL > 0, "Cache TTL must be positive")
 
@@ -292,7 +295,7 @@ calculate_price_from_reserves :: proc(
 // Jupiter API if all on-chain pools fail.
 //
 // NOTE: Raydium CLMM support is planned for future.
-fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
+fetch_onchain_price :: proc(token: models.Token) -> (models.PriceData, models.ErrorType) {
 	log.infof("Starting multi-DEX price fetch for token: %s", token.symbol)
 
 	// Route through DEX router (handles priority-based multi-pool fallback)
@@ -317,7 +320,7 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 
 	log.info("Multi-DEX price fetch completed successfully")
 	// Return price data with hybrid approach (DEX router price + API 24h change)
-	return PriceData{price_usd = dex_result.price_usd, change_24h = change_24h}, .None
+	return models.PriceData{price_usd = dex_result.price_usd, change_24h = change_24h}, .None
 }
 
 // Legacy Raydium AMM v4 on-chain price fetching
@@ -328,7 +331,7 @@ fetch_onchain_price :: proc(token: Token) -> (PriceData, ErrorType) {
 //
 // NOTE: This may be removed in future when Raydium support is
 // migrated to the DEX router as a proper DEX type.
-fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorType) {
+fetch_onchain_price_raydium_legacy :: proc(token: models.Token) -> (models.PriceData, models.ErrorType) {
 	log.infof("Starting Raydium legacy on-chain price fetch for token: %s", token.symbol)
 
 	// Check pools exist
@@ -341,12 +344,12 @@ fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorTyp
 	log.debugf("Using pool: %s (DEX: %s, type: %s)", pool.pool_address, pool.dex, pool.pool_type)
 
 	// Connect to RPC
-	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	conn := blockchain.RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
 	log.debugf("RPC endpoint: %s, timeout: %dms", conn.endpoint, conn.timeout)
 
 	// Fetch pool data (752 bytes)
 	log.debug("Fetching pool account data from RPC")
-	pool_data, err := get_account_info(conn, pool.pool_address)
+	pool_data, err := blockchain.get_account_info(conn, pool.pool_address)
 	if err != .None {
 		log.errorf("Failed to fetch pool data: %v", err)
 		return {}, err
@@ -356,7 +359,7 @@ fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorTyp
 
 	// Decode pool
 	log.debug("Decoding Raydium pool state")
-	pool_state, ok := decode_raydium_pool_v4(pool_data)
+	pool_state, ok := blockchain.decode_raydium_pool_v4(pool_data)
 	if !ok {
 		log.error("Pool data decoding failed")
 		return {}, .PoolDataInvalid
@@ -364,16 +367,16 @@ fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorTyp
 	log.debugf("Pool decoded - base_decimal: %d, quote_decimal: %d", pool_state.base_decimal, pool_state.quote_decimal)
 
 	// Convert vaults to base58 addresses
-	base_vault_addr := pubkey_to_base58(pool_state.base_vault)
-	quote_vault_addr := pubkey_to_base58(pool_state.quote_vault)
+	base_vault_addr := blockchain.pubkey_to_base58(pool_state.base_vault)
+	quote_vault_addr := blockchain.pubkey_to_base58(pool_state.quote_vault)
 
 	// Fetch vault balances
-	base_balance, base_err := get_token_balance(conn, base_vault_addr)
+	base_balance, base_err := blockchain.get_token_balance(conn, base_vault_addr)
 	if base_err != .None {
 		return {}, .VaultFetchFailed
 	}
 
-	quote_balance, quote_err := get_token_balance(conn, quote_vault_addr)
+	quote_balance, quote_err := blockchain.get_token_balance(conn, quote_vault_addr)
 	if quote_err != .None {
 		return {}, .VaultFetchFailed
 	}
@@ -399,7 +402,7 @@ fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorTyp
 
 	// Get live SOL price from oracle (cached for 30s)
 	log.debug("Fetching SOL/USD price from oracle")
-	sol_usd_price, oracle_err := get_sol_price_cached()
+	sol_usd_price, oracle_err := blockchain.get_sol_price_cached()
 	if oracle_err != .None {
 		log.errorf("Failed to get SOL price: %v", oracle_err)
 		return {}, oracle_err
@@ -422,5 +425,5 @@ fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorTyp
 	}
 
 	log.info("Raydium legacy on-chain price fetch completed successfully")
-	return PriceData{price_usd = price_in_usd, change_24h = change_24h}, .None
+	return models.PriceData{price_usd = price_in_usd, change_24h = change_24h}, .None
 }

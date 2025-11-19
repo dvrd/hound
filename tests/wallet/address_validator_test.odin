@@ -3,7 +3,7 @@ package test_wallet
 
 import "core:fmt"
 import "core:testing"
-import wallet "../../src/wallet"
+import blockchain "../../core/blockchain"
 
 @(test)
 test_valid_solana_addresses :: proc(t: ^testing.T) {
@@ -17,7 +17,7 @@ test_valid_solana_addresses :: proc(t: ^testing.T) {
 	}
 
 	for address in valid_addresses {
-		result := wallet.validate_solana_address(address)
+		result := blockchain.validate_solana_address(address)
 		testing.expectf(t, result == true,
 			"Expected address '%s' to be valid, but validation failed",
 			address)
@@ -38,7 +38,7 @@ test_invalid_solana_addresses :: proc(t: ^testing.T) {
 	}
 
 	for address in invalid_addresses {
-		result := wallet.validate_solana_address(address)
+		result := blockchain.validate_solana_address(address)
 		testing.expectf(t, result == false,
 			"Expected address '%s' to be invalid, but validation passed",
 			address)
@@ -50,7 +50,7 @@ test_base58_character_validation :: proc(t: ^testing.T) {
 	// Valid Base58 characters
 	valid_chars := []rune{'1', '2', '9', 'A', 'Z', 'a', 'z'}
 	for char in valid_chars {
-		result := wallet.is_base58_char(char)
+		result := blockchain.is_base58_char(char)
 		testing.expectf(t, result == true,
 			"Expected '%c' to be valid Base58 character", char)
 	}
@@ -58,7 +58,7 @@ test_base58_character_validation :: proc(t: ^testing.T) {
 	// Invalid Base58 characters (0, O, I, l)
 	invalid_chars := []rune{'0', 'O', 'I', 'l', '@', '#', ' '}
 	for char in invalid_chars {
-		result := wallet.is_base58_char(char)
+		result := blockchain.is_base58_char(char)
 		testing.expectf(t, result == false,
 			"Expected '%c' to be invalid Base58 character", char)
 	}

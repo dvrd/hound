@@ -1,10 +1,11 @@
 #+feature global-context
-package main
+package memory
 
 import "core:fmt"
 import "core:log"
 import "core:mem"
 import vmem "core:mem/virtual"
+import "../models"
 
 // Global arenas (package-level, initialized by memory_init)
 g_persistent_arena: vmem.Arena
@@ -22,7 +23,7 @@ MemoryStats :: struct {
 // Initialize all memory arenas
 // MUST be called after logger initialization in main()
 // Returns .None on success, .DatabaseError on failure
-memory_init :: proc() -> ErrorType {
+memory_init :: proc() -> models.ErrorType {
 	log.debug("Initializing memory arenas")
 
 	// 1. Persistent Arena (10 MB static, program lifetime)

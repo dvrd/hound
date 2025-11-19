@@ -1,5 +1,5 @@
 #+feature global-context
-package main
+package blockchain
 
 import "core:fmt"
 import "core:encoding/hex"

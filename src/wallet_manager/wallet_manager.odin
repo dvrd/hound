@@ -1,10 +1,13 @@
 // Wallet manager - coordinates wallet operations
 // Manages wallet list, balance fetching, and portfolio aggregation
-package wallet
+package wallet_manager
 
 import "core:fmt"
 import "core:log"
-import src "../"
+import models "../../core/models"
+import db "../../core/database"
+import wallet_backend "../../core/wallet"
+import blockchain "../../core/blockchain"
 
 // ============================================================================
 // Types
@@ -12,11 +15,11 @@ import src "../"
 
 // WalletManager coordinates all wallet operations
 WalletManager :: struct {
-	config:          ^src.TokenConfig,
-	rpc_client:      RPCClient,
-	balance_fetcher: BalanceFetcher,
-	portfolios:      map[string]PortfolioBalance,  // address -> portfolio
-	db:              ^src.Database,                 // Database handle
+	config:          ^models.TokenConfig,
+	rpc_client:      wallet_backend.RPCClient,
+	balance_fetcher: wallet_backend.BalanceFetcher,
+	portfolios:      map[string]wallet_backend.PortfolioBalance,  // address -> portfolio
+	db:              ^db.Database,                 // Database handle
 }
 
 // ============================================================================
@@ -30,22 +33,22 @@ WalletManager :: struct {
 //
 // Returns: Initialized wallet manager and error status
 init_wallet_manager :: proc(
-	config: ^src.TokenConfig,
-	db: ^src.Database,
+	config: ^models.TokenConfig,
+	db: ^db.Database,
 	rpc_endpoint: string,
 	backup_endpoints: []string,
-) -> (WalletManager, src.ErrorType) {
+) -> (WalletManager, models.ErrorType) {
 	assert(config != nil, "Token config cannot be nil")
 	assert(db != nil, "Database cannot be nil")
 
 	log.info("Initializing wallet manager")
 
 	// Initialize RPC client
-	rpc_client := init_rpc_client(rpc_endpoint, backup_endpoints)
+	rpc_client := wallet_backend.init_rpc_client(rpc_endpoint, backup_endpoints)
 	log.debugf("RPC client initialized with endpoint: %s", rpc_endpoint)
 
 	// Create portfolio map
-	portfolios := make(map[string]PortfolioBalance)
+	portfolios := make(map[string]wallet_backend.PortfolioBalance)
 
 	// Create manager first
 	manager := WalletManager{
@@ -57,8 +60,8 @@ init_wallet_manager :: proc(
 	}
 
 	// Now initialize balance fetcher with pointer to manager's rpc_client
-	price_fetcher := PriceFetcher{}  // Empty placeholder
-	manager.balance_fetcher = init_balance_fetcher(&manager.rpc_client, &price_fetcher)
+	price_fetcher := wallet_backend.PriceFetcher{}  // Empty placeholder
+	manager.balance_fetcher = wallet_backend.init_balance_fetcher(&manager.rpc_client, &price_fetcher)
 	log.debug("Balance fetcher initialized")
 
 	log.info("Wallet manager initialized successfully")
@@ -94,7 +97,7 @@ add_wallet :: proc(
 	address: string,
 	label: string,
 	is_primary: bool = false,
-) -> src.ErrorType {
+) -> models.ErrorType {
 	assert(manager != nil, "Wallet manager cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 	assert(len(label) > 0, "Wallet label cannot be empty")
@@ -102,20 +105,20 @@ add_wallet :: proc(
 	log.infof("Adding wallet: %s (%s)", label, address)
 
 	// Validate address format
-	if !validate_solana_address(address) {
+	if !blockchain.validate_solana_address(address) {
 		log.error("Invalid Solana address format")
 		return .InvalidToken
 	}
 
 	// Add to config
-	wallet := src.Wallet{
+	wallet := models.Wallet{
 		address    = address,
 		label      = label,
 		is_primary = is_primary,
 	}
 
 	// Insert into database
-	db_err := src.insert_wallet(manager.db, wallet)
+	db_err := db.insert_wallet(manager.db, wallet)
 	if db_err != .None {
 		log.errorf("Failed to insert wallet into database: %v", db_err)
 		return db_err
@@ -134,12 +137,12 @@ add_wallet :: proc(
 // ASSERTION 1: Manager must not be nil
 //
 // Returns: Array of wallets and error status
-get_wallets :: proc(manager: ^WalletManager) -> (wallets: []src.Wallet, err: src.ErrorType) {
+get_wallets :: proc(manager: ^WalletManager) -> (wallets: []models.Wallet, err: models.ErrorType) {
 	assert(manager != nil, "Wallet manager cannot be nil")
 
 	log.debug("Fetching all wallets from database")
 
-	wallet_list, db_err := src.get_all_wallets(manager.db)
+	wallet_list, db_err := db.get_all_wallets(manager.db)
 	if db_err != .None {
 		log.errorf("Failed to fetch wallets: %v", db_err)
 		return nil, db_err
@@ -162,14 +165,14 @@ get_wallets :: proc(manager: ^WalletManager) -> (wallets: []src.Wallet, err: src
 refresh_portfolio :: proc(
 	manager: ^WalletManager,
 	address: string,
-) -> (portfolio: PortfolioBalance, err: src.ErrorType) {
+) -> (portfolio: wallet_backend.PortfolioBalance, err: models.ErrorType) {
 	assert(manager != nil, "Wallet manager cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 
 	log.infof("Refreshing portfolio for address: %s", address)
 
 	// Fetch portfolio balance
-	fetched_portfolio, fetch_err := fetch_portfolio_balance(&manager.balance_fetcher, address, manager.config, manager.db)
+	fetched_portfolio, fetch_err := wallet_backend.fetch_portfolio_balance(&manager.balance_fetcher, address, manager.config, manager.db)
 	if fetch_err != .None {
 		log.errorf("Failed to fetch portfolio: %v", fetch_err)
 		return {}, fetch_err
@@ -183,7 +186,7 @@ refresh_portfolio :: proc(
 	log.debug("Updating database with new balances")
 
 	// Update SOL balance
-	sol_err := src.update_balance(
+	sol_err := db.update_balance(
 		manager.db,
 		address,
 		fetched_portfolio.sol_balance.mint,
@@ -198,7 +201,7 @@ refresh_portfolio :: proc(
 
 	// Update token balances
 	for token_balance in fetched_portfolio.token_balances {
-		token_err := src.update_balance(
+		token_err := db.update_balance(
 			manager.db,
 			address,
 			token_balance.mint,
@@ -227,7 +230,7 @@ refresh_portfolio :: proc(
 get_cached_portfolio :: proc(
 	manager: ^WalletManager,
 	address: string,
-) -> (portfolio: PortfolioBalance, found: bool) {
+) -> (portfolio: wallet_backend.PortfolioBalance, found: bool) {
 	assert(manager != nil, "Wallet manager cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 
@@ -246,7 +249,7 @@ get_cached_portfolio :: proc(
 // ASSERTION 1: Manager must not be nil
 //
 // Returns: Error status
-refresh_all_portfolios :: proc(manager: ^WalletManager) -> src.ErrorType {
+refresh_all_portfolios :: proc(manager: ^WalletManager) -> models.ErrorType {
 	assert(manager != nil, "Wallet manager cannot be nil")
 
 	log.info("Refreshing all portfolios")
@@ -285,15 +288,15 @@ refresh_all_portfolios :: proc(manager: ^WalletManager) -> src.ErrorType {
 // ASSERTION 1: Manager must not be nil
 //
 // Returns: Aggregated portfolio balance
-get_aggregated_portfolio :: proc(manager: ^WalletManager) -> PortfolioBalance {
+get_aggregated_portfolio :: proc(manager: ^WalletManager) -> wallet_backend.PortfolioBalance {
 	assert(manager != nil, "Wallet manager cannot be nil")
 
 	log.debug("Aggregating portfolios")
 
 	// Create aggregated portfolio
-	aggregated := PortfolioBalance{
+	aggregated := wallet_backend.PortfolioBalance{
 		wallet_address = "AGGREGATED",
-		sol_balance    = TokenBalance{
+		sol_balance    = wallet_backend.TokenBalance{
 			mint      = "So11111111111111111111111111111111111111112",
 			symbol    = "SOL",
 			decimals  = 9,
@@ -301,7 +304,7 @@ get_aggregated_portfolio :: proc(manager: ^WalletManager) -> PortfolioBalance {
 	}
 
 	// Aggregate balances from all cached portfolios
-	token_totals := make(map[string]TokenBalance)  // mint -> aggregated balance
+	token_totals := make(map[string]wallet_backend.TokenBalance)  // mint -> aggregated balance
 
 	for address, portfolio in manager.portfolios {
 		// Aggregate SOL
@@ -336,7 +339,7 @@ get_aggregated_portfolio :: proc(manager: ^WalletManager) -> PortfolioBalance {
 	}
 
 	// Convert map to slice
-	token_list := make([dynamic]TokenBalance, 0, len(token_totals))
+	token_list := make([dynamic]wallet_backend.TokenBalance, 0, len(token_totals))
 	for _, token_balance in token_totals {
 		append(&token_list, token_balance)
 	}

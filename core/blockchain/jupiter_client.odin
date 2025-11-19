@@ -1,5 +1,5 @@
 #+feature global-context
-package main
+package blockchain
 
 import "core:encoding/json"
 import "core:fmt"
@@ -7,7 +7,8 @@ import "core:log"
 import "core:net"
 import "core:strconv"
 import "core:time"
-import client "../vendor/odin-http/client"
+import "../models"
+import client "../../vendor/odin-http/client"
 
 // Jupiter Price API V3 response structure (Lite API)
 // Endpoint: https://lite-api.jup.ag/price/v3?ids={token_mints}
@@ -48,7 +49,7 @@ JUPITER_PRO_API_URL :: "https://api.jup.ag/price/v3"
 // ASSERTION 1: Validate token mint address is not empty
 // ASSERTION 2: Validate price is reasonable (non-negative, within bounds)
 // ASSERTION 3: Validate 24h change is within reasonable range
-fetch_jupiter_price :: proc(token_mint: string) -> (JupiterPriceInfo, ErrorType) {
+fetch_jupiter_price :: proc(token_mint: string) -> (JupiterPriceInfo, models.ErrorType) {
 	// ASSERTION 1: Validate input
 	assert(len(token_mint) > 0, "Token mint address cannot be empty")
 
@@ -66,16 +67,16 @@ fetch_jupiter_price :: proc(token_mint: string) -> (JupiterPriceInfo, ErrorType)
 		#partial switch e in http_err {
 		case net.Network_Error:
 			log.debug("Network timeout detected")
-			return {}, .NetworkTimeout
+			return {}, models.ErrorType.NetworkTimeout
 		case net.TCP_Send_Error, net.Dial_Error:
 			log.debug("Connection error detected")
-			return {}, .ConnectionFailed
+			return {}, models.ErrorType.ConnectionFailed
 		case client.Request_Error:
 			log.debug("Request error detected")
-			return {}, .InvalidResponse
+			return {}, models.ErrorType.InvalidResponse
 		case:
 			log.debug("Unknown network error detected")
-			return {}, .ConnectionFailed
+			return {}, models.ErrorType.ConnectionFailed
 		}
 	}
 	defer client.response_destroy(&res)
@@ -85,29 +86,29 @@ fetch_jupiter_price :: proc(token_mint: string) -> (JupiterPriceInfo, ErrorType)
 	#partial switch res.status {
 	case .Bad_Request:
 		log.debug("Bad request (400)")
-		return {}, .InvalidToken
+		return {}, models.ErrorType.InvalidToken
 	case .Not_Found:
 		log.debug("Not found (404)")
-		return {}, .TokenNotFound
+		return {}, models.ErrorType.TokenNotFound
 	case .Too_Many_Requests:
 		log.warn("Rate limited (429) - Jupiter allows 600 req/min on Lite tier")
-		return {}, .RateLimited
+		return {}, models.ErrorType.RateLimited
 	case .Internal_Server_Error, .Service_Unavailable:
 		log.error("Server error (500/503)")
-		return {}, .ServerError
+		return {}, models.ErrorType.ServerError
 	case .OK:
 		log.debug("HTTP 200 OK - processing response")
 		// Continue processing
 	case:
 		log.warnf("Unknown status code: %v", res.status)
-		return {}, .ServerError
+		return {}, models.ErrorType.ServerError
 	}
 
 	// Extract response body
 	body, allocation, body_err := client.response_body(&res)
 	if body_err != nil {
 		log.errorf("Failed to extract response body: %v", body_err)
-		return {}, .InvalidResponse
+		return {}, models.ErrorType.InvalidResponse
 	}
 	defer client.body_destroy(body, allocation)
 
@@ -119,46 +120,46 @@ fetch_jupiter_price :: proc(token_mint: string) -> (JupiterPriceInfo, ErrorType)
 	spec := json.Specification{}
 	if unmarshal_err := json.unmarshal_string(body.(string), &response_json, spec); unmarshal_err != nil {
 		log.errorf("JSON unmarshal failed: %v", unmarshal_err)
-		return {}, .InvalidResponse
+		return {}, models.ErrorType.InvalidResponse
 	}
 
 	// Extract the token data from response
 	response_obj, is_obj := response_json.(json.Object)
 	if !is_obj {
 		log.error("Response is not a JSON object")
-		return {}, .InvalidResponse
+		return {}, models.ErrorType.InvalidResponse
 	}
 
 	// Get the price info for this mint
 	price_data, has_mint := response_obj[token_mint]
 	if !has_mint {
 		log.warnf("Token %s not found in response", token_mint)
-		return {}, .TokenNotFound
+		return {}, models.ErrorType.TokenNotFound
 	}
 
 	// Handle null price (unreliable token flagged by Jupiter's validation heuristics)
 	if price_data == nil {
 		log.warnf("Jupiter returned null for token %s (unreliable token)", token_mint)
-		return {}, .TokenNotFound // Treat as not found
+		return {}, models.ErrorType.TokenNotFound // Treat as not found
 	}
 
 	price_obj, is_price_obj := price_data.(json.Object)
 	if !is_price_obj {
 		log.error("Price data is not a JSON object")
-		return {}, .InvalidResponse
+		return {}, models.ErrorType.InvalidResponse
 	}
 
 	// Extract fields
 	usd_price_val, has_price := price_obj["usdPrice"]
 	if !has_price {
 		log.error("Missing usdPrice field")
-		return {}, .InvalidResponse
+		return {}, models.ErrorType.InvalidResponse
 	}
 
 	usd_price_float, is_float := usd_price_val.(json.Float)
 	if !is_float {
 		log.errorf("usdPrice is not a number: %v", usd_price_val)
-		return {}, .InvalidResponse
+		return {}, models.ErrorType.InvalidResponse
 	}
 
 	// Extract blockId
@@ -210,7 +211,7 @@ fetch_jupiter_price :: proc(token_mint: string) -> (JupiterPriceInfo, ErrorType)
 		block_id = block_id,
 		decimals = decimals,
 		price_change_24h = price_change,
-	}, .None
+	}, models.ErrorType.None
 }
 
 // Check if Jupiter cache is stale (> 60 seconds old)
@@ -241,7 +242,7 @@ is_jupiter_cache_stale :: proc(cache: JupiterPriceCache, mint_address: string) -
 }
 
 // Get Jupiter price with caching (60-second TTL)
-get_jupiter_price_cached :: proc(mint_address: string) -> (JupiterPriceInfo, ErrorType) {
+get_jupiter_price_cached :: proc(mint_address: string) -> (JupiterPriceInfo, models.ErrorType) {
 	// ASSERTION 1: Cache TTL is positive
 	assert(JUPITER_CACHE_TTL > 0, "Cache TTL must be positive")
 
@@ -253,21 +254,21 @@ get_jupiter_price_cached :: proc(mint_address: string) -> (JupiterPriceInfo, Err
 			"Cached price must be non-negative",
 		)
 		log.debugf("Cache hit for mint: %s", mint_address)
-		return g_jupiter_cache.price_info, .None
+		return g_jupiter_cache.price_info, models.ErrorType.None
 	}
 
 	log.debugf("Cache miss for mint: %s", mint_address)
 
 	// Cache miss or stale - fetch fresh data
 	price_info, err := fetch_jupiter_price(mint_address)
-	if err == .None {
+	if err == models.ErrorType.None {
 		// Update global cache
 		g_jupiter_cache.mint_address = mint_address
 		g_jupiter_cache.price_info = price_info
 		g_jupiter_cache.cached_at = time.now()
 		g_jupiter_cache.is_valid = true
 		log.debugf("Updated cache for mint: %s", mint_address)
-		return price_info, .None
+		return price_info, models.ErrorType.None
 	}
 
 	// Fetch failed - return error
@@ -278,7 +279,7 @@ get_jupiter_price_cached :: proc(mint_address: string) -> (JupiterPriceInfo, Err
 //
 // Retry logic: 1s → 2s → 4s → fail
 // This matches the recommended pattern from Jupiter research
-fetch_jupiter_price_with_retry :: proc(token_mint: string, max_retries: int = 3) -> (JupiterPriceInfo, ErrorType) {
+fetch_jupiter_price_with_retry :: proc(token_mint: string, max_retries: int = 3) -> (JupiterPriceInfo, models.ErrorType) {
 	log.debugf("Attempting Jupiter fetch with max %d retries", max_retries)
 
 	delay_ms: i64 = 1000 // Start with 1 second
@@ -289,17 +290,17 @@ fetch_jupiter_price_with_retry :: proc(token_mint: string, max_retries: int = 3)
 		price_info, err := fetch_jupiter_price(token_mint)
 
 		// Success - return immediately
-		if err == .None {
+		if err == models.ErrorType.None {
 			log.info("Jupiter fetch successful")
-			return price_info, .None
+			return price_info, models.ErrorType.None
 		}
 
 		// Rate limited - use exponential backoff
-		if err == .RateLimited {
+		if err == models.ErrorType.RateLimited {
 			if attempt == max_retries - 1 {
 				// Last attempt failed
 				log.errorf("Max retries exceeded for rate limit")
-				return {}, .RateLimited
+				return {}, models.ErrorType.RateLimited
 			}
 
 			// Wait with exponential backoff
@@ -315,5 +316,5 @@ fetch_jupiter_price_with_retry :: proc(token_mint: string, max_retries: int = 3)
 	}
 
 	// Should not reach here
-	return {}, .ServerError
+	return {}, models.ErrorType.ServerError
 }

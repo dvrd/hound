@@ -1,11 +1,14 @@
 #+feature global-context
-package main
+package dex
 
 import "core:fmt"
 import "core:log"
 import "core:strconv"
 import "core:strings"
-import client "../vendor/odin-http/client"
+import client "../../vendor/odin-http/client"
+import "../models"
+import "../memory"
+import "../blockchain"
 
 // =============================================================================
 // DEX ROUTER - Multi-DEX Price Routing with Priority-Based Fallback
@@ -84,7 +87,7 @@ parse_dex_type :: proc(dex: string, pool_type: string = "") -> DexType {
 //
 // ASSERTION 1: Validate pool address for on-chain DEXs (not Jupiter API)
 // ASSERTION 2: Validate quote token is not empty (except for Jupiter API)
-pool_info_to_dex_config :: proc(pool: PoolInfo, priority: int = 1) -> DexPoolConfig {
+pool_info_to_dex_config :: proc(pool: models.PoolInfo, priority: int = 1) -> DexPoolConfig {
 	// Parse DEX type, passing pool_type for Raydium disambiguation
 	dex_type := parse_dex_type(pool.dex, pool.pool_type)
 
@@ -115,13 +118,13 @@ pool_info_to_dex_config :: proc(pool: PoolInfo, priority: int = 1) -> DexPoolCon
 // 3. Try each on-chain pool in order
 // 4. Fall back to Jupiter API if all pools fail
 // 5. Return comprehensive error if all sources fail
-route_price_query :: proc(token: Token) -> (DexPriceResult, ErrorType) {
+route_price_query :: proc(token: models.Token) -> (DexPriceResult, models.ErrorType) {
 	assert(len(token.contract_address) > 0, "Token contract address cannot be empty")
 
 	log.infof("Routing price query for token: %s (%s)", token.symbol, token.contract_address)
 
 	// Convert pools to DEX configs with priorities
-	arena_alloc := request_allocator()
+	arena_alloc := memory.request_allocator()
 	dex_configs := make([dynamic]DexPoolConfig, 0, len(token.pools), arena_alloc)
 	// NO defer delete - request arena cleaned externally
 
@@ -159,7 +162,7 @@ route_price_query :: proc(token: Token) -> (DexPriceResult, ErrorType) {
 	// All pools failed - fall back to Jupiter API
 	log.info("All configured pools failed, falling back to Jupiter Aggregator API")
 
-	price_info, err := get_jupiter_price_cached(token.contract_address)
+	price_info, err := blockchain.get_jupiter_price_cached(token.contract_address)
 	if err == .None {
 		log.infof("Jupiter API fetch successful: $%.6f", price_info.usd_price)
 		return DexPriceResult{
@@ -180,7 +183,7 @@ route_price_query :: proc(token: Token) -> (DexPriceResult, ErrorType) {
 // ASSERTION 1: Validate pool address for on-chain DEXs
 //
 // Dispatches to appropriate DEX-specific fetcher based on dex_type
-fetch_from_dex :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, ErrorType) {
+fetch_from_dex :: proc(config: DexPoolConfig, token: models.Token) -> (DexPriceResult, models.ErrorType) {
 	log.debugf("Fetching from DEX: %v (pool: %s)", config.dex_type, config.pool_address)
 
 	switch config.dex_type {
@@ -225,18 +228,18 @@ fetch_from_dex :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, 
 // - .OracleConnectionFailed: Cannot fetch SOL price for USD conversion
 //
 // Returns: DexPriceResult with price_usd, source (.Orca_Whirlpool), and pool_address
-fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, ErrorType) {
+fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: models.Token) -> (DexPriceResult, models.ErrorType) {
 	assert(len(config.pool_address) > 0, "Orca pool address cannot be empty")
 	assert(len(config.quote_token) > 0, "Quote token cannot be empty")
 
 	log.infof("Fetching from Orca Whirlpool: %s (quote: %s)", config.pool_address, config.quote_token)
 
 	// 1. Setup RPC Connection
-	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	conn := blockchain.RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
 	log.debugf("RPC endpoint: %s, timeout: %dms", conn.endpoint, conn.timeout)
 
 	// 2. Fetch Pool Account Data
-	pool_data, err := get_account_info(conn, config.pool_address)
+	pool_data, err := blockchain.get_account_info(conn, config.pool_address)
 	if err != .None {
 		log.errorf("Failed to fetch Orca pool data: %v", err)
 		return {}, err
@@ -245,7 +248,7 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 	log.debugf("Received %d bytes of pool data", len(pool_data))
 
 	// 3. Decode Orca Whirlpool State
-	pool_state, ok := decode_orca_whirlpool(pool_data)
+	pool_state, ok := blockchain.decode_orca_whirlpool(pool_data)
 	if !ok {
 		log.error("Pool data decoding failed")
 		return {}, .PoolDataInvalid
@@ -259,13 +262,13 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 	}
 
 	// 5. Fetch Token Decimals (KEY DIFFERENCE - Orca doesn't embed decimals)
-	decimals_a, err_a := get_token_decimals(conn, pool_state.token_mint_a)
+	decimals_a, err_a := blockchain.get_token_decimals(conn, pool_state.token_mint_a)
 	if err_a != .None {
 		log.errorf("Failed to fetch decimals for token A: %v", err_a)
 		return {}, err_a
 	}
 
-	decimals_b, err_b := get_token_decimals(conn, pool_state.token_mint_b)
+	decimals_b, err_b := blockchain.get_token_decimals(conn, pool_state.token_mint_b)
 	if err_b != .None {
 		log.errorf("Failed to fetch decimals for token B: %v", err_b)
 		return {}, err_b
@@ -274,7 +277,7 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 	log.debugf("Token decimals: A=%d, B=%d", decimals_a, decimals_b)
 
 	// 6. Calculate Price in Quote Token
-	price_in_quote := sqrt_price_to_price(pool_state.sqrt_price, decimals_a, decimals_b)
+	price_in_quote := blockchain.sqrt_price_to_price(pool_state.sqrt_price, decimals_a, decimals_b)
 	log.debugf("Price in quote token: %.18f", price_in_quote)
 
 	// 7. Fetch Quote Token USD Price
@@ -283,7 +286,7 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 
 	switch lower_quote {
 	case "sol", "wsol":
-		sol_price, sol_err := get_sol_price_cached()
+		sol_price, sol_err := blockchain.get_sol_price_cached()
 		if sol_err != .None {
 			log.errorf("Failed to get SOL price: %v", sol_err)
 			return {}, sol_err
@@ -319,12 +322,12 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 // ASSERTION 1: Validate token contract address
 //
 // Uses the shared Jupiter client (jupiter_client.odin)
-fetch_jupiter_api_price :: proc(token: Token) -> (DexPriceResult, ErrorType) {
+fetch_jupiter_api_price :: proc(token: models.Token) -> (DexPriceResult, models.ErrorType) {
 	assert(len(token.contract_address) > 0, "Token contract address cannot be empty")
 
 	log.infof("Fetching from Jupiter API: %s", token.contract_address)
 
-	price_info, err := get_jupiter_price_cached(token.contract_address)
+	price_info, err := blockchain.get_jupiter_price_cached(token.contract_address)
 	if err != .None {
 		log.errorf("Jupiter API fetch failed: %v", err)
 		return {}, err
@@ -349,15 +352,15 @@ fetch_jupiter_api_price :: proc(token: Token) -> (DexPriceResult, ErrorType) {
 // 2. Decode Raydium CLMM PoolState
 // 3. Convert sqrt_price_x64 to price (reuse Q64.64 conversion)
 // 4. Fetch quote token price (SOL/USDC) and convert to USD
-fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, ErrorType) {
+fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: models.Token) -> (DexPriceResult, models.ErrorType) {
 	assert(len(config.pool_address) > 0, "Raydium CLMM pool address cannot be empty")
 	assert(len(config.quote_token) > 0, "Quote token cannot be empty")
 
 	log.infof("Fetching from Raydium CLMM: %s (quote: %s)", config.pool_address, config.quote_token)
 
 	// 1. Fetch pool account from RPC
-	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
-	pool_data, err := get_account_info(conn, config.pool_address)
+	conn := blockchain.RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	pool_data, err := blockchain.get_account_info(conn, config.pool_address)
 	if err != .None {
 		log.errorf("Failed to fetch Raydium CLMM pool data: %v", err)
 		return {}, err
@@ -367,7 +370,7 @@ fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPri
 	log.debugf("Received %d bytes of Raydium CLMM pool data", len(pool_data))
 
 	// 2. Decode pool state
-	pool_state, ok := decode_raydium_clmm_pool(pool_data)
+	pool_state, ok := blockchain.decode_raydium_clmm_pool(pool_data)
 	if !ok {
 		log.error("Raydium CLMM pool decoding failed")
 		return {}, .PoolDataInvalid
@@ -378,7 +381,7 @@ fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPri
 
 	// 3. Calculate price in quote token
 	// Raydium has embedded decimals - no need to fetch mint accounts
-	price_in_quote := calculate_raydium_clmm_price(pool_state)
+	price_in_quote := blockchain.calculate_raydium_clmm_price(pool_state)
 
 	log.debugf("Price in quote token: %.18f", price_in_quote)
 
@@ -387,7 +390,7 @@ fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPri
 	lower_quote := strings.to_lower(config.quote_token)
 	switch lower_quote {
 	case "sol":
-		sol_price, sol_err := get_sol_price_cached()
+		sol_price, sol_err := blockchain.get_sol_price_cached()
 		if sol_err != .None {
 			log.errorf("Failed to get SOL price: %v", sol_err)
 			return {}, sol_err
@@ -428,15 +431,15 @@ fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPri
 // 3. Fetch vault balances for both tokens
 // 4. Calculate price from reserves (x*y=k formula)
 // 5. Fetch quote token price (SOL/USDC) and convert to USD
-fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, ErrorType) {
+fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: models.Token) -> (DexPriceResult, models.ErrorType) {
 	assert(len(config.pool_address) > 0, "Raydium AMM V4 pool address cannot be empty")
 	assert(len(config.quote_token) > 0, "Quote token cannot be empty")
 
 	log.infof("Fetching from Raydium AMM V4: %s (quote: %s)", config.pool_address, config.quote_token)
 
 	// 1. Fetch pool account from RPC
-	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
-	pool_data, err := get_account_info(conn, config.pool_address)
+	conn := blockchain.RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	pool_data, err := blockchain.get_account_info(conn, config.pool_address)
 	if err != .None {
 		log.errorf("Failed to fetch Raydium AMM V4 pool data: %v", err)
 		return {}, err
@@ -446,7 +449,7 @@ fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 	log.debugf("Received %d bytes of Raydium AMM V4 pool data", len(pool_data))
 
 	// 2. Decode pool state
-	pool_state, ok := decode_raydium_pool_v4(pool_data)
+	pool_state, ok := blockchain.decode_raydium_pool_v4(pool_data)
 	if !ok {
 		log.error("Raydium AMM V4 pool decoding failed")
 		return {}, .PoolDataInvalid
@@ -456,18 +459,18 @@ fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 		pool_state.base_decimal, pool_state.quote_decimal)
 
 	// 3. Fetch vault balances
-	base_vault_addr := pubkey_to_base58(pool_state.base_vault)
-	quote_vault_addr := pubkey_to_base58(pool_state.quote_vault)
+	base_vault_addr := blockchain.pubkey_to_base58(pool_state.base_vault)
+	quote_vault_addr := blockchain.pubkey_to_base58(pool_state.quote_vault)
 
 	log.debugf("Base vault: %s, Quote vault: %s", base_vault_addr, quote_vault_addr)
 
-	base_balance, base_err := get_token_balance(conn, base_vault_addr)
+	base_balance, base_err := blockchain.get_token_balance(conn, base_vault_addr)
 	if base_err != .None {
 		log.errorf("Failed to fetch base vault balance: %v", base_err)
 		return {}, .VaultFetchFailed
 	}
 
-	quote_balance, quote_err := get_token_balance(conn, quote_vault_addr)
+	quote_balance, quote_err := blockchain.get_token_balance(conn, quote_vault_addr)
 	if quote_err != .None {
 		log.errorf("Failed to fetch quote vault balance: %v", quote_err)
 		return {}, .VaultFetchFailed
@@ -503,7 +506,7 @@ fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 	lower_quote := strings.to_lower(config.quote_token)
 	switch lower_quote {
 	case "sol":
-		sol_price, sol_err := get_sol_price_cached()
+		sol_price, sol_err := blockchain.get_sol_price_cached()
 		if sol_err != .None {
 			log.errorf("Failed to get SOL price: %v", sol_err)
 			return {}, sol_err

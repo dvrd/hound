@@ -21,7 +21,7 @@
 // - Cache pattern: src/jupiter_client.odin:28-40, 217-241
 // =============================================================================
 
-package main
+package dex
 
 import "core:bufio"
 import "core:encoding/json"
@@ -30,7 +30,8 @@ import "core:log"
 import "core:net"
 import "core:strconv"
 import "core:time"
-import client "../vendor/odin-http/client"
+import "../models"
+import client "../../vendor/odin-http/client"
 
 // =============================================================================
 // DATA MODELS - DexScreener API Response Structures
@@ -140,7 +141,7 @@ DEXSCREENER_RATE_LIMIT :: 300 // requests per minute
 // Returns: Array of pairs (can be empty if token has no pools)
 //
 // CRITICAL: Empty pairs array is NOT an error - token may simply have no pools yet
-fetch_pools_for_token :: proc(token_address: string) -> ([]DexScreenerPair, ErrorType) {
+fetch_pools_for_token :: proc(token_address: string) -> ([]DexScreenerPair, models.ErrorType) {
 	// ASSERTION 1: Token address must not be empty
 	assert(len(token_address) > 0, "Token address must not be empty")
 
@@ -256,7 +257,7 @@ fetch_pools_for_token :: proc(token_address: string) -> ([]DexScreenerPair, Erro
 // - Only retry .RateLimited errors (fail fast on others)
 //
 // This handles DexScreener's 300 req/min rate limit gracefully
-fetch_pools_with_retry :: proc(token_address: string, max_retries: int = 3) -> ([]DexScreenerPair, ErrorType) {
+fetch_pools_with_retry :: proc(token_address: string, max_retries: int = 3) -> ([]DexScreenerPair, models.ErrorType) {
 	log.debugf("Attempting DexScreener fetch with max %d retries", max_retries)
 
 	delay_ms: i64 = 1000 // Start with 1 second
@@ -334,7 +335,7 @@ is_pool_search_cache_stale :: proc(cache: PoolSearchCache, token_address: string
 // This is the main entry point for pool discovery
 //
 // The force_refresh parameter allows bypassing cache to get fresh pool data
-get_pools_cached :: proc(token_address: string, force_refresh: bool = false) -> ([]DexScreenerPair, ErrorType) {
+get_pools_cached :: proc(token_address: string, force_refresh: bool = false) -> ([]DexScreenerPair, models.ErrorType) {
 	// ASSERTION 1: Cache TTL is positive (configuration check)
 	assert(POOL_SEARCH_CACHE_TTL > 0, "Cache TTL must be positive")
 

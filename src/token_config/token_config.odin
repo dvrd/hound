@@ -1,4 +1,4 @@
-package main
+package token_config
 
 import "core:encoding/json"
 import "core:fmt"
@@ -6,44 +6,9 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-
-// PoolInfo represents a liquidity pool for a token
-PoolInfo :: struct {
-	dex:           string, // "raydium"
-	pool_address:  string, // Pool account address
-	quote_token:   string, // "sol", "usdc", etc.
-	pool_type:     string, // "amm_v4"
-	// Pool metadata
-	liquidity_usd: f64,    // Current pool liquidity in USD (0.0 if unknown)
-	volume_24h:    f64,    // 24-hour trading volume (0.0 if unknown)
-	fee_percent:   f64,    // Trading fee percentage (0.0 if unknown)
-	discovered_at: i64,    // Unix timestamp when auto-discovered (0 for manual)
-}
-
-// Token represents a single cryptocurrency token configuration
-Token :: struct {
-	symbol:           string,
-	name:             string,
-	contract_address: string,
-	chain:            string,
-	pools:            []PoolInfo, // Liquidity pools for on-chain pricing
-	is_quote_token:   bool, // True if this is a quote token (SOL, USDC)
-	usd_price:        f64, // USD price for quote tokens
-}
-
-// Wallet represents a Solana wallet address to watch
-Wallet :: struct {
-	address:    string, // Base58-encoded Solana address
-	label:      string, // User-friendly name
-	is_primary: bool,   // Primary wallet for display
-}
-
-// TokenConfig represents the complete token configuration file
-TokenConfig :: struct {
-	version: string,
-	tokens:  []Token,
-	wallets: []Wallet, // Watch-only wallet addresses
-}
+import models "../../core/models"
+import db "../../core/database"
+import dex "../../core/dex"
 
 // load_token_config loads the token configuration from database
 // Returns the configuration and an error type
@@ -51,7 +16,7 @@ TokenConfig :: struct {
 // Strategy:
 // 1. Try loading from ~/.config/hound/hound.db
 // 2. If DB doesn't exist, return ConfigNotFound
-load_token_config :: proc() -> (TokenConfig, ErrorType) {
+load_token_config :: proc() -> (models.TokenConfig, models.ErrorType) {
 	log.debug("Starting token config load")
 
 	// Get home directory
@@ -78,31 +43,31 @@ load_token_config :: proc() -> (TokenConfig, ErrorType) {
 // load_token_config_from_db loads tokens from the database
 //
 // Internal helper for load_token_config
-load_token_config_from_db :: proc(db_path: string) -> (TokenConfig, ErrorType) {
+load_token_config_from_db :: proc(db_path: string) -> (models.TokenConfig, models.ErrorType) {
 	log.debugf("Opening database: %s", db_path)
 
-	db, db_err := database_open(db_path)
+	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
 		return {}, .DatabaseError
 	}
-	defer database_close(db)
+	defer db.database_close(database)
 
 	// Apply any pending schema migrations
-	migrate_err := migrate_schema_5_3(db)
+	migrate_err := db.migrate_schema_5_3(database)
 	if migrate_err != .None {
 		log.warnf("Schema migration failed (non-fatal): %v", migrate_err)
 		// Continue anyway - migration failures are non-fatal
 	}
 
 	// Integrity check
-	if !database_integrity_check(db) {
+	if !db.database_integrity_check(database) {
 		log.error("Database integrity check failed")
 		return {}, .DatabaseCorrupted
 	}
 
 	// Load all tokens
-	tokens, get_err := get_all_tokens(db)
+	tokens, get_err := db.get_all_tokens(database)
 	if get_err != .None {
 		log.errorf("Failed to load tokens from database: %v", get_err)
 		return {}, .DatabaseError
@@ -110,7 +75,7 @@ load_token_config_from_db :: proc(db_path: string) -> (TokenConfig, ErrorType) {
 
 	log.debugf("Loaded %d tokens from database", len(tokens))
 
-	config := TokenConfig{
+	config := models.TokenConfig{
 		version = "2.0.0",
 		tokens  = tokens,
 	}
@@ -121,7 +86,7 @@ load_token_config_from_db :: proc(db_path: string) -> (TokenConfig, ErrorType) {
 
 // find_token_by_symbol searches for a token by its symbol (case-insensitive)
 // Returns the token and true if found, or an empty token and false if not found
-find_token_by_symbol :: proc(config: TokenConfig, symbol: string) -> (Token, bool) {
+find_token_by_symbol :: proc(config: models.TokenConfig, symbol: string) -> (models.Token, bool) {
 	log.debugf("Searching for token symbol: %s", symbol)
 	lower_symbol := strings.to_lower(symbol)
 
@@ -137,7 +102,7 @@ find_token_by_symbol :: proc(config: TokenConfig, symbol: string) -> (Token, boo
 }
 
 // list_tokens prints all available tokens from the configuration
-list_tokens :: proc(config: TokenConfig) {
+list_tokens :: proc(config: models.TokenConfig) {
 	fmt.println("Available tokens:")
 	fmt.println("")
 
@@ -154,25 +119,25 @@ list_tokens :: proc(config: TokenConfig) {
 // - ✨ indicator for auto-discovered tokens (discovered_at > 0)
 //
 // Fallback: If database unavailable, uses basic list_tokens()
-list_tokens_with_stats :: proc(config: TokenConfig) {
+list_tokens_with_stats :: proc(config: models.TokenConfig) {
 	log.debug("Listing tokens with pool statistics")
 
 	// Try to open database for stats
 	db_path := get_database_path()
-	db, db_err := database_open(db_path)
+	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.warnf("Database unavailable, falling back to basic list")
 		list_tokens(config)
 		return
 	}
-	defer database_close(db)
+	defer db.database_close(database)
 
 	fmt.println("Available tokens:")
 	fmt.println("")
 
 	for token in config.tokens {
 		// Get pool stats for this token
-		stats, stats_err := get_pool_stats(db, token.symbol)
+		stats, stats_err := db.get_pool_stats(database, token.symbol)
 
 		if stats_err != .None || stats.pool_count == 0 {
 			// No pools configured
@@ -228,7 +193,7 @@ TOP_POOLS_TO_STORE :: 3
 // The force_refresh parameter bypasses the cache to get fresh pool data
 //
 // Returns: Best pool and .None on success, or empty pool and error on failure
-discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (PoolInfo, ErrorType) {
+discover_and_store_pools :: proc(token: models.Token, force_refresh: bool = false) -> (models.PoolInfo, models.ErrorType) {
 	log.infof("Starting automatic pool discovery for token: %s (force_refresh=%v)", token.symbol, force_refresh)
 
 	// ASSERTION 1: Token must have contract address
@@ -236,10 +201,10 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 
 	// Step 1: Query DexScreener API for pools (with retry and caching)
 	log.debug("Step 1: Fetching pools from DexScreener API")
-	pairs, api_err := get_pools_cached(token.contract_address, force_refresh)
+	pairs, api_err := dex.get_pools_cached(token.contract_address, force_refresh)
 	if api_err != .None {
 		log.errorf("Failed to fetch pools from DexScreener: %v", api_err)
-		return PoolInfo{}, api_err
+		return models.PoolInfo{}, api_err
 	}
 	defer delete(pairs)
 
@@ -247,15 +212,15 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 
 	// Step 2: Filter + Rank pools (store top N, not just best)
 	log.debug("Step 2: Filtering and ranking pools")
-	filtered := filter_pools(pairs)
+	filtered := dex.filter_pools(pairs)
 	defer delete(filtered)
 
 	if len(filtered) == 0 {
 		log.warn("No pools passed filtering criteria (min $1K liquidity, max 1% fee)")
-		return PoolInfo{}, .NoPoolsFound
+		return models.PoolInfo{}, .NoPoolsFound
 	}
 
-	ranked := rank_pools(filtered)
+	ranked := dex.rank_pools(filtered)
 	defer delete(ranked)
 
 	// Determine how many pools to store (top N or all if fewer)
@@ -270,18 +235,18 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 	// Step 3: Open database for storage
 	log.debug("Step 3: Storing pools in database")
 	db_path := get_database_path()
-	db, db_err := database_open(db_path)
+	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
 		// Non-fatal: return best pool even if storage fails
-		return pair_to_pool_info(best_pair), .None
+		return dex.pair_to_pool_info(best_pair), .None
 	}
-	defer database_close(db)
+	defer db.database_close(database)
 
 	// Step 3.5: If force_refresh, delete old pools first to avoid duplicates
 	if force_refresh {
 		log.debugf("Force refresh: deleting old pools for %s", token.symbol)
-		delete_err := delete_pools_for_token(db, token.symbol)
+		delete_err := db.delete_pools_for_token(database, token.symbol)
 		if delete_err != .None {
 			log.warnf("Failed to delete old pools (non-fatal): %v", delete_err)
 		}
@@ -291,10 +256,10 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 	stored_count := 0
 	for i := 0; i < pools_to_store; i += 1 {
 		pool_pair := ranked[i].pair
-		pool_info := pair_to_pool_info(pool_pair)
+		pool_info := dex.pair_to_pool_info(pool_pair)
 
-		insert_err := insert_pool(
-			db,
+		insert_err := db.insert_pool(
+			database,
 			token.symbol,
 			pool_info,
 			pool_info.liquidity_usd,
@@ -317,7 +282,7 @@ discover_and_store_pools :: proc(token: Token, force_refresh: bool = false) -> (
 		stored_count, token.symbol)
 
 	// Return best pool for immediate use
-	return pair_to_pool_info(best_pair), .None
+	return dex.pair_to_pool_info(best_pair), .None
 }
 
 // get_database_path returns the standard database path

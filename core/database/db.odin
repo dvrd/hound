@@ -1,5 +1,5 @@
 #+feature global-context
-package main
+package database
 
 import "core:fmt"
 import "core:log"
@@ -7,7 +7,9 @@ import "core:strings"
 import "core:time"
 import "core:os"
 import "core:path/filepath"
-import sqlite3 "../vendor/odin-sqlite3"
+import sqlite3 "../../vendor/odin-sqlite3"
+import "../models"
+import "../memory"
 
 // =============================================================================
 // DATABASE MODULE - SQLite Token and Pool Storage
@@ -60,7 +62,7 @@ PoolStats :: struct {
 // 3. Wrap in Database struct
 //
 // Returns: Database handle and error status
-database_open :: proc(db_path: string) -> (^Database, ErrorType) {
+database_open :: proc(db_path: string) -> (^Database, models.ErrorType) {
 	assert(len(db_path) > 0, "Database path cannot be empty")
 	log.debugf("Opening database: %s", db_path)
 
@@ -115,7 +117,7 @@ database_close :: proc(db: ^Database) {
 // - pools table: id, token_id (FK), dex, pool_address, quote_token, pool_type
 //
 // Returns: Error status
-create_schema :: proc(db: ^Database) -> ErrorType {
+create_schema :: proc(db: ^Database) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 
@@ -202,7 +204,7 @@ create_schema :: proc(db: ^Database) -> ErrorType {
 // - discovered_at INTEGER: Unix timestamp when pool was auto-discovered
 //
 // Returns: Error status
-migrate_schema_5_3 :: proc(db: ^Database) -> ErrorType {
+migrate_schema_5_3 :: proc(db: ^Database) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 
@@ -270,7 +272,7 @@ migrate_schema_5_3 :: proc(db: ^Database) -> ErrorType {
 // ASSERTION 2: Validate token has required fields
 //
 // Returns: Error status
-insert_token :: proc(db: ^Database, token: Token) -> ErrorType {
+insert_token :: proc(db: ^Database, token: models.Token) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(token.symbol) > 0, "Token symbol cannot be empty")
@@ -333,12 +335,12 @@ insert_token :: proc(db: ^Database, token: Token) -> ErrorType {
 insert_pool :: proc(
 	db: ^Database,
 	token_symbol: string,
-	pool: PoolInfo,
+	pool: models.PoolInfo,
 	liquidity_usd: f64 = 0.0,
 	volume_24h: f64 = 0.0,
 	fee_percent: f64 = 0.0,
 	discovered_at: i64 = 0,
-) -> ErrorType {
+) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(token_symbol) > 0, "Token symbol cannot be empty")
@@ -403,7 +405,7 @@ insert_pool :: proc(
 // ASSERTION 2: Validate symbol is not empty
 //
 // Returns: Token, found flag, and error status
-get_token_by_symbol :: proc(db: ^Database, symbol: string) -> (token: Token, found: bool, err: ErrorType) {
+get_token_by_symbol :: proc(db: ^Database, symbol: string) -> (token: models.Token, found: bool, err: models.ErrorType) {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(symbol) > 0, "Symbol cannot be empty")
@@ -465,7 +467,7 @@ get_token_by_symbol :: proc(db: ^Database, symbol: string) -> (token: Token, fou
 // ASSERTION 2: Contract address must not be empty
 //
 // Returns: Token, found flag, and error status
-get_token_by_contract_address :: proc(db: ^Database, contract_address: string) -> (token: Token, found: bool, err: ErrorType) {
+get_token_by_contract_address :: proc(db: ^Database, contract_address: string) -> (token: models.Token, found: bool, err: models.ErrorType) {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(contract_address) > 0, "Contract address cannot be empty")
@@ -521,7 +523,7 @@ get_token_by_contract_address :: proc(db: ^Database, contract_address: string) -
 // ASSERTION 2: Validate token_id is positive
 //
 // Returns: Array of pools and error status
-get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo, err: ErrorType) {
+get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []models.PoolInfo, err: models.ErrorType) {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(token_id > 0, "Token ID must be positive")
@@ -544,12 +546,12 @@ get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo,
 	sqlite3.bind_int64(stmt, 1, token_id)
 
 	// Collect all pools
-	pool_list := make([dynamic]PoolInfo, 0, 4)
+	pool_list := make([dynamic]models.PoolInfo, 0, 4)
 
 	for {
 		step_result := sqlite3.step(stmt)
 		if step_result == .Row {
-			pool := PoolInfo{
+			pool := models.PoolInfo{
 				dex           = strings.clone(string(sqlite3.column_text(stmt, 0))),
 				pool_address  = strings.clone(string(sqlite3.column_text(stmt, 1))),
 				quote_token   = strings.clone(string(sqlite3.column_text(stmt, 2))),
@@ -578,9 +580,9 @@ get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo,
 // ASSERTION 1: Validate db is not nil
 //
 // Returns: Array of tokens and error status
-get_all_tokens :: proc(db: ^Database) -> (tokens: []Token, err: ErrorType) {
+get_all_tokens :: proc(db: ^Database) -> (tokens: []models.Token, err: models.ErrorType) {
 	// Use command arena for all allocations - data lives until command completes
-	context.allocator = command_allocator()
+	context.allocator = memory.command_allocator()
 
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
@@ -598,13 +600,13 @@ get_all_tokens :: proc(db: ^Database) -> (tokens: []Token, err: ErrorType) {
 	}
 	defer sqlite3.finalize(stmt)
 
-	token_list := make([dynamic]Token, 0, 16)
+	token_list := make([dynamic]models.Token, 0, 16)
 
 	for {
 		step_result := sqlite3.step(stmt)
 		if step_result == .Row {
 			token_id := sqlite3.column_int64(stmt, 0)
-			token := Token{
+			token := models.Token{
 				symbol           = strings.clone(string(sqlite3.column_text(stmt, 1))),
 				name             = strings.clone(string(sqlite3.column_text(stmt, 2))),
 				contract_address = strings.clone(string(sqlite3.column_text(stmt, 3))),
@@ -684,7 +686,7 @@ database_integrity_check :: proc(db: ^Database) -> (ok: bool) {
 // 5. Backup original JSON file
 //
 // Returns: Error status
-migrate_from_json :: proc(db: ^Database, config: TokenConfig) -> ErrorType {
+migrate_from_json :: proc(db: ^Database, config: models.TokenConfig) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(config.tokens) > 0, "Config must have tokens")
@@ -783,7 +785,7 @@ get_default_db_path :: proc() -> string {
 // ASSERTION 3: Validate wallet label is not empty
 //
 // Returns: Error status
-insert_wallet :: proc(db: ^Database, wallet: Wallet) -> ErrorType {
+insert_wallet :: proc(db: ^Database, wallet: models.Wallet) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(wallet.address) > 0, "Wallet address cannot be empty")
@@ -827,9 +829,9 @@ insert_wallet :: proc(db: ^Database, wallet: Wallet) -> ErrorType {
 // ASSERTION 1: Validate db is not nil
 //
 // Returns: Array of wallets and error status
-get_all_wallets :: proc(db: ^Database) -> (wallets: []Wallet, err: ErrorType) {
+get_all_wallets :: proc(db: ^Database) -> (wallets: []models.Wallet, err: models.ErrorType) {
 	// Use command arena for all allocations - data lives until command completes
-	context.allocator = command_allocator()
+	context.allocator = memory.command_allocator()
 
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
@@ -846,12 +848,12 @@ get_all_wallets :: proc(db: ^Database) -> (wallets: []Wallet, err: ErrorType) {
 	}
 	defer sqlite3.finalize(stmt)
 
-	wallet_list := make([dynamic]Wallet, 0, 4)
+	wallet_list := make([dynamic]models.Wallet, 0, 4)
 
 	for {
 		step_result := sqlite3.step(stmt)
 		if step_result == .Row {
-			wallet := Wallet{
+			wallet := models.Wallet{
 				address    = strings.clone(string(sqlite3.column_text(stmt, 0))),
 				label      = strings.clone(string(sqlite3.column_text(stmt, 1))),
 				is_primary = sqlite3.column_int(stmt, 2) == 1,
@@ -884,7 +886,7 @@ update_balance :: proc(
 	amount: f64,
 	usd_price: f64,
 	usd_value: f64,
-) -> ErrorType {
+) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(wallet_address) > 0, "Wallet address cannot be empty")
@@ -934,9 +936,9 @@ update_balance :: proc(
 get_balances_for_wallet :: proc(
 	db: ^Database,
 	wallet_address: string,
-) -> (balances: map[string][3]f64, err: ErrorType) {
+) -> (balances: map[string][3]f64, err: models.ErrorType) {
 	// Use command arena for all allocations - data lives until command completes
-	context.allocator = command_allocator()
+	context.allocator = memory.command_allocator()
 
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
@@ -993,7 +995,7 @@ get_balances_for_wallet :: proc(
 // Used for refresh workflow to remove old pools before re-discovery
 //
 // Returns: Error status
-delete_pools_for_token :: proc(db: ^Database, token_symbol: string) -> ErrorType {
+delete_pools_for_token :: proc(db: ^Database, token_symbol: string) -> models.ErrorType {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(token_symbol) > 0, "Token symbol cannot be empty")
@@ -1047,7 +1049,7 @@ delete_pools_for_token :: proc(db: ^Database, token_symbol: string) -> ErrorType
 // ASSERTION 2: Validate token_symbol is not empty
 //
 // Returns: Pool statistics (count + total liquidity) and error status
-get_pool_stats :: proc(db: ^Database, token_symbol: string) -> (stats: PoolStats, err: ErrorType) {
+get_pool_stats :: proc(db: ^Database, token_symbol: string) -> (stats: PoolStats, err: models.ErrorType) {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(token_symbol) > 0, "Token symbol cannot be empty")

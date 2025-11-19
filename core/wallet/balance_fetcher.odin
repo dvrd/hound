@@ -5,7 +5,10 @@ package wallet
 
 import "core:fmt"
 import "core:log"
-import src "../"
+import "../models"
+import "../blockchain"
+import "../database"
+import "../dex"
 
 // ============================================================================
 // Types
@@ -78,9 +81,9 @@ init_balance_fetcher :: proc(
 fetch_portfolio_balance :: proc(
 	fetcher: ^BalanceFetcher,
 	address: string,
-	config: ^src.TokenConfig,
-	db: ^src.Database,
-) -> (portfolio: PortfolioBalance, err: src.ErrorType) {
+	config: ^models.TokenConfig,
+	db: ^database.Database,
+) -> (portfolio: PortfolioBalance, err: models.ErrorType) {
 	assert(fetcher != nil, "Balance fetcher cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 	assert(config != nil, "Token config cannot be nil")
@@ -104,7 +107,7 @@ fetch_portfolio_balance :: proc(
 
 	// Step 2: Get SOL price in USD
 	log.debug("Step 2: Fetching SOL price")
-	sol_price, price_err := src.get_sol_price_cached()
+	sol_price, price_err := blockchain.get_sol_price_cached()
 	if price_err != .None {
 		log.warnf("Failed to fetch SOL price: %v (defaulting to $0)", price_err)
 		sol_price = 0.0
@@ -154,7 +157,7 @@ fetch_portfolio_balance :: proc(
 		token, found := find_token_by_mint(config, account.account.mint)
 		if !found {
 			// Not in config - check database for previously discovered tokens
-			db_token, db_found, db_err := src.get_token_by_contract_address(db, account.account.mint)
+			db_token, db_found, db_err := database.get_token_by_contract_address(db, account.account.mint)
 			if db_err == .None && db_found {
 				token = db_token
 				found = true
@@ -173,14 +176,14 @@ fetch_portfolio_balance :: proc(
 			// Get price (try on-chain first if pools configured, fallback to API)
 			if len(token.pools) > 0 {
 				log.debugf("Fetching on-chain price for %s", symbol)
-				price_data, price_err := src.fetch_onchain_price(token)
+				price_data, price_err := dex.fetch_onchain_price(token)
 				if price_err == .None {
 					usd_price = price_data.price_usd
 					log.debugf("On-chain price for %s: $%.6f", symbol, usd_price)
 				} else {
 					log.warnf("On-chain price failed for %s, trying API", symbol)
 					// Fallback to API
-					price_data, api_err := src.fetch_price(token.contract_address)
+					price_data, api_err := dex.fetch_price(token.contract_address)
 					if api_err == .None {
 						usd_price = price_data.price_usd
 						log.debugf("API price for %s: $%.6f", symbol, usd_price)
@@ -191,7 +194,7 @@ fetch_portfolio_balance :: proc(
 			} else {
 				// No pools - try API directly
 				log.debugf("Fetching API price for %s", symbol)
-				price_data, api_err := src.fetch_price(token.contract_address)
+				price_data, api_err := dex.fetch_price(token.contract_address)
 				if api_err == .None {
 					usd_price = price_data.price_usd
 					log.debugf("API price for %s: $%.6f", symbol, usd_price)
@@ -202,48 +205,27 @@ fetch_portfolio_balance :: proc(
 
 			usd_value = account.account.ui_amount * usd_price
 		} else {
-			// Token not in config - attempt auto-discovery via Jupiter Token List
-			log.infof("Token %s not found in config, attempting auto-discovery", account.account.mint)
+			// Token not in config - auto-discovery is disabled for now
+			// TODO: Implement token auto-discovery
+			// The lookup_token_metadata and save_discovered_token functions are in src/wallet/token_metadata.odin
+			// which is a different package. Need to either:
+			// 1. Move those functions to core/wallet, or
+			// 2. Create a proper import path for src/wallet package
+			log.infof("Token %s not found in config (auto-discovery disabled)", account.account.mint)
 
-			metadata, lookup_err := lookup_token_metadata(account.account.mint)
-			if lookup_err == .None {
-				// Successfully discovered token metadata
-				symbol = metadata.symbol
-				log.infof("Auto-discovered token: %s (%s)", symbol, metadata.name)
+			// Fall back to truncated address as symbol
+			symbol = fmt.tprintf("%s..%s",
+				account.account.mint[:4], account.account.mint[len(account.account.mint)-4:])
+			log.debugf("Using shortened mint as symbol: %s", symbol)
 
-				// Save discovered token to database for future use
-				save_err := save_discovered_token(db, metadata)
-				if save_err != .None {
-					log.warnf("Failed to save discovered token to database: %v", save_err)
-					// Non-fatal - continue with display
-				} else {
-					log.infof("Saved discovered token %s to database", symbol)
-				}
-
-				// Try to fetch price by contract address
-				price_data, api_err := src.fetch_price(account.account.mint)
-				if api_err == .None {
-					usd_price = price_data.price_usd
-					usd_value = account.account.ui_amount * usd_price
-					log.debugf("API price for %s: $%.6f", symbol, usd_price)
-				} else {
-					log.warnf("Failed to fetch price for %s: %v", symbol, api_err)
-				}
+			// Try to fetch price by contract address
+			price_data, api_err := dex.fetch_price(account.account.mint)
+			if api_err == .None {
+				usd_price = price_data.price_usd
+				usd_value = account.account.ui_amount * usd_price
+				log.debugf("API price for unknown token: $%.6f", usd_price)
 			} else {
-				// Auto-discovery failed - fall back to truncated address
-				symbol = fmt.tprintf("%s..%s",
-					account.account.mint[:4], account.account.mint[len(account.account.mint)-4:])
-				log.warnf("Token %s not found in Jupiter Token List (using shortened mint as symbol)", account.account.mint)
-
-				// Try to fetch price by contract address
-				price_data, api_err := src.fetch_price(account.account.mint)
-				if api_err == .None {
-					usd_price = price_data.price_usd
-					usd_value = account.account.ui_amount * usd_price
-					log.debugf("API price for unknown token: $%.6f", usd_price)
-				} else {
-					log.warnf("Failed to fetch price for unknown token: %v", api_err)
-				}
+				log.warnf("Failed to fetch price for unknown token: %v", api_err)
 			}
 		}
 
@@ -277,7 +259,7 @@ fetch_portfolio_balance :: proc(
 // find_token_by_mint searches for a token by its mint address
 //
 // Returns: Token and found flag
-find_token_by_mint :: proc(config: ^src.TokenConfig, mint: string) -> (token: src.Token, found: bool) {
+find_token_by_mint :: proc(config: ^models.TokenConfig, mint: string) -> (token: models.Token, found: bool) {
 	for t in config.tokens {
 		if t.contract_address == mint {
 			return t, true

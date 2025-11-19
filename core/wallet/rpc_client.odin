@@ -10,7 +10,8 @@ import "core:net"
 import "core:bufio"
 import "core:strings"
 import http_client "../../vendor/odin-http/client"
-import src "../"
+import "../models"
+import "../blockchain"
 
 // ============================================================================
 // Types
@@ -94,7 +95,7 @@ init_rpc_client :: proc(endpoint: string, backups: []string) -> RPCClient {
 // ASSERTION 2: Address must not be empty
 //
 // Returns: Balance in lamports and error status
-get_balance :: proc(client: ^RPCClient, address: string) -> (balance: u64, err: src.ErrorType) {
+get_balance :: proc(client: ^RPCClient, address: string) -> (balance: u64, err: models.ErrorType) {
 	assert(client != nil, "RPC client cannot be nil")
 	assert(len(address) > 0, "Address cannot be empty")
 
@@ -146,7 +147,7 @@ get_balance :: proc(client: ^RPCClient, address: string) -> (balance: u64, err: 
 get_token_accounts_by_owner :: proc(
 	client: ^RPCClient,
 	owner: string,
-) -> (accounts: []TokenAccount, err: src.ErrorType) {
+) -> (accounts: []TokenAccount, err: models.ErrorType) {
 	assert(client != nil, "RPC client cannot be nil")
 	assert(len(owner) > 0, "Owner address cannot be empty")
 
@@ -370,7 +371,7 @@ rpc_request :: proc(
 	client: ^RPCClient,
 	method: string,
 	params: json.Array,
-) -> (result: json.Value, err: src.ErrorType) {
+) -> (result: json.Value, err: models.ErrorType) {
 	assert(client != nil, "RPC client cannot be nil")
 	assert(len(method) > 0, "RPC method cannot be empty")
 

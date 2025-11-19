@@ -4,15 +4,16 @@ package menubar
 
 import "core:fmt"
 import "core:strings"
-import wallet "../wallet"
-import hound "../"
+import models "../../core/models"
+import wallet_mgr "../wallet_manager"
+import wallet_backend "../../core/wallet"
 
 // ============================================================================
 // Menu Creation for Wallet Portfolio
 // ============================================================================
 
 // create_wallet_menu creates a menu showing portfolio balances
-create_wallet_menu :: proc(manager: ^wallet.WalletManager) -> ^NSMenu {
+create_wallet_menu :: proc(manager: ^wallet_mgr.WalletManager) -> ^NSMenu {
 	menu := NSMenu_new()
 
 	// Header: App name
@@ -98,7 +99,7 @@ create_wallet_menu :: proc(manager: ^wallet.WalletManager) -> ^NSMenu {
 // ============================================================================
 
 // update_wallet_display updates menubar title with total portfolio value
-update_wallet_display :: proc(portfolio: wallet.PortfolioBalance) {
+update_wallet_display :: proc(portfolio: wallet_mgr.PortfolioBalance) {
 	if g_status_item == nil do return
 
 	button := NSStatusItem_button(g_status_item)
@@ -118,7 +119,7 @@ update_wallet_display :: proc(portfolio: wallet.PortfolioBalance) {
 }
 
 // update_wallet_menu updates menu items with portfolio data
-update_wallet_menu :: proc(portfolio: wallet.PortfolioBalance) {
+update_wallet_menu :: proc(portfolio: wallet_mgr.PortfolioBalance) {
 	if g_menu == nil do return
 
 	// Menu structure (hardcoded indices):
@@ -149,7 +150,7 @@ update_wallet_menu :: proc(portfolio: wallet.PortfolioBalance) {
 
 	// Update token balances
 	// First, show SOL
-	balance_items := make([dynamic]wallet.TokenBalance, 0, MAX_BALANCE_ITEMS)
+	balance_items := make([dynamic]wallet_backend.TokenBalance, 0, MAX_BALANCE_ITEMS)
 	defer delete(balance_items)
 
 	append(&balance_items, portfolio.sol_balance)
@@ -189,7 +190,7 @@ update_wallet_menu :: proc(portfolio: wallet.PortfolioBalance) {
 // ============================================================================
 
 // show_add_wallet_dialog shows a dialog to add a new wallet address
-show_add_wallet_dialog :: proc(manager: ^wallet.WalletManager) -> (success: bool) {
+show_add_wallet_dialog :: proc(manager: ^wallet_mgr.WalletManager) -> (success: bool) {
 	// Create alert
 	alert := NSAlert_new()
 	NSAlert_setMessageText(alert, NSString_fromString("Add Watch Address"))
@@ -237,7 +238,7 @@ show_add_wallet_dialog :: proc(manager: ^wallet.WalletManager) -> (success: bool
 		}
 
 		// Add to wallet manager
-		err := wallet.add_wallet(manager, address, label, false)
+		err := wallet_mgr.add_wallet(manager, address, label, false)
 		if err != .None {
 			error_msg := fmt.tprintf("Failed to add wallet: %v", err)
 			show_error_alert(error_msg)

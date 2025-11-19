@@ -1,5 +1,5 @@
 #+feature global-context
-package main
+package blockchain
 
 import "core:encoding/base64"
 import "core:encoding/json"
@@ -7,7 +7,9 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:strconv"
-import client "../vendor/odin-http/client"
+import client "../../vendor/odin-http/client"
+import "../models"
+import "../memory"
 
 // RPC connection configuration
 RPCConnection :: struct {
@@ -48,7 +50,7 @@ TokenBalance :: struct {
 }
 
 // Initialize RPC connection
-connect_rpc :: proc(endpoint: string) -> (RPCConnection, ErrorType) {
+connect_rpc :: proc(endpoint: string) -> (RPCConnection, models.ErrorType) {
 	if len(endpoint) == 0 {
 		return {}, .RPCConnectionFailed
 	}
@@ -57,8 +59,8 @@ connect_rpc :: proc(endpoint: string) -> (RPCConnection, ErrorType) {
 }
 
 // Fetch account data from Solana RPC
-get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorType) {
-	arena_alloc := request_allocator()
+get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, models.ErrorType) {
+	arena_alloc := memory.request_allocator()
 
 	// Build RPC request body using json.Value
 	options := json.Object{}
@@ -177,7 +179,7 @@ get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorTy
 }
 
 // Fetch token account balance from Solana RPC
-get_token_balance :: proc(conn: RPCConnection, vault: string) -> (TokenBalance, ErrorType) {
+get_token_balance :: proc(conn: RPCConnection, vault: string) -> (TokenBalance, models.ErrorType) {
 	// Build RPC request body using json.Value
 	options := json.Object{}
 	options["commitment"] = json.String("confirmed")
@@ -324,7 +326,7 @@ base64_decode :: proc(encoded: string, allocator := context.allocator) -> []u8 {
 // - Invalid account data → `.RPCInvalidResponse`
 // - Account not found → `.TokenNotFound`
 // - Decimals out of range → `.RPCInvalidResponse`
-get_token_decimals :: proc(conn: RPCConnection, mint_pubkey: [32]u8) -> (u8, ErrorType) {
+get_token_decimals :: proc(conn: RPCConnection, mint_pubkey: [32]u8) -> (u8, models.ErrorType) {
 	// Convert pubkey to base58 address
 	mint_address := pubkey_to_base58(mint_pubkey)
 

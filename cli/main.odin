@@ -7,6 +7,16 @@ import "core:os"
 import "core:strconv"
 import "core:strings"
 
+import models "../core/models"
+import db "../core/database"
+import memory "../core/memory"
+import blockchain "../core/blockchain"
+import dex "../core/dex"
+import wallet_backend "../core/wallet"
+import wallet_mgr "../src/wallet_manager"
+import token_cfg "../src/token_config"
+import version "../src/version"
+
 // handle_fetch_command implements the "hound fetch <symbol>" workflow
 //
 // Workflow:
@@ -17,12 +27,12 @@ import "core:strings"
 // 5. Display result
 //
 // Progress indicators for slow operations (>1s)
-handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
+handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> models.ErrorType {
 	log.debugf("Fetch command: symbol=%s, force_refresh=%v", symbol, force_refresh)
 
 	// Load token configuration
 	log.debug("Loading token configuration")
-	config, config_err := load_token_config()
+	config, config_err := token_cfg.load_token_config()
 	if config_err != .None {
 		log.errorf("Failed to load token config: %v", config_err)
 		return config_err
@@ -31,7 +41,7 @@ handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
 
 	// Find token by symbol
 	log.debugf("Looking up token: %s", symbol)
-	token, found := find_token_by_symbol(config, symbol)
+	token, found := token_cfg.find_token_by_symbol(config, symbol)
 	if !found {
 		log.warnf("Token not found in configuration: %s", symbol)
 		return .TokenNotConfigured
@@ -39,17 +49,17 @@ handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
 	log.infof("Found token: %s (%s)", token.symbol, token.name)
 
 	// Try on-chain fetch with existing or discovered pools
-	price_data: PriceData
-	err: ErrorType
+	price_data: models.PriceData
+	err: models.ErrorType
 
 	if len(token.pools) > 0 && !force_refresh {
 		// Use existing configured pools
 		log.infof("Using %d configured pool(s)", len(token.pools))
-		price_data, err = fetch_onchain_price(token)
+		price_data, err = dex.fetch_onchain_price(token)
 		if err != .None {
 			log.warnf("On-chain fetch failed (%v), falling back to API", err)
 			fmt.eprintln("On-chain fetch failed, falling back to API...")
-			price_data, err = fetch_price(token.contract_address)
+			price_data, err = dex.fetch_price(token.contract_address)
 		} else {
 			log.info("On-chain price fetch successful")
 		}
@@ -69,14 +79,14 @@ handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
 
 			// Create temporary token with discovered pool
 			token_with_pool := token
-			token_with_pool.pools = []PoolInfo{pool_info}
+			token_with_pool.pools = []models.PoolInfo{pool_info}
 
 			// Fetch price from discovered pool
-			price_data, err = fetch_onchain_price(token_with_pool)
+			price_data, err = dex.fetch_onchain_price(token_with_pool)
 			if err != .None {
 				log.warnf("On-chain fetch failed after discovery (%v), falling back to API", err)
 				fmt.eprintln("Pool fetch failed, falling back to API...")
-				price_data, err = fetch_price(token.contract_address)
+				price_data, err = dex.fetch_price(token.contract_address)
 			} else {
 				log.info("On-chain price fetch successful from discovered pool")
 			}
@@ -84,12 +94,12 @@ handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
 			// Pool discovery failed - fallback to API
 			log.warnf("Pool discovery failed (%v), falling back to API", discovery_err)
 			fmt.eprintln("Pool discovery failed, using API...")
-			price_data, err = fetch_price(token.contract_address)
+			price_data, err = dex.fetch_price(token.contract_address)
 		}
 	}
 
 	// Reset request arena after all RPC operations complete
-	reset_request_arena()
+	memory.reset_request_arena()
 
 	if err != .None {
 		log.errorf("Price fetch failed with error: %v", err)
@@ -102,15 +112,15 @@ handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
 	format_price_output(token.symbol, price_data)
 
 	// Reset command arena and log stats
-	reset_command_arena()
-	log_memory_stats()
+	memory.reset_command_arena()
+	memory.log_memory_stats()
 
 	return .None
 }
 
 // Helper wrapper to pass force_refresh to pool discovery
-discover_and_store_pools_with_refresh :: proc(token: Token, force_refresh: bool) -> (PoolInfo, ErrorType) {
-	return discover_and_store_pools(token, force_refresh)
+discover_and_store_pools_with_refresh :: proc(token: models.Token, force_refresh: bool) -> (models.PoolInfo, models.ErrorType) {
+	return token_cfg.discover_and_store_pools(token, force_refresh)
 }
 
 // handle_add_command implements "hound add <symbol> <name> <address>" workflow
@@ -123,7 +133,7 @@ discover_and_store_pools_with_refresh :: proc(token: Token, force_refresh: bool)
 // 5. Optionally run pool discovery
 //
 // Returns: ErrorType
-handle_add_command :: proc(symbol: string, name: string, address: string) -> ErrorType {
+handle_add_command :: proc(symbol: string, name: string, address: string) -> models.ErrorType {
 	log.debugf("Add command: symbol=%s, name=%s, address=%s", symbol, name, address)
 
 	// Validate contract address format (Solana addresses are base58, typically 32-44 chars)
@@ -136,21 +146,21 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 	}
 
 	// Open or create database
-	db_path := get_database_path()
+	db_path := token_cfg.get_database_path()
 	db_exists := os.exists(db_path)
 
-	db, db_err := database_open(db_path)
+	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
 		fmt.eprintln("Error: Could not open database")
 		return .DatabaseError
 	}
-	defer database_close(db)
+	defer db.database_close(database)
 
 	// Create schema if database is new
 	if !db_exists {
 		log.debug("Creating new database schema")
-		schema_err := create_schema(db)
+		schema_err := db.create_schema(database)
 		if schema_err != .None {
 			log.errorf("Failed to create schema: %v", schema_err)
 			fmt.eprintln("Error: Could not create database schema")
@@ -159,7 +169,7 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 	}
 
 	// Check if token already exists (case-insensitive)
-	existing_token, found, lookup_err := get_token_by_symbol(db, symbol)
+	existing_token, found, lookup_err := db.get_token_by_symbol(database, symbol)
 	if lookup_err != .None {
 		log.errorf("Database lookup failed: %v", lookup_err)
 		fmt.eprintln("Error: Database operation failed")
@@ -174,19 +184,19 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 	}
 
 	// Create token struct
-	token := Token{
+	token := models.Token{
 		symbol           = symbol,
 		name             = name,
 		contract_address = address,
 		chain            = "solana",
 		is_quote_token   = false,
 		usd_price        = 0.0,
-		pools            = []PoolInfo{},
+		pools            = []models.PoolInfo{},
 	}
 
 	// Insert token into database
 	fmt.eprintfln("Adding token: %s (%s)", name, symbol)
-	insert_err := insert_token(db, token)
+	insert_err := db.insert_token(database, token)
 	if insert_err != .None {
 		log.errorf("Failed to insert token: %v", insert_err)
 		fmt.eprintln("Error: Failed to add token to database")
@@ -216,7 +226,7 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 		fmt.eprintln("")
 		fmt.eprintln("Discovering liquidity pools...")
 
-		pool_info, discovery_err := discover_and_store_pools(token, false)
+		pool_info, discovery_err := token_cfg.discover_and_store_pools(token, false)
 		if discovery_err == .None {
 			fmt.eprintfln("✓ Found pool on %s", pool_info.dex)
 			fmt.eprintfln("  Address: %s", pool_info.pool_address)
@@ -235,13 +245,13 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 	}
 
 	// Reset command arena and log stats
-	reset_command_arena()
-	log_memory_stats()
+	memory.reset_command_arena()
+	memory.log_memory_stats()
 
 	return .None
 }
 
-run :: proc() -> ErrorType {
+run :: proc() -> models.ErrorType {
 	// Check arguments
 	if len(os.args) < 2 {
 		log.debug("No arguments provided")
@@ -251,7 +261,7 @@ run :: proc() -> ErrorType {
 	// Parse --memory-stats flag
 	for arg in os.args {
 		if arg == "--memory-stats" {
-			enable_memory_stats()
+			memory.enable_memory_stats()
 			break
 		}
 	}
@@ -262,7 +272,7 @@ run :: proc() -> ErrorType {
 	// Handle version flags
 	if first_arg == "--version" || first_arg == "-v" || first_arg == "version" {
 		log.debug("Version request")
-		fmt.println(get_version_info())
+		fmt.println(version.get_version_info())
 		return .None
 	}
 
@@ -291,7 +301,7 @@ run :: proc() -> ErrorType {
 
 	// Load token configuration (needed for all other commands)
 	log.debug("Loading token configuration")
-	config, config_err := load_token_config()
+	config, config_err := token_cfg.load_token_config()
 	if config_err != .None {
 		log.errorf("Failed to load token config: %v", config_err)
 		return config_err
@@ -301,11 +311,11 @@ run :: proc() -> ErrorType {
 	// Handle "list" command (use enhanced list with stats)
 	if first_arg == "list" {
 		log.debug("Listing all configured tokens with statistics")
-		list_tokens_with_stats(config)
+		token_cfg.list_tokens_with_stats(config)
 
 		// Reset command arena and log stats
-		reset_command_arena()
-		log_memory_stats()
+		memory.reset_command_arena()
+		memory.log_memory_stats()
 
 		return .None
 	}
@@ -351,7 +361,7 @@ main :: proc() {
 	log.debugf("Log level: %v", log_level)
 
 	// Initialize memory arenas
-	mem_err := memory_init()
+	mem_err := memory.memory_init()
 	if mem_err != .None {
 		log.errorf("Failed to initialize memory system: %v", mem_err)
 		fmt.eprintln("Error: Memory initialization failed")
@@ -366,7 +376,7 @@ main :: proc() {
 		token = os.args[1]
 	}
 
-	exit_code := 0
+	exit_code: int
 
 	// Map errors to exit codes and messages
 	#partial switch err {
@@ -538,7 +548,18 @@ main :: proc() {
 	}
 
 	// Cleanup memory arenas and logger before exit
-	memory_shutdown()
+	memory.memory_shutdown()
 	log.destroy_console_logger(context.logger)
 	os.exit(exit_code)
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+// format_price_output displays price data in a user-friendly format
+format_price_output :: proc(symbol: string, data: models.PriceData) {
+	sign := data.change_24h >= 0 ? "+" : ""
+	fmt.printfln("%s: $%.6f (%s%.1f%%)",
+		symbol, data.price_usd, sign, data.change_24h)
 }

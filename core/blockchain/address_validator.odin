@@ -1,10 +1,8 @@
 // Solana address validation module
 // Implements Base58 decoding and validation for Solana wallet addresses
-package wallet
+package blockchain
 
-import "core:slice"
 import "core:log"
-import src "../"
 
 // Base58 alphabet (Bitcoin/Solana variant - excludes 0, O, I, l)
 BASE58_ALPHABET :: "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"

@@ -1,4 +1,4 @@
-package main
+package models
 
 // Error types for the application
 ErrorType :: enum {
@@ -66,4 +66,42 @@ PriceChange :: struct {
 PriceData :: struct {
 	price_usd:   f64,
 	change_24h:  f64,
+}
+
+// PoolInfo represents a liquidity pool for a token
+PoolInfo :: struct {
+	dex:           string, // "raydium"
+	pool_address:  string, // Pool account address
+	quote_token:   string, // "sol", "usdc", etc.
+	pool_type:     string, // "amm_v4"
+	// Pool metadata
+	liquidity_usd: f64,    // Current pool liquidity in USD (0.0 if unknown)
+	volume_24h:    f64,    // 24-hour trading volume (0.0 if unknown)
+	fee_percent:   f64,    // Trading fee percentage (0.0 if unknown)
+	discovered_at: i64,    // Unix timestamp when auto-discovered (0 for manual)
+}
+
+// Token represents a single cryptocurrency token configuration
+Token :: struct {
+	symbol:           string,
+	name:             string,
+	contract_address: string,
+	chain:            string,
+	pools:            []PoolInfo, // Liquidity pools for on-chain pricing
+	is_quote_token:   bool, // True if this is a quote token (SOL, USDC)
+	usd_price:        f64, // USD price for quote tokens
+}
+
+// Wallet represents a Solana wallet address to watch
+Wallet :: struct {
+	address:    string, // Base58-encoded Solana address
+	label:      string, // User-friendly name
+	is_primary: bool,   // Primary wallet for display
+}
+
+// TokenConfig represents the complete token configuration file
+TokenConfig :: struct {
+	version: string,
+	tokens:  []Token,
+	wallets: []Wallet, // Watch-only wallet addresses
 }

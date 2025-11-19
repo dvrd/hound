@@ -1,13 +1,14 @@
 // Token metadata discovery via Jupiter Token List API
 // Automatically discovers token symbol and name for unknown tokens
 #+feature dynamic-literals
-package wallet
+package wallet_manager
 
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
 import http_client "../../vendor/odin-http/client"
-import src "../"
+import models "../../core/models"
+import db "../../core/database"
 
 // ============================================================================
 // Constants
@@ -49,7 +50,7 @@ JupiterToken :: struct {
 // ASSERTION 1: Mint address must not be empty
 //
 // Returns: Token metadata and error status
-lookup_token_metadata :: proc(mint_address: string) -> (TokenMetadata, src.ErrorType) {
+lookup_token_metadata :: proc(mint_address: string) -> (TokenMetadata, models.ErrorType) {
 	assert(len(mint_address) > 0, "Mint address cannot be empty")
 
 	log.debugf("Looking up token metadata for mint: %s", mint_address)
@@ -132,17 +133,17 @@ lookup_token_metadata :: proc(mint_address: string) -> (TokenMetadata, src.Error
 //
 // Returns: Error status
 save_discovered_token :: proc(
-	db: ^src.Database,
+	database: ^db.Database,
 	metadata: TokenMetadata,
-) -> src.ErrorType {
-	assert(db != nil, "Database cannot be nil")
+) -> models.ErrorType {
+	assert(database != nil, "Database cannot be nil")
 	assert(len(metadata.symbol) > 0, "Token symbol cannot be empty")
 
 	log.debugf("Saving discovered token to database: %s (%s)", metadata.symbol, metadata.address)
 
 	// Insert token into database
 	// We'll add it as a token with no pools (wallet-only token)
-	token := src.Token{
+	token := models.Token{
 		symbol           = metadata.symbol,
 		name             = metadata.name,
 		contract_address = metadata.address,
@@ -153,7 +154,7 @@ save_discovered_token :: proc(
 	}
 
 	// Use existing insert_token function
-	insert_err := src.insert_token(db, token)
+	insert_err := db.insert_token(database, token)
 	if insert_err != .None {
 		log.errorf("Failed to save token to database: %v", insert_err)
 		return insert_err

@@ -4,8 +4,10 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 import "base:runtime"
-import hound "../"
-import wallet "../wallet"
+import models "../../core/models"
+import wallet_mgr "../wallet_manager"
+import token_cfg "../token_config"
+import dex "../../core/dex"
 
 // ============================================================================
 // Global State
@@ -15,13 +17,13 @@ g_status_item: ^NSStatusItem
 g_menu: ^NSMenu  // Store menu reference for dynamic updates
 g_timer: ^NSTimer
 g_current_symbol: string
-g_current_price: hound.PriceData
+g_current_price: models.PriceData
 g_price_db: PriceDB
-g_token_config: hound.TokenConfig  // Cached config (loaded once)
+g_token_config: models.TokenConfig  // Cached config (loaded once)
 
 // Wallet support (Phase 1)
-g_wallet_manager: wallet.WalletManager
-g_current_portfolio: wallet.PortfolioBalance
+g_wallet_manager: wallet_mgr.WalletManager
+g_current_portfolio: wallet_mgr.PortfolioBalance
 g_wallet_mode_enabled: bool = false  // Toggle between price tracking and wallet tracking
 
 // Menu item indices (hardcoded based on create_menu structure)
@@ -124,7 +126,7 @@ create_menu :: proc(symbol: string) -> ^NSMenu {
 // Display Update
 // ============================================================================
 
-update_menu_bar_display :: proc(symbol: string, data: hound.PriceData) {
+update_menu_bar_display :: proc(symbol: string, data: models.PriceData) {
     if g_status_item == nil do return
 
     button := NSStatusItem_button(g_status_item)
@@ -147,7 +149,7 @@ update_menu_bar_display :: proc(symbol: string, data: hound.PriceData) {
     fmt.printfln("[%s] Updated display: %s (%s)", time_now_string(), text, strings.to_upper(symbol))
 }
 
-update_menu_prices :: proc(symbol: string, data: hound.PriceData) {
+update_menu_prices :: proc(symbol: string, data: models.PriceData) {
     if g_menu == nil do return
 
     // Update main price item
@@ -194,7 +196,7 @@ fetch_and_update :: proc(symbol: string) {
     fmt.printfln("[%s] Fetching price for %s...", time_now_string(), symbol)
 
     // Use cached config (loaded once at startup)
-    token, found := hound.find_token_by_symbol(g_token_config, symbol)
+    token, found := token_cfg.find_token_by_symbol(g_token_config, symbol)
     if !found {
         fmt.eprintfln("[%s] Token %s not found in config", time_now_string(), symbol)
         button := NSStatusItem_button(g_status_item)
@@ -204,7 +206,7 @@ fetch_and_update :: proc(symbol: string) {
     }
 
     // Fetch price using existing Hound infrastructure
-    data, err := hound.fetch_onchain_price(token)
+    data, err := dex.fetch_onchain_price(token)
 
     if err != .None {
         fmt.eprintfln("[%s] Error fetching price: %v", time_now_string(), err)
@@ -256,7 +258,7 @@ fetch_and_update_portfolio :: proc() {
 	fmt.printfln("[%s] Refreshing wallet portfolios...", time_now_string())
 
 	// Refresh all portfolios
-	err := wallet.refresh_all_portfolios(&g_wallet_manager)
+	err := wallet_mgr.refresh_all_portfolios(&g_wallet_manager)
 	if err != .None {
 		fmt.eprintfln("[%s] Error refreshing portfolios: %v", time_now_string(), err)
 
@@ -269,7 +271,7 @@ fetch_and_update_portfolio :: proc() {
 	}
 
 	// Get aggregated portfolio
-	portfolio := wallet.get_aggregated_portfolio(&g_wallet_manager)
+	portfolio := wallet_mgr.get_aggregated_portfolio(&g_wallet_manager)
 	g_current_portfolio = portfolio
 
 	// Update display
