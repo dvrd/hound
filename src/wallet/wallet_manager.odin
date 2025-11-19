@@ -257,7 +257,7 @@ refresh_all_portfolios :: proc(manager: ^WalletManager) -> src.ErrorType {
 		log.errorf("Failed to get wallets: %v", get_err)
 		return get_err
 	}
-	defer delete(wallets)
+	// NO delete needed - command arena cleanup
 
 	// Refresh each wallet
 	success_count := 0

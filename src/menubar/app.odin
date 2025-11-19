@@ -164,7 +164,7 @@ update_menu_prices :: proc(symbol: string, data: hound.PriceData) {
     // Update history items from database
     history, db_err := get_recent_prices(&g_price_db, symbol, MENU_INDEX_HISTORY_COUNT)
     if db_err == .None && len(history) > 0 {
-        defer delete(history)
+        // NO delete needed - command arena cleanup
 
         for i in 0..<MENU_INDEX_HISTORY_COUNT {
             history_item := NSMenuItem_itemAtIndex(g_menu, MENU_INDEX_HISTORY_START + i)

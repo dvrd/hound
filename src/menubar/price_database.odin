@@ -182,6 +182,9 @@ get_recent_prices :: proc(
     symbol: string,
     limit: int = 10,
 ) -> ([]PriceHistoryEntry, src.ErrorType) {
+    // Use command arena for all allocations - data lives until command completes
+    context.allocator = src.command_allocator()
+
     query_sql := fmt.ctprintf(
         "SELECT id, symbol, price_usd, change_24h, timestamp FROM prices WHERE symbol = ? ORDER BY timestamp DESC, id DESC LIMIT %d",
         limit,
@@ -221,7 +224,7 @@ get_recent_prices :: proc(
         } else {
             errmsg := sqlite3.errmsg(&db.handle)
             fmt.eprintfln("ERROR: Query failed: %s", errmsg)
-            delete(entries)
+            // NO delete needed - command arena will clean up
             return nil, .ConfigNotFound
         }
     }

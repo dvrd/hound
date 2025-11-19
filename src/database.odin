@@ -439,6 +439,11 @@ get_token_by_symbol :: proc(db: ^Database, symbol: string) -> (token: Token, fou
 		pools, pool_err := get_pools_for_token(db, token_id)
 		if pool_err != .None {
 			log.warnf("Failed to fetch pools for token %s", symbol)
+			// Free cloned strings before returning error
+			delete(token.symbol)
+			delete(token.name)
+			delete(token.contract_address)
+			delete(token.chain)
 			return {}, false, pool_err
 		}
 		token.pools = pools
@@ -559,7 +564,7 @@ get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo,
 			break
 		} else {
 			log.errorf("Failed to fetch pools: %v", step_result)
-			delete(pool_list)
+			// NO delete needed - command arena will clean up
 			return nil, .DatabaseError
 		}
 	}
@@ -574,6 +579,9 @@ get_pools_for_token :: proc(db: ^Database, token_id: i64) -> (pools: []PoolInfo,
 //
 // Returns: Array of tokens and error status
 get_all_tokens :: proc(db: ^Database) -> (tokens: []Token, err: ErrorType) {
+	// Use command arena for all allocations - data lives until command completes
+	context.allocator = command_allocator()
+
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 
@@ -609,7 +617,7 @@ get_all_tokens :: proc(db: ^Database) -> (tokens: []Token, err: ErrorType) {
 			pools, pool_err := get_pools_for_token(db, token_id)
 			if pool_err != .None {
 				log.warnf("Failed to fetch pools for token %s", token.symbol)
-				continue
+				continue  // ✓ NO LEAK - command arena will clean up token strings
 			}
 			token.pools = pools
 
@@ -618,7 +626,7 @@ get_all_tokens :: proc(db: ^Database) -> (tokens: []Token, err: ErrorType) {
 			break
 		} else {
 			log.errorf("Failed to fetch tokens: %v", step_result)
-			delete(token_list)
+			// NO delete needed - command arena will clean up
 			return nil, .DatabaseError
 		}
 	}
@@ -820,6 +828,9 @@ insert_wallet :: proc(db: ^Database, wallet: Wallet) -> ErrorType {
 //
 // Returns: Array of wallets and error status
 get_all_wallets :: proc(db: ^Database) -> (wallets: []Wallet, err: ErrorType) {
+	// Use command arena for all allocations - data lives until command completes
+	context.allocator = command_allocator()
+
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 
@@ -850,7 +861,7 @@ get_all_wallets :: proc(db: ^Database) -> (wallets: []Wallet, err: ErrorType) {
 			break
 		} else {
 			log.errorf("Failed to fetch wallets: %v", step_result)
-			delete(wallet_list)
+			// NO delete needed - command arena will clean up
 			return nil, .DatabaseError
 		}
 	}
@@ -924,6 +935,9 @@ get_balances_for_wallet :: proc(
 	db: ^Database,
 	wallet_address: string,
 ) -> (balances: map[string][3]f64, err: ErrorType) {
+	// Use command arena for all allocations - data lives until command completes
+	context.allocator = command_allocator()
+
 	assert(db != nil, "Database handle cannot be nil")
 	assert(db.handle != nil, "Database connection cannot be nil")
 	assert(len(wallet_address) > 0, "Wallet address cannot be empty")
@@ -958,7 +972,7 @@ get_balances_for_wallet :: proc(
 			break
 		} else {
 			log.errorf("Failed to fetch balances: %v", step_result)
-			delete(balance_map)
+			// NO delete needed - command arena will clean up
 			return nil, .DatabaseError
 		}
 	}
