@@ -351,7 +351,7 @@ fetch_onchain_price_raydium_legacy :: proc(token: Token) -> (PriceData, ErrorTyp
 		log.errorf("Failed to fetch pool data: %v", err)
 		return {}, err
 	}
-	defer delete(pool_data)
+	// NO defer delete - get_account_info uses request arena
 	log.debugf("Received %d bytes of pool data", len(pool_data))
 
 	// Decode pool

@@ -58,12 +58,14 @@ connect_rpc :: proc(endpoint: string) -> (RPCConnection, ErrorType) {
 
 // Fetch account data from Solana RPC
 get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorType) {
+	arena_alloc := request_allocator()
+
 	// Build RPC request body using json.Value
 	options := json.Object{}
 	options["encoding"] = json.String("base64")
 	options["commitment"] = json.String("confirmed")
 
-	params := make(json.Array, 2, context.temp_allocator)
+	params := make(json.Array, 2, arena_alloc)
 	params[0] = json.String(address)
 	params[1] = options
 
@@ -107,7 +109,7 @@ get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorTy
 	// Parse JSON response
 	response_json: json.Value
 	spec := json.Specification{}
-	if unmarshal_err := json.unmarshal_string(body_str, &response_json, spec); unmarshal_err != nil {
+	if unmarshal_err := json.unmarshal_string(body_str, &response_json, spec, arena_alloc); unmarshal_err != nil {
 		return nil, .RPCInvalidResponse
 	}
 
@@ -166,7 +168,7 @@ get_account_info :: proc(conn: RPCConnection, address: string) -> ([]u8, ErrorTy
 	}
 
 	// Decode base64
-	decoded := base64_decode(string(encoded_data))
+	decoded := base64_decode(string(encoded_data), arena_alloc)
 	if len(decoded) == 0 {
 		return nil, .RPCInvalidResponse
 	}
@@ -299,7 +301,8 @@ get_token_balance :: proc(conn: RPCConnection, vault: string) -> (TokenBalance, 
 }
 
 // Decode base64 string to bytes
-base64_decode :: proc(encoded: string) -> []u8 {
+base64_decode :: proc(encoded: string, allocator := context.allocator) -> []u8 {
+	context.allocator = allocator
 	decoded, decode_err := base64.decode(encoded)
 	if decode_err != nil {
 		return nil
@@ -333,7 +336,7 @@ get_token_decimals :: proc(conn: RPCConnection, mint_pubkey: [32]u8) -> (u8, Err
 		log.errorf("Failed to fetch mint account: %v", err)
 		return 0, err
 	}
-	defer delete(mint_data)
+	// NO defer delete - arena resets externally
 
 	// Validate account size (SPL Token mint is 82 bytes)
 	if len(mint_data) != 82 {

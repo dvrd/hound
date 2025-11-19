@@ -88,6 +88,9 @@ handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
 		}
 	}
 
+	// Reset request arena after all RPC operations complete
+	reset_request_arena()
+
 	if err != .None {
 		log.errorf("Price fetch failed with error: %v", err)
 		return err
@@ -97,6 +100,10 @@ handle_fetch_command :: proc(symbol: string, force_refresh: bool) -> ErrorType {
 
 	// Display result
 	format_price_output(token.symbol, price_data)
+
+	// Reset command arena and log stats
+	reset_command_arena()
+	log_memory_stats()
 
 	return .None
 }
@@ -227,6 +234,10 @@ handle_add_command :: proc(symbol: string, name: string, address: string) -> Err
 		fmt.eprintfln("Pool discovery skipped. Run 'hound fetch %s' when ready.", symbol)
 	}
 
+	// Reset command arena and log stats
+	reset_command_arena()
+	log_memory_stats()
+
 	return .None
 }
 
@@ -235,6 +246,14 @@ run :: proc() -> ErrorType {
 	if len(os.args) < 2 {
 		log.debug("No arguments provided")
 		return .MissingArgument
+	}
+
+	// Parse --memory-stats flag
+	for arg in os.args {
+		if arg == "--memory-stats" {
+			enable_memory_stats()
+			break
+		}
 	}
 
 	first_arg := os.args[1]
@@ -283,6 +302,11 @@ run :: proc() -> ErrorType {
 	if first_arg == "list" {
 		log.debug("Listing all configured tokens with statistics")
 		list_tokens_with_stats(config)
+
+		// Reset command arena and log stats
+		reset_command_arena()
+		log_memory_stats()
+
 		return .None
 	}
 
@@ -325,6 +349,14 @@ main :: proc() {
 
 	log.debug("Hound price fetcher starting")
 	log.debugf("Log level: %v", log_level)
+
+	// Initialize memory arenas
+	mem_err := memory_init()
+	if mem_err != .None {
+		log.errorf("Failed to initialize memory system: %v", mem_err)
+		fmt.eprintln("Error: Memory initialization failed")
+		os.exit(1)
+	}
 
 	err := run()
 
@@ -505,7 +537,8 @@ main :: proc() {
 		exit_code = 1  // General error
 	}
 
-	// Cleanup logger before exit
+	// Cleanup memory arenas and logger before exit
+	memory_shutdown()
 	log.destroy_console_logger(context.logger)
 	os.exit(exit_code)
 }

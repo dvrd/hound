@@ -121,8 +121,9 @@ route_price_query :: proc(token: Token) -> (DexPriceResult, ErrorType) {
 	log.infof("Routing price query for token: %s (%s)", token.symbol, token.contract_address)
 
 	// Convert pools to DEX configs with priorities
-	dex_configs := make([dynamic]DexPoolConfig, 0, len(token.pools))
-	defer delete(dex_configs)
+	arena_alloc := request_allocator()
+	dex_configs := make([dynamic]DexPoolConfig, 0, len(token.pools), arena_alloc)
+	// NO defer delete - request arena cleaned externally
 
 	for pool, idx in token.pools {
 		// Priority based on order in config (first = highest priority)
@@ -240,7 +241,7 @@ fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 		log.errorf("Failed to fetch Orca pool data: %v", err)
 		return {}, err
 	}
-	defer delete(pool_data)
+	// NO defer delete - get_account_info uses request arena
 	log.debugf("Received %d bytes of pool data", len(pool_data))
 
 	// 3. Decode Orca Whirlpool State
@@ -361,7 +362,7 @@ fetch_raydium_clmm_price :: proc(config: DexPoolConfig, token: Token) -> (DexPri
 		log.errorf("Failed to fetch Raydium CLMM pool data: %v", err)
 		return {}, err
 	}
-	defer delete(pool_data)
+	// NO defer delete - get_account_info uses request arena
 
 	log.debugf("Received %d bytes of Raydium CLMM pool data", len(pool_data))
 
@@ -440,7 +441,7 @@ fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: Token) -> (DexP
 		log.errorf("Failed to fetch Raydium AMM V4 pool data: %v", err)
 		return {}, err
 	}
-	defer delete(pool_data)
+	// NO defer delete - get_account_info uses request arena
 
 	log.debugf("Received %d bytes of Raydium AMM V4 pool data", len(pool_data))
 
