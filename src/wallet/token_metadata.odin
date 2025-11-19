@@ -55,7 +55,8 @@ lookup_token_metadata :: proc(mint_address: string) -> (TokenMetadata, src.Error
 	log.debugf("Looking up token metadata for mint: %s", mint_address)
 
 	// Build search URL with mint address as query parameter
-	search_url := fmt.tprintf("%s/search?query=%s", JUPITER_TOKEN_API_BASE, mint_address)
+	// Using aprintf to allocate string that we can properly free
+	search_url := fmt.aprintf("%s/search?query=%s", JUPITER_TOKEN_API_BASE, mint_address)
 	defer delete(search_url)
 
 	// Make HTTP GET request to Jupiter Token API V2
