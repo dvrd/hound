@@ -13,7 +13,8 @@ import src "../"
 // Constants
 // ============================================================================
 
-JUPITER_TOKEN_LIST_URL :: "https://token.jup.ag/strict"
+// Jupiter Token API V2
+JUPITER_TOKEN_API_BASE :: "https://lite-api.jup.ag/tokens/v2"
 
 // ============================================================================
 // Types
@@ -27,23 +28,22 @@ TokenMetadata :: struct {
 	decimals: int,
 }
 
-// JupiterToken represents a token from Jupiter's API response
+// JupiterToken represents a token from Jupiter's API V2 response
 JupiterToken :: struct {
-	address:  string,
-	chainId:  int,
-	decimals: int,
+	id:       string, // mint address
 	name:     string,
 	symbol:   string,
-	logoURI:  string,
+	icon:     string,
+	decimals: int,
 }
 
 // ============================================================================
 // Token Metadata Discovery
 // ============================================================================
 
-// lookup_token_metadata fetches token symbol and name from Jupiter Token List
+// lookup_token_metadata fetches token symbol and name from Jupiter Token API V2
 //
-// This function queries Jupiter's curated token list to discover metadata
+// This function queries Jupiter's Token API V2 search endpoint to discover metadata
 // for unknown tokens found in user wallets.
 //
 // ASSERTION 1: Mint address must not be empty
@@ -54,12 +54,16 @@ lookup_token_metadata :: proc(mint_address: string) -> (TokenMetadata, src.Error
 
 	log.debugf("Looking up token metadata for mint: %s", mint_address)
 
-	// Make HTTP GET request to Jupiter Token List
+	// Build search URL with mint address as query parameter
+	search_url := fmt.tprintf("%s/search?query=%s", JUPITER_TOKEN_API_BASE, mint_address)
+	defer delete(search_url)
+
+	// Make HTTP GET request to Jupiter Token API V2
 	request: http_client.Request
 	http_client.request_init(&request, .Get)
 	defer http_client.request_destroy(&request)
 
-	res, http_err := http_client.request(&request, JUPITER_TOKEN_LIST_URL)
+	res, http_err := http_client.request(&request, search_url)
 	if http_err != nil {
 		log.errorf("HTTP request failed for token lookup: %v", http_err)
 		return {}, .NetworkError
@@ -70,7 +74,7 @@ lookup_token_metadata :: proc(mint_address: string) -> (TokenMetadata, src.Error
 	#partial switch res.status {
 	case .OK:
 		// Success
-		log.debug("Jupiter Token List fetched successfully")
+		log.debug("Jupiter Token API V2 response received")
 	case:
 		log.warnf("HTTP error status from Jupiter: %v", res.status)
 		return {}, .NetworkError
@@ -84,34 +88,33 @@ lookup_token_metadata :: proc(mint_address: string) -> (TokenMetadata, src.Error
 	}
 	defer http_client.body_destroy(body, allocation)
 
-	// Parse JSON array of tokens
+	// Parse JSON array of token results
 	tokens: []JupiterToken
 	parse_err := json.unmarshal_string(body.(string), &tokens)
 	if parse_err != nil {
-		log.errorf("Failed to parse Jupiter token list: %v", parse_err)
+		log.errorf("Failed to parse Jupiter token response: %v", parse_err)
 		return {}, .ParseError
 	}
 	defer delete(tokens)
 
-	// Search for token by mint address
-	for token in tokens {
-		if token.address == mint_address {
-			log.infof("Found token: %s (%s)", token.symbol, token.name)
-
-			metadata := TokenMetadata{
-				address  = token.address,
-				symbol   = token.symbol,
-				name     = token.name,
-				decimals = token.decimals,
-			}
-
-			return metadata, .None
-		}
+	// Check if we got any results
+	if len(tokens) == 0 {
+		log.warnf("Token %s not found in Jupiter Token API", mint_address)
+		return {}, .TokenNotFound
 	}
 
-	// Token not found in Jupiter list
-	log.warnf("Token %s not found in Jupiter Token List", mint_address)
-	return {}, .TokenNotFound
+	// Use first result (exact match)
+	token := tokens[0]
+	log.infof("Found token: %s (%s)", token.symbol, token.name)
+
+	metadata := TokenMetadata{
+		address  = token.id,
+		symbol   = token.symbol,
+		name     = token.name,
+		decimals = token.decimals,
+	}
+
+	return metadata, .None
 }
 
 // ============================================================================
