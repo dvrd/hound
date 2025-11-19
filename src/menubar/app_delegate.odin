@@ -64,6 +64,10 @@ app_did_finish_launching :: proc "c" (
                     g_wallet_mode_enabled = false
                 } else {
                     g_wallet_manager = manager
+                    // CRITICAL: Fix balance_fetcher pointer after struct copy
+                    // The balance_fetcher.rpc_client pointer still points to the old local manager's rpc_client
+                    // We need to update it to point to g_wallet_manager.rpc_client
+                    g_wallet_manager.balance_fetcher.rpc_client = &g_wallet_manager.rpc_client
                     fmt.println("Wallet manager initialized")
                 }
             }
@@ -97,16 +101,16 @@ app_did_finish_launching :: proc "c" (
 
     NSStatusItem_setMenu(g_status_item, g_menu)
 
-    // Schedule initial fetch after 0.5s delay (avoid crash during app launch)
+    // Schedule initial fetch after 2s delay (avoid crash during app launch)
     // This gives macOS networking stack time to fully initialize
     initial_timer := NSTimer_scheduledTimerWithTimeInterval(
-        0.5,                          // 0.5 second delay
+        2.0,                          // 2 second delay
         id(self),                     // target (retained by timer)
         selector("timerFired:"),      // selector
         nil,                          // userInfo
         false,                        // repeats = false (one-shot)
     )
-    fmt.println("Scheduled initial fetch (0.5s delay)")
+    fmt.println("Scheduled initial fetch (2s delay)")
 
     // Start recurring timer (5 second interval, repeating)
     g_timer = NSTimer_scheduledTimerWithTimeInterval(

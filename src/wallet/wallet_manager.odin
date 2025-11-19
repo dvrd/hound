@@ -44,21 +44,22 @@ init_wallet_manager :: proc(
 	rpc_client := init_rpc_client(rpc_endpoint, backup_endpoints)
 	log.debugf("RPC client initialized with endpoint: %s", rpc_endpoint)
 
-	// Initialize balance fetcher
-	price_fetcher := PriceFetcher{}  // Empty placeholder
-	balance_fetcher := init_balance_fetcher(&rpc_client, &price_fetcher)
-	log.debug("Balance fetcher initialized")
-
 	// Create portfolio map
 	portfolios := make(map[string]PortfolioBalance)
 
+	// Create manager first
 	manager := WalletManager{
 		config          = config,
 		rpc_client      = rpc_client,
-		balance_fetcher = balance_fetcher,
+		balance_fetcher = {},  // Initialize empty, set below
 		portfolios      = portfolios,
 		db              = db,
 	}
+
+	// Now initialize balance fetcher with pointer to manager's rpc_client
+	price_fetcher := PriceFetcher{}  // Empty placeholder
+	manager.balance_fetcher = init_balance_fetcher(&manager.rpc_client, &price_fetcher)
+	log.debug("Balance fetcher initialized")
 
 	log.info("Wallet manager initialized successfully")
 	return manager, .None
