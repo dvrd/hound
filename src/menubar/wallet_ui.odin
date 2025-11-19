@@ -56,6 +56,14 @@ create_wallet_menu :: proc(manager: ^wallet.WalletManager) -> ^NSMenu {
 
 	NSMenu_addItem(menu, NSMenuItem_separatorItem())
 
+	// Swap button (Phase 2)
+	swap_item := NSMenuItem_new(
+		NSString_fromString("💱 Swap Tokens"),
+		selector("showSwapDialog:"),
+		NSString_fromString("w"),
+	)
+	NSMenu_addItem(menu, swap_item)
+
 	// Manage Wallets button
 	manage_item := NSMenuItem_new(
 		NSString_fromString("⚙ Manage Wallets"),

@@ -178,6 +178,23 @@ refresh_portfolio_action :: proc "c" (
     fetch_and_update_portfolio()
 }
 
+@(objc_type=HoundAppDelegate, objc_name="showSwapDialog", objc_is_class_method=false)
+show_swap_dialog_action :: proc "c" (
+    self: ^HoundAppDelegate,
+    _: SEL,
+    sender: id,
+) {
+    context = runtime.default_context()  // CRITICAL: Set context FIRST
+
+    fmt.println("Swap Tokens triggered")
+
+    // Show swap dialog
+    success := show_swap_dialog(&g_wallet_manager)
+    if success {
+        fmt.println("Swap transaction created successfully")
+    }
+}
+
 @(objc_type=HoundAppDelegate, objc_name="manageWallets", objc_is_class_method=false)
 manage_wallets_action :: proc "c" (
     self: ^HoundAppDelegate,
@@ -257,6 +274,13 @@ main :: proc() {
         delegate_class,
         selector("refreshPortfolio:"),
         auto_cast refresh_portfolio_action,
+        "v@:@",  // void, self, SEL, id
+    )
+
+    class_addMethod(
+        delegate_class,
+        selector("showSwapDialog:"),
+        auto_cast show_swap_dialog_action,
         "v@:@",  // void, self, SEL, id
     )
 

@@ -101,6 +101,9 @@ NSTextField :: struct {using _: Object}
 @(objc_class="NSView")
 NSView :: struct {using _: Object}
 
+@(objc_class="NSPasteboard")
+NSPasteboard :: struct {using _: Object}
+
 // NSRect for view frames
 NSRect :: struct {
 	x, y, width, height: CGFloat,
@@ -473,4 +476,29 @@ NSView_newWithFrame :: proc(frame: NSRect) -> ^NSView {
 
 NSView_addSubview :: proc(view: ^NSView, subview: ^NSView) {
 	msgSend(nil, view, "addSubview:", subview)
+}
+
+// ============================================================================
+// NSPasteboard (Clipboard)
+// ============================================================================
+
+// Pasteboard type constants
+foreign Foundation {
+	NSPasteboardTypeString: ^NSString
+}
+
+NSPasteboard_generalPasteboard :: proc() -> ^NSPasteboard {
+	return msgSend(^NSPasteboard, NSPasteboard, "generalPasteboard")
+}
+
+NSPasteboard_clearContents :: proc(pasteboard: ^NSPasteboard) -> int {
+	return msgSend(int, pasteboard, "clearContents")
+}
+
+NSPasteboard_setString :: proc(pasteboard: ^NSPasteboard, str: ^NSString, data_type: ^NSString) -> bool {
+	return msgSend(bool, pasteboard, "setString:forType:", str, data_type)
+}
+
+NSPasteboard_stringForType :: proc(pasteboard: ^NSPasteboard, data_type: ^NSString) -> ^NSString {
+	return msgSend(^NSString, pasteboard, "stringForType:", data_type)
 }
