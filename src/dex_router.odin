@@ -209,35 +209,108 @@ fetch_from_dex :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, 
 
 // Fetch price from Orca Whirlpool CLMM pool
 //
-// ASSERTION 1: Validate pool address
-// ASSERTION 2: Validate quote token
+// Implementation details:
+// 1. Fetches pool account data via Solana RPC (653 bytes)
+// 2. Decodes Orca Whirlpool state structure
+// 3. Fetches token decimals from SPL Token mint accounts (key difference from Raydium)
+// 4. Calculates price using Q64.64 sqrt_price format
+// 5. Converts to USD using SOL oracle or stablecoin price
 //
-// Steps:
-// 1. Fetch pool account data from Solana RPC
-// 2. Decode Whirlpool state (using orca_decoder)
-// 3. Convert sqrt_price to real price
-// 4. Fetch quote token price (SOL/USDC) and convert to USD
+// Error handling:
+// - .RPCConnectionFailed: Cannot connect to Solana RPC
+// - .RPCInvalidResponse: Malformed RPC response or account data
+// - .PoolDataInvalid: Pool decoding failed or zero liquidity
+// - .TokenNotFound: Pool account or mint accounts don't exist
+// - .OracleConnectionFailed: Cannot fetch SOL price for USD conversion
+//
+// Returns: DexPriceResult with price_usd, source (.Orca_Whirlpool), and pool_address
 fetch_orca_whirlpool_price :: proc(config: DexPoolConfig, token: Token) -> (DexPriceResult, ErrorType) {
 	assert(len(config.pool_address) > 0, "Orca pool address cannot be empty")
 	assert(len(config.quote_token) > 0, "Quote token cannot be empty")
 
 	log.infof("Fetching from Orca Whirlpool: %s (quote: %s)", config.pool_address, config.quote_token)
 
-	// TODO: Implement Orca Whirlpool price fetching
-	// 1. Fetch pool account data via RPC
-	// 2. Decode Whirlpool state
-	// 3. Get token decimals for both tokens
-	// 4. Convert sqrt_price to price using sqrt_price_to_price()
-	// 5. Fetch quote token price (SOL or USDC)
-	// 6. Calculate token USD price
-	//
-	// This requires:
-	// - RPC client integration (from existing solana_rpc.odin)
-	// - Token mint account fetching for decimals
-	// - Quote token price oracle (SOL from sol_oracle, USDC = $1)
+	// 1. Setup RPC Connection
+	conn := RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	log.debugf("RPC endpoint: %s, timeout: %dms", conn.endpoint, conn.timeout)
 
-	log.warn("Orca Whirlpool fetching not yet implemented - returning error")
-	return {}, .PoolDataInvalid
+	// 2. Fetch Pool Account Data
+	pool_data, err := get_account_info(conn, config.pool_address)
+	if err != .None {
+		log.errorf("Failed to fetch Orca pool data: %v", err)
+		return {}, err
+	}
+	defer delete(pool_data)
+	log.debugf("Received %d bytes of pool data", len(pool_data))
+
+	// 3. Decode Orca Whirlpool State
+	pool_state, ok := decode_orca_whirlpool(pool_data)
+	if !ok {
+		log.error("Pool data decoding failed")
+		return {}, .PoolDataInvalid
+	}
+	log.debugf("Pool decoded - sqrt_price: %v, liquidity: %v", pool_state.sqrt_price, pool_state.liquidity)
+
+	// 4. Validate Liquidity
+	if pool_state.liquidity == 0 {
+		log.error("Pool has zero liquidity")
+		return {}, .PoolDataInvalid
+	}
+
+	// 5. Fetch Token Decimals (KEY DIFFERENCE - Orca doesn't embed decimals)
+	decimals_a, err_a := get_token_decimals(conn, pool_state.token_mint_a)
+	if err_a != .None {
+		log.errorf("Failed to fetch decimals for token A: %v", err_a)
+		return {}, err_a
+	}
+
+	decimals_b, err_b := get_token_decimals(conn, pool_state.token_mint_b)
+	if err_b != .None {
+		log.errorf("Failed to fetch decimals for token B: %v", err_b)
+		return {}, err_b
+	}
+
+	log.debugf("Token decimals: A=%d, B=%d", decimals_a, decimals_b)
+
+	// 6. Calculate Price in Quote Token
+	price_in_quote := sqrt_price_to_price(pool_state.sqrt_price, decimals_a, decimals_b)
+	log.debugf("Price in quote token: %.18f", price_in_quote)
+
+	// 7. Fetch Quote Token USD Price
+	quote_usd_price: f64
+	lower_quote := strings.to_lower(config.quote_token)
+
+	switch lower_quote {
+	case "sol", "wsol":
+		sol_price, sol_err := get_sol_price_cached()
+		if sol_err != .None {
+			log.errorf("Failed to get SOL price: %v", sol_err)
+			return {}, sol_err
+		}
+		quote_usd_price = sol_price
+		log.debugf("SOL/USD price: $%.2f", quote_usd_price)
+
+	case "usdc", "usdt":
+		quote_usd_price = 1.0
+		log.debug("Using 1.0 for stablecoin quote")
+
+	case:
+		log.errorf("Unsupported quote token: %s", config.quote_token)
+		return {}, .PoolDataInvalid
+	}
+
+	// 8. Convert to USD
+	price_usd := price_in_quote * quote_usd_price
+	log.debugf("Calculated USD price: $%.6f (%.9f %s × $%.2f)",
+		price_usd, price_in_quote, config.quote_token, quote_usd_price)
+
+	// 9. Return Result
+	log.info("Orca Whirlpool price fetch completed successfully")
+	return DexPriceResult{
+		price_usd    = price_usd,
+		source       = .Orca_Whirlpool,
+		pool_address = config.pool_address,
+	}, .None
 }
 
 // Fetch price from Jupiter Aggregator API

@@ -54,25 +54,26 @@ OrcaWhirlpoolState :: struct {
 // ASSERTION 2: TigerBeetle safety - validate sqrt_price is within bounds
 // ASSERTION 3: TigerBeetle safety - validate tick is within bounds
 decode_orca_whirlpool :: proc(data: []u8) -> (OrcaWhirlpoolState, bool) {
-	// ASSERTION 1: Validate data length (must be 653 or 661 bytes)
+	// ASSERTION 1: Validate data length (653 bytes includes discriminator, 645 bytes without)
+	// Note: 653 = 8-byte discriminator + 645 bytes of actual data
 	assert(
-		len(data) == 653 || len(data) == 661,
-		"Whirlpool account data must be 653 bytes (without discriminator) or 661 bytes (with discriminator)",
+		len(data) == 645 || len(data) == 653,
+		"Whirlpool account data must be 645 bytes (without discriminator) or 653 bytes (with discriminator)",
 	)
 
 	log.debugf("Decoding Orca Whirlpool account (%d bytes)", len(data))
 
 	// Handle discriminator if present (8 bytes)
 	offset := 0
-	if len(data) == 661 {
+	if len(data) == 653 {
 		// Skip 8-byte Anchor discriminator
 		offset = 8
 		log.debug("Skipping 8-byte Anchor discriminator")
 	}
 
-	// Validate remaining data is 653 bytes
-	if len(data) - offset != 653 {
-		log.errorf("Invalid Whirlpool data length: %d (expected 653 after discriminator)", len(data) - offset)
+	// Validate remaining data is 645 bytes
+	if len(data) - offset != 645 {
+		log.errorf("Invalid Whirlpool data length: %d (expected 645 after discriminator)", len(data) - offset)
 		return {}, false
 	}
 

@@ -306,3 +306,50 @@ base64_decode :: proc(encoded: string) -> []u8 {
 	}
 	return decoded
 }
+
+// Fetch decimals from SPL Token mint account
+//
+// SPL Token mint structure (82 bytes):
+// - Bytes 0-35: Mint authority (COption<Pubkey>)
+// - Bytes 36-43: Supply (u64)
+// - Byte 44: Decimals (u8) ← TARGET
+// - Byte 45: Is initialized (bool)
+// - Bytes 46-81: Freeze authority (COption<Pubkey>)
+//
+// Error handling:
+// - RPC connection failures → `.RPCConnectionFailed`
+// - Invalid account data → `.RPCInvalidResponse`
+// - Account not found → `.TokenNotFound`
+// - Decimals out of range → `.RPCInvalidResponse`
+get_token_decimals :: proc(conn: RPCConnection, mint_pubkey: [32]u8) -> (u8, ErrorType) {
+	// Convert pubkey to base58 address
+	mint_address := pubkey_to_base58(mint_pubkey)
+
+	log.debugf("Fetching decimals for mint: %s", mint_address)
+
+	// Fetch mint account data
+	mint_data, err := get_account_info(conn, mint_address)
+	if err != .None {
+		log.errorf("Failed to fetch mint account: %v", err)
+		return 0, err
+	}
+	defer delete(mint_data)
+
+	// Validate account size (SPL Token mint is 82 bytes)
+	if len(mint_data) != 82 {
+		log.errorf("Invalid mint account size: %d (expected 82)", len(mint_data))
+		return 0, .RPCInvalidResponse
+	}
+
+	// Extract decimals at byte 44
+	decimals := mint_data[44]
+
+	// Validate decimals (typical range: 0-18)
+	if decimals > 18 {
+		log.errorf("Unreasonable decimals value: %d", decimals)
+		return 0, .RPCInvalidResponse
+	}
+
+	log.debugf("Mint decimals: %d", decimals)
+	return decimals, .None
+}
