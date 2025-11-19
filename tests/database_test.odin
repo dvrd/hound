@@ -126,6 +126,7 @@ test_case_insensitive_lookup :: proc(t: ^testing.T) {
 	defer src.database_close(db)
 
 	src.create_schema(db)
+	src.migrate_schema_5_3(db)  // Add pool metadata columns
 
 	// Insert with uppercase
 	test_token := src.Token{
@@ -165,6 +166,7 @@ test_insert_and_retrieve_pools :: proc(t: ^testing.T) {
 	defer src.database_close(db)
 
 	src.create_schema(db)
+	src.migrate_schema_5_3(db)  // Add pool metadata columns
 
 	// Insert token
 	test_token := src.Token{
@@ -243,6 +245,7 @@ test_get_all_tokens :: proc(t: ^testing.T) {
 	defer src.database_close(db)
 
 	src.create_schema(db)
+	src.migrate_schema_5_3(db)  // Add pool metadata columns
 
 	// Insert multiple tokens
 	tokens_to_insert := []src.Token{
@@ -303,6 +306,7 @@ test_database_integrity_check :: proc(t: ^testing.T) {
 	defer src.database_close(db)
 
 	src.create_schema(db)
+	src.migrate_schema_5_3(db)  // Add pool metadata columns
 
 	// Insert some data
 	test_token := src.Token{
@@ -331,6 +335,7 @@ test_migrate_from_json :: proc(t: ^testing.T) {
 	defer src.database_close(db)
 
 	src.create_schema(db)
+	src.migrate_schema_5_3(db)  // Add pool metadata columns
 
 	// Create test config
 	test_config := src.TokenConfig{

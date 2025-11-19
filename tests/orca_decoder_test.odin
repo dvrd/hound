@@ -154,8 +154,8 @@ test_decode_orca_whirlpool_invalid_size :: proc(t: ^testing.T) {
 
 @(test)
 test_decode_orca_whirlpool_correct_size_653 :: proc(t: ^testing.T) {
-	// Test with correct size (653 bytes without discriminator)
-	data := make([]u8, 653)
+	// Test with correct size (645 bytes without discriminator)
+	data := make([]u8, 645)
 	defer delete(data)
 
 	// Set some recognizable values
@@ -184,7 +184,7 @@ test_decode_orca_whirlpool_correct_size_653 :: proc(t: ^testing.T) {
 
 	pool, ok := src.decode_orca_whirlpool(data)
 
-	testing.expect(t, ok, "Should accept data with correct size (653 bytes)")
+	testing.expect(t, ok, "Should accept data with correct size (645 bytes)")
 	testing.expect(t, pool.tick_spacing == 64,
 		fmt.tprintf("Expected tick_spacing=64, got %d", pool.tick_spacing))
 	testing.expect(t, pool.fee_rate == 300,
@@ -193,8 +193,8 @@ test_decode_orca_whirlpool_correct_size_653 :: proc(t: ^testing.T) {
 
 @(test)
 test_decode_orca_whirlpool_correct_size_661 :: proc(t: ^testing.T) {
-	// Test with correct size (661 bytes with 8-byte discriminator)
-	data := make([]u8, 661)
+	// Test with correct size (653 bytes with 8-byte discriminator)
+	data := make([]u8, 653)
 	defer delete(data)
 
 	// Set discriminator (first 8 bytes)
@@ -214,7 +214,7 @@ test_decode_orca_whirlpool_correct_size_661 :: proc(t: ^testing.T) {
 
 	pool, ok := src.decode_orca_whirlpool(data)
 
-	testing.expect(t, ok, "Should accept data with correct size (661 bytes with discriminator)")
+	testing.expect(t, ok, "Should accept data with correct size (653 bytes with discriminator)")
 	testing.expect(t, pool.tick_spacing == 128,
 		fmt.tprintf("Expected tick_spacing=128, got %d", pool.tick_spacing))
 }
@@ -294,7 +294,7 @@ test_sqrt_price_to_price_realistic_value :: proc(t: ^testing.T) {
 @(test)
 test_decode_orca_whirlpool_field_offsets :: proc(t: ^testing.T) {
 	// Test that critical fields are at correct offsets
-	data := make([]u8, 653)
+	data := make([]u8, 645)
 	defer delete(data)
 
 	// Set token_mint_a at offset 93 (without discriminator offset)
