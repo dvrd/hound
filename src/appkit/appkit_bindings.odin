@@ -1,6 +1,6 @@
 // Minimal AppKit and Foundation bindings for macOS menu bar app
 // Only includes what's needed - no bloat!
-package menubar
+package appkit
 
 import "base:intrinsics"
 import "base:runtime"

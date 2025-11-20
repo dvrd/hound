@@ -34,7 +34,7 @@ RESOURCES_DIR="$CONTENTS_DIR/Resources"
 # Step 1: Build Odin binary
 echo -e "${YELLOW}⚙${NC} Building Odin binary..."
 mkdir -p bin
-odin build src/menubar -out:bin/hound-menubar -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation -lsqlite3"
+odin build src/menubar_main -out:bin/hound-menubar -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation -lsqlite3"
 
 if [ ! -f "bin/hound-menubar" ]; then
     echo -e "${RED}✗${NC} Build failed - binary not created"

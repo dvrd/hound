@@ -1,14 +1,22 @@
 // Objective-C delegate and callbacks
+// PATTERN: Callbacks orchestrate handlers + views (no direct service calls)
 package menubar
 
 import "core:fmt"
-import "core:os"
-import "core:path/filepath"
+import "core:log"
 import "base:runtime"
-import models "../lib/models"
-import db "../lib/database"
-import wallet "../lib/wallet"
-import token_cfg "../lib/config"
+import appkit "../appkit"
+import state "./state"
+import handlers "./handlers"
+import views "./views"
+
+// ============================================================================
+// Global State
+// ============================================================================
+
+// Global state pointer (required for Objective-C callback context)
+// GOTCHA: Cannot avoid this global due to Objective-C callback ABI
+g_menubar_state: ^state.MenuBarState
 
 // ============================================================================
 // Delegate Class Definition
@@ -21,129 +29,82 @@ HoundAppDelegate :: struct {}  // MUST be zero-size
 // App Lifecycle Callbacks
 // ============================================================================
 
+// PATTERN: applicationDidFinishLaunching is now a minimal callback
+// All initialization happens in main.odin before NSApplication_run
 @(objc_type=HoundAppDelegate, objc_name="applicationDidFinishLaunching", objc_is_class_method=false)
 app_did_finish_launching :: proc "c" (
     self: ^HoundAppDelegate,
-    _: SEL,
-    notification: ^NSNotification,
+    _: appkit.SEL,
+    notification: ^appkit.NSNotification,
 ) {
     context = runtime.default_context()  // CRITICAL: Set context FIRST
 
     fmt.println("Hound menu bar app launched!")
 
-    // Load token config (once at startup)
-    config, config_err := token_cfg.load_token_config()
-    if config_err != .None {
-        fmt.eprintln("ERROR: Failed to load token configuration")
-        fmt.eprintln("Please create ~/.config/hound/tokens.json with your token definitions.")
-        // Continue anyway - will show error on each fetch attempt
-    } else {
-        g_token_config = config
-        fmt.printfln("Loaded %d tokens from configuration", len(config.tokens))
+    // PATTERN: State is already initialized in main.odin
+    // This callback just confirms the app is ready
+    if g_menubar_state == nil {
+        log.error("ERROR: MenuBarState not initialized - app will not function correctly")
+        return
     }
 
-    // Check if database exists to determine mode
-    home, found := os.lookup_env("HOME")
-    if found && len(home) > 0 {
-        db_path := filepath.join({home, ".config", "hound", "hound.db"})
-        if os.exists(db_path) {
-            fmt.println("Database found - enabling wallet mode")
-            g_wallet_mode_enabled = true
-
-            // Open database
-            database, db_err := db.database_open(db_path)
-            if db_err != .None {
-                fmt.eprintfln("ERROR: Failed to open database: %v", db_err)
-                g_wallet_mode_enabled = false
-            } else {
-                // Initialize wallet manager
-                rpc_endpoint := "https://api.mainnet-beta.solana.com"
-                backup_endpoints: []string = nil
-
-                manager, init_err := wallet.init_wallet_manager(&g_token_config, database, rpc_endpoint, backup_endpoints)
-                if init_err != .None {
-                    fmt.eprintfln("ERROR: Failed to initialize wallet manager: %v", init_err)
-                    g_wallet_mode_enabled = false
-                } else {
-                    g_wallet_manager = manager
-                    // CRITICAL: Fix pointers after struct copy
-                    // When we copy the manager struct, all pointers still point to the local 'manager' variable
-                    // We need to update them to point to g_wallet_manager fields
-                    g_wallet_manager.balance_fetcher.rpc_client = &g_wallet_manager.rpc_client
-                    fmt.println("Wallet manager initialized")
-                }
-            }
-        } else {
-            fmt.println("Database not found - using price tracking mode")
-        }
-    }
-
-    // Create status item
-    g_status_item = create_status_item()
-
-    // Create menu based on mode
-    if g_wallet_mode_enabled {
-        g_menu = create_wallet_menu(&g_wallet_manager)
-        fmt.println("Created wallet portfolio menu")
-    } else {
-        // Fallback to price tracking mode
-        symbol := "aura"
-        g_current_symbol = symbol
-
-        // Price database initialization removed - managed by core/ services
-
-        g_menu = create_menu(symbol)
-        fmt.println("Created price tracking menu")
-    }
-
-    NSStatusItem_setMenu(g_status_item, g_menu)
-
-    // Schedule initial fetch after 2s delay (avoid crash during app launch)
-    // This gives macOS networking stack time to fully initialize
-    initial_timer := NSTimer_scheduledTimerWithTimeInterval(
-        2.0,                          // 2 second delay
-        id(self),                     // target (retained by timer)
-        selector("timerFired:"),      // selector
-        nil,                          // userInfo
-        false,                        // repeats = false (one-shot)
-    )
-    fmt.println("Scheduled initial fetch (2s delay)")
-
-    // Start recurring timer (5 second interval, repeating)
-    g_timer = NSTimer_scheduledTimerWithTimeInterval(
-        5.0,                          // seconds
-        id(self),                     // target (retained by timer)
-        selector("timerFired:"),      // selector
-        nil,                          // userInfo
-        true,                         // repeats
-    )
-
-    fmt.println("Timer started (5s interval)")
+    log.infof("App launched in %v mode", g_menubar_state.mode)
 }
 
 // ============================================================================
 // Timer Callback
 // ============================================================================
 
+// PATTERN: Timer callback orchestrates handlers + views
+// NO direct service calls - only handler calls
 @(objc_type=HoundAppDelegate, objc_name="timerFired", objc_is_class_method=false)
 timer_fired :: proc "c" (
     self: ^HoundAppDelegate,
-    _: SEL,
-    timer: ^NSTimer,
+    _: appkit.SEL,
+    timer: ^appkit.NSTimer,
 ) {
     context = runtime.default_context()  // CRITICAL: Set context FIRST
 
     // Create autorelease pool for this callback (drains autoreleased objects)
-    pool := NSAutoreleasePool_new()
-    defer NSAutoreleasePool_drain(pool)
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
 
-    fmt.println("Timer fired - refreshing data")
+    // PATTERN: Access global state (unavoidable in callback context)
+    if g_menubar_state == nil {
+        log.error("MenuBarState not initialized")
+        return
+    }
 
-    // Handle both modes
-    if g_wallet_mode_enabled {
-        fetch_and_update_portfolio()
-    } else {
-        fetch_and_update(g_current_symbol)
+    log.debug("Timer fired - refreshing data")
+
+    // PATTERN: Orchestrate: handler -> view update
+    switch g_menubar_state.mode {
+    case .Price:
+        // PATTERN: Call handler for business logic
+        price_usd, change_24h, err := handlers.handle_fetch_price(
+            g_menubar_state,
+            g_menubar_state.current_symbol,
+        )
+        if err != .None {
+            log.errorf("Price fetch failed: %v", err)
+            views.show_error_alert("Price fetch failed")
+            return
+        }
+
+        // PATTERN: Update view with new data
+        views.update_price_display(g_menubar_state, g_menubar_state.current_symbol, price_usd, change_24h)
+
+    case .Wallet:
+        // PATTERN: Same structure for wallet mode
+        portfolio, err := handlers.handle_fetch_portfolio(g_menubar_state)
+        if err != .None {
+            log.errorf("Portfolio fetch failed: %v", err)
+            views.show_error_alert("Portfolio fetch failed")
+            return
+        }
+
+        g_menubar_state.current_portfolio = portfolio
+        views.update_wallet_display(g_menubar_state, portfolio)
     }
 }
 
@@ -151,163 +112,308 @@ timer_fired :: proc "c" (
 // Menu Action Callbacks
 // ============================================================================
 
+// PATTERN: Action callbacks orchestrate handlers + views
 @(objc_type=HoundAppDelegate, objc_name="refreshPrice", objc_is_class_method=false)
 refresh_price_action :: proc "c" (
     self: ^HoundAppDelegate,
-    _: SEL,
-    sender: id,
+    _: appkit.SEL,
+    sender: appkit.id,
 ) {
-    context = runtime.default_context()
+    context = runtime.default_context()  // CRITICAL: Set context FIRST
 
-    fmt.println("Manual refresh triggered")
-    fetch_and_update(g_current_symbol)
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
+
+    if g_menubar_state == nil {
+        log.error("MenuBarState not initialized")
+        return
+    }
+
+    log.info("Manual price refresh triggered")
+
+    // Force immediate update
+    price_usd, change_24h, err := handlers.handle_fetch_price(
+        g_menubar_state,
+        g_menubar_state.current_symbol,
+    )
+    if err != .None {
+        log.errorf("Price fetch failed: %v", err)
+        views.show_error_alert("Price fetch failed")
+        return
+    }
+
+    views.update_price_display(g_menubar_state, g_menubar_state.current_symbol, price_usd, change_24h)
 }
 
 @(objc_type=HoundAppDelegate, objc_name="refreshPortfolio", objc_is_class_method=false)
 refresh_portfolio_action :: proc "c" (
     self: ^HoundAppDelegate,
-    _: SEL,
-    sender: id,
+    _: appkit.SEL,
+    sender: appkit.id,
 ) {
-    context = runtime.default_context()
+    context = runtime.default_context()  // CRITICAL: Set context FIRST
 
-    fmt.println("Manual portfolio refresh triggered")
-    fetch_and_update_portfolio()
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
+
+    if g_menubar_state == nil {
+        log.error("MenuBarState not initialized")
+        return
+    }
+
+    log.info("Manual portfolio refresh triggered")
+
+    // Force immediate update
+    portfolio, err := handlers.handle_fetch_portfolio(g_menubar_state)
+    if err != .None {
+        log.errorf("Portfolio fetch failed: %v", err)
+        views.show_error_alert("Portfolio fetch failed")
+        return
+    }
+
+    g_menubar_state.current_portfolio = portfolio
+    views.update_wallet_display(g_menubar_state, portfolio)
 }
 
 @(objc_type=HoundAppDelegate, objc_name="showSwapDialog", objc_is_class_method=false)
 show_swap_dialog_action :: proc "c" (
     self: ^HoundAppDelegate,
-    _: SEL,
-    sender: id,
+    _: appkit.SEL,
+    sender: appkit.id,
 ) {
     context = runtime.default_context()  // CRITICAL: Set context FIRST
 
-    fmt.println("Swap Tokens triggered")
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
 
-    // Show swap dialog
-    success := show_swap_dialog(&g_wallet_manager)
-    if success {
-        fmt.println("Swap transaction created successfully")
+    if g_menubar_state == nil {
+        log.error("MenuBarState not initialized")
+        return
     }
+
+    log.info("Swap Tokens triggered")
+
+    // Launch swap dialog flow
+    // TODO: Implement full swap dialog orchestration
+    // This requires coordinating multiple handlers and views:
+    // 1. views.show_token_selection_dialog (from token)
+    // 2. views.show_amount_input_dialog
+    // 3. views.show_destination_token_dialog (to token)
+    // 4. handlers.handle_get_swap_quote
+    // 5. views.show_quote_preview_dialog
+    // 6. handlers.handle_build_swap_transaction
+    // 7. views.show_transaction_export_dialog
+
+    views.show_error_alert("Swap feature not yet implemented in new architecture")
+    log.warn("Swap feature requires full multi-step dialog orchestration")
 }
 
 @(objc_type=HoundAppDelegate, objc_name="manageWallets", objc_is_class_method=false)
 manage_wallets_action :: proc "c" (
     self: ^HoundAppDelegate,
-    _: SEL,
-    sender: id,
+    _: appkit.SEL,
+    sender: appkit.id,
 ) {
-    context = runtime.default_context()
+    context = runtime.default_context()  // CRITICAL: Set context FIRST
 
-    fmt.println("Manage Wallets triggered")
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
+
+    if g_menubar_state == nil {
+        log.error("MenuBarState not initialized")
+        return
+    }
+
+    log.info("Manage Wallets triggered")
 
     // Show add wallet dialog
-    success := show_add_wallet_dialog(&g_wallet_manager)
-    if success {
-        fmt.println("Wallet added successfully")
-        // Refresh portfolio to include new wallet
-        fetch_and_update_portfolio()
+    // TODO: Implement wallet management dialog
+    // This requires UI dialogs for:
+    // 1. List existing wallets
+    // 2. Add new wallet (address input)
+    // 3. Remove wallet
+    // 4. Refresh portfolio after changes
+
+    views.show_error_alert("Wallet management not yet implemented in new architecture")
+    log.warn("Wallet management requires dialog implementation")
+}
+
+// PATTERN: Mode switching actions
+@(objc_type=HoundAppDelegate, objc_name="switchToPriceMode", objc_is_class_method=false)
+switch_to_price_mode :: proc "c" (
+    self: ^HoundAppDelegate,
+    _: appkit.SEL,
+    sender: appkit.id,
+) {
+    context = runtime.default_context()  // CRITICAL: Set context FIRST
+
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
+
+    if g_menubar_state == nil {
+        log.error("MenuBarState not initialized")
+        return
     }
+
+    log.info("Switching to Price mode")
+
+    // Switch mode
+    g_menubar_state.mode = .Price
+
+    // Fetch and display price immediately
+    price_usd, change_24h, err := handlers.handle_fetch_price(
+        g_menubar_state,
+        g_menubar_state.current_symbol,
+    )
+    if err != .None {
+        log.errorf("Price fetch failed: %v", err)
+        views.show_error_alert("Price fetch failed")
+        return
+    }
+
+    views.update_price_display(g_menubar_state, g_menubar_state.current_symbol, price_usd, change_24h)
+    log.info("Switched to Price mode")
+}
+
+@(objc_type=HoundAppDelegate, objc_name="switchToWalletMode", objc_is_class_method=false)
+switch_to_wallet_mode :: proc "c" (
+    self: ^HoundAppDelegate,
+    _: appkit.SEL,
+    sender: appkit.id,
+) {
+    context = runtime.default_context()  // CRITICAL: Set context FIRST
+
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
+
+    if g_menubar_state == nil {
+        log.error("MenuBarState not initialized")
+        return
+    }
+
+    log.info("Switching to Wallet mode")
+
+    // Switch mode
+    g_menubar_state.mode = .Wallet
+
+    // Fetch and display portfolio immediately
+    portfolio, err := handlers.handle_fetch_portfolio(g_menubar_state)
+    if err != .None {
+        log.errorf("Portfolio fetch failed: %v", err)
+        views.show_error_alert("Portfolio fetch failed")
+        return
+    }
+
+    g_menubar_state.current_portfolio = portfolio
+    views.update_wallet_display(g_menubar_state, portfolio)
+    log.info("Switched to Wallet mode")
 }
 
 @(objc_type=HoundAppDelegate, objc_name="quitApp", objc_is_class_method=false)
 quit_app_action :: proc "c" (
     self: ^HoundAppDelegate,
-    _: SEL,
-    sender: id,
+    _: appkit.SEL,
+    sender: appkit.id,
 ) {
-    context = runtime.default_context()
+    context = runtime.default_context()  // CRITICAL: Set context FIRST
 
-    fmt.println("Quit action triggered")
+    pool := appkit.NSAutoreleasePool_new()
+    defer appkit.NSAutoreleasePool_drain(pool)
 
-    // Invalidate timer (CRITICAL: prevents retain cycle leak)
-    if g_timer != nil {
-        NSTimer_invalidate(g_timer)
-        g_timer = nil
-        fmt.println("Timer invalidated")
+    log.info("Quit action triggered")
+
+    // PATTERN: Clean shutdown - invalidate timer
+    if g_menubar_state != nil && g_menubar_state.timer != nil {
+        appkit.NSTimer_invalidate(cast(^appkit.NSTimer)g_menubar_state.timer)
+        g_menubar_state.timer = nil
+        log.debug("Timer invalidated")
     }
 
-    // Database closing removed - managed by core/ services
-    fmt.println("MenuBar app terminating")
+    // PATTERN: Database closing handled by main.odin deferred cleanup
+    log.info("MenuBar app terminating")
 
     // Terminate app
-    app := NSApplication_sharedApplication()
-    NSApplication_terminate(app, nil)
+    app := appkit.NSApplication_sharedApplication()
+    appkit.NSApplication_terminate(app, nil)
 }
 
 // ============================================================================
-// Main Entry Point
+// Delegate Class Registration
 // ============================================================================
 
-main :: proc() {
+// PATTERN: Register AppDelegate class with Objective-C runtime
+// Called from main.odin before NSApplication_run
+register_app_delegate_class :: proc() -> rawptr {
     // Register custom delegate class
-    delegate_class := objc_allocateClassPair(NSObject_class(), "HoundAppDelegate", 0)
+    delegate_class := appkit.objc_allocateClassPair(appkit.NSObject_class(), "HoundAppDelegate", 0)
 
-    // Add methods
-    class_addMethod(
+    // Add lifecycle methods
+    appkit.class_addMethod(
         delegate_class,
-        selector("applicationDidFinishLaunching:"),
+        appkit.selector("applicationDidFinishLaunching:"),
         auto_cast app_did_finish_launching,
         "v@:@",  // void, self, SEL, NSNotification
     )
 
-    class_addMethod(
+    // Add timer callback
+    appkit.class_addMethod(
         delegate_class,
-        selector("timerFired:"),
+        appkit.selector("timerFired:"),
         auto_cast timer_fired,
         "v@:@",  // void, self, SEL, NSTimer
     )
 
-    class_addMethod(
+    // Add action methods
+    appkit.class_addMethod(
         delegate_class,
-        selector("refreshPrice:"),
+        appkit.selector("refreshPrice:"),
         auto_cast refresh_price_action,
         "v@:@",  // void, self, SEL, id
     )
 
-    class_addMethod(
+    appkit.class_addMethod(
         delegate_class,
-        selector("refreshPortfolio:"),
+        appkit.selector("refreshPortfolio:"),
         auto_cast refresh_portfolio_action,
         "v@:@",  // void, self, SEL, id
     )
 
-    class_addMethod(
+    appkit.class_addMethod(
         delegate_class,
-        selector("showSwapDialog:"),
+        appkit.selector("showSwapDialog:"),
         auto_cast show_swap_dialog_action,
         "v@:@",  // void, self, SEL, id
     )
 
-    class_addMethod(
+    appkit.class_addMethod(
         delegate_class,
-        selector("manageWallets:"),
+        appkit.selector("manageWallets:"),
         auto_cast manage_wallets_action,
         "v@:@",  // void, self, SEL, id
     )
 
-    class_addMethod(
+    appkit.class_addMethod(
         delegate_class,
-        selector("quitApp:"),
+        appkit.selector("switchToPriceMode:"),
+        auto_cast switch_to_price_mode,
+        "v@:@",  // void, self, SEL, id
+    )
+
+    appkit.class_addMethod(
+        delegate_class,
+        appkit.selector("switchToWalletMode:"),
+        auto_cast switch_to_wallet_mode,
+        "v@:@",  // void, self, SEL, id
+    )
+
+    appkit.class_addMethod(
+        delegate_class,
+        appkit.selector("quitApp:"),
         auto_cast quit_app_action,
         "v@:@",  // void, self, SEL, id
     )
 
-    objc_registerClassPair(delegate_class)
+    appkit.objc_registerClassPair(delegate_class)
 
-    // Create app
-    app := NSApplication_sharedApplication()
-
-    // Create delegate instance
-    delegate := class_createInstance(delegate_class, 0)
-    NSApplication_setDelegate(app, delegate)
-
-    // Hide dock icon (menu bar only mode)
-    NSApplication_setActivationPolicy(app, .Accessory)
-
-    fmt.println("Starting Hound menu bar app...")
-
-    // Run app (blocks until quit)
-    NSApplication_run(app)
+    return delegate_class
 }
