@@ -8,7 +8,7 @@ import "core:net"
 import "core:strconv"
 import "core:time"
 import "../models"
-import client "../../../vendor/odin-http/client"
+import client "../../http/client"
 
 // Jupiter Price API V3 response structure (Lite API)
 // Endpoint: https://lite-api.jup.ag/price/v3?ids={token_mints}

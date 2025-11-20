@@ -6,8 +6,8 @@ import "core:log"
 import "core:net"
 import "core:strconv"
 import "core:time"
-import client "../../vendor/odin-http/client"
-import models "../lib/models"
+import client "../../http/client"
+import models "../models"
 
 // Jupiter Swap API v6 endpoints
 // Reference: PRPs/ai_docs/jupiter-api-v6.md

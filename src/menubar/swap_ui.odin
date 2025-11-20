@@ -8,8 +8,8 @@ import "core:strconv"
 import "core:strings"
 import models "../lib/models"
 import wallet "../lib/wallet"
-import jupiter "../swap"
-import tx "../transaction"
+import jupiter "../lib/swap"
+import tx "../lib/transaction"
 
 // ============================================================================
 // Main Swap Dialog Entry Point

@@ -9,7 +9,7 @@ import "core:strings"
 import models "../../lib/models"
 import db "../../lib/database"
 import memory "../../lib/memory"
-import token_cfg "../../config"
+import token_cfg "../../lib/config"
 import output "../output"
 
 // ============================================================================

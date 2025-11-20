@@ -553,7 +553,7 @@ import "core:math"
 import "core:encoding/json"
 
 // ✅ Vendor critical dependencies (odin-http)
-import client "../vendor/odin-http/client"
+import client "../odin-http/client"
 
 // ❌ Avoid unnecessary external dependencies
 // import "some-random-package"  // NO!

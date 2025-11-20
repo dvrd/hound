@@ -2,7 +2,7 @@ package transaction
 
 import "core:encoding/base64"
 import "core:log"
-import models "../lib/models"
+import models "../models"
 
 // Transaction serialization utilities
 // Reference: PRPs/ai_docs/solana-transactions.md

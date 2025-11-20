@@ -8,7 +8,7 @@ import "base:runtime"
 import models "../lib/models"
 import db "../lib/database"
 import wallet "../lib/wallet"
-import token_cfg "../config"
+import token_cfg "../lib/config"
 
 // ============================================================================
 // Delegate Class Definition

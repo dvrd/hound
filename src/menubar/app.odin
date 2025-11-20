@@ -6,7 +6,7 @@ import "core:time"
 import "base:runtime"
 import models "../lib/models"
 import wallet "../lib/wallet"
-import token_cfg "../config"
+import token_cfg "../lib/config"
 import dex "../lib/dex"
 
 // ============================================================================

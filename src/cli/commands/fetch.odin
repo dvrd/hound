@@ -7,7 +7,7 @@ import "core:log"
 import models "../../lib/models"
 import dex "../../lib/dex"
 import memory "../../lib/memory"
-import token_cfg "../../config"
+import token_cfg "../../lib/config"
 import output "../output"
 
 // ============================================================================

@@ -8,7 +8,7 @@ import "core:math"
 import "core:strconv"
 import "core:time"
 import "../models"
-import client "../../../vendor/odin-http/client"
+import client "../../http/client"
 
 // NOTE: Jupiter types are now defined in jupiter_client.odin
 // This file uses the shared Jupiter client for fetching SOL price
