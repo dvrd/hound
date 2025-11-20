@@ -5,9 +5,9 @@ import "core:strings"
 import "core:time"
 import "base:runtime"
 import models "../lib/models"
-import wallet_mgr "../wallet_manager"
+import wallet_mgr "../wallet"
 import wallet_backend "../lib/wallet"
-import token_cfg "../token_config"
+import token_cfg "../config"
 import dex "../lib/dex"
 
 // ============================================================================

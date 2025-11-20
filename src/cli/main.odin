@@ -8,7 +8,7 @@ import "core:strings"
 
 import models "../lib/models"
 import memory "../lib/memory"
-import token_cfg "../token_config"
+import token_cfg "../config"
 import commands "./commands"
 import output "./output"
 

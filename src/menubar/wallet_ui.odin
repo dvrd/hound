@@ -5,7 +5,7 @@ package menubar
 import "core:fmt"
 import "core:strings"
 import models "../lib/models"
-import wallet_mgr "../wallet_manager"
+import wallet_mgr "../wallet"
 import wallet_backend "../lib/wallet"
 
 // ============================================================================

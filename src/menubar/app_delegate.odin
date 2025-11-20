@@ -7,8 +7,8 @@ import "core:path/filepath"
 import "base:runtime"
 import models "../lib/models"
 import db "../lib/database"
-import wallet_mgr "../wallet_manager"
-import token_cfg "../token_config"
+import wallet_mgr "../wallet"
+import token_cfg "../config"
 
 // ============================================================================
 // Delegate Class Definition
