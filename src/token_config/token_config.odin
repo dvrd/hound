@@ -6,9 +6,9 @@ import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import models "../../core/models"
-import db "../../core/database"
-import dex "../../core/dex"
+import models "../lib/models"
+import db "../lib/database"
+import dex "../lib/dex"
 
 // load_token_config loads the token configuration from database
 // Returns the configuration and an error type

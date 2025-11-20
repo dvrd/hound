@@ -4,9 +4,9 @@ package menubar
 
 import "core:fmt"
 import "core:strings"
-import models "../../core/models"
+import models "../lib/models"
 import wallet_mgr "../wallet_manager"
-import wallet_backend "../../core/wallet"
+import wallet_backend "../lib/wallet"
 
 // ============================================================================
 // Menu Creation for Wallet Portfolio

@@ -4,11 +4,11 @@ import "core:fmt"
 import "core:strings"
 import "core:time"
 import "base:runtime"
-import models "../../core/models"
+import models "../lib/models"
 import wallet_mgr "../wallet_manager"
-import wallet_backend "../../core/wallet"
+import wallet_backend "../lib/wallet"
 import token_cfg "../token_config"
-import dex "../../core/dex"
+import dex "../lib/dex"
 
 // ============================================================================
 // Global State

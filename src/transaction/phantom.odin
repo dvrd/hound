@@ -3,7 +3,7 @@ package transaction
 import "core:fmt"
 import "core:log"
 import "core:strings"
-import models "../../core/models"
+import models "../lib/models"
 
 // Phantom wallet deeplink integration
 // Reference: PRPs/ai_docs/solana-transactions.md (Phantom Deeplinks section)

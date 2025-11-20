@@ -3,11 +3,11 @@
 package wallet_manager
 
 import "core:log"
-import models "../../core/models"
-import db "../../core/database"
-import wallet_backend "../../core/wallet"
-import blockchain "../../core/blockchain"
-import services "../../core/services"
+import models "../lib/models"
+import db "../lib/database"
+import wallet_backend "../lib/wallet"
+import blockchain "../lib/blockchain"
+import services "../lib/services"
 
 // ============================================================================
 // Types

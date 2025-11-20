@@ -7,8 +7,8 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:log"
 import http_client "../../vendor/odin-http/client"
-import models "../../core/models"
-import db "../../core/database"
+import models "../lib/models"
+import db "../lib/database"
 
 // ============================================================================
 // Constants
