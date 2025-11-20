@@ -25,7 +25,7 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 		fmt.eprintln("")
 		fmt.eprintln("Usage: hound <symbol>")
 		fmt.eprintln("       hound list")
-		fmt.eprintln("       hound --version")
+		fmt.eprintln("       hound version")
 		fmt.eprintln("")
 		fmt.eprintln("Examples:")
 		fmt.eprintln("  hound aura       # Check AURA price")
