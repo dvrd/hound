@@ -66,10 +66,14 @@ app_did_finish_launching :: proc "c" (
                     g_wallet_mode_enabled = false
                 } else {
                     g_wallet_manager = manager
-                    // CRITICAL: Fix balance_fetcher pointer after struct copy
-                    // The balance_fetcher.rpc_client pointer still points to the old local manager's rpc_client
-                    // We need to update it to point to g_wallet_manager.rpc_client
+                    // CRITICAL: Fix pointers after struct copy
+                    // When we copy the manager struct, all pointers still point to the local 'manager' variable
+                    // We need to update them to point to g_wallet_manager fields
                     g_wallet_manager.balance_fetcher.rpc_client = &g_wallet_manager.rpc_client
+
+                    // CRITICAL: Fix service_ctx pointers too!
+                    g_wallet_manager.service_ctx.rpc_client = &g_wallet_manager.rpc_client
+                    g_wallet_manager.service_ctx.balance_fetcher = &g_wallet_manager.balance_fetcher
                     fmt.println("Wallet manager initialized")
                 }
             }
