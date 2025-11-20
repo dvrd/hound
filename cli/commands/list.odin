@@ -3,9 +3,9 @@
 package commands
 
 import "core:log"
-import models "../../core/models"
-import db "../../core/database"
-import memory "../../core/memory"
+import models "../../src/lib/models"
+import db "../../src/lib/database"
+import memory "../../src/lib/memory"
 import token_cfg "../../src/token_config"
 import output "../output"
 

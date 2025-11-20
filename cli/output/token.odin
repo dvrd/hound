@@ -3,8 +3,8 @@
 package output
 
 import "core:fmt"
-import models "../../core/models"
-import db "../../core/database"
+import models "../../src/lib/models"
+import db "../../src/lib/database"
 
 // ============================================================================
 // Token List Display

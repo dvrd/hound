@@ -4,9 +4,9 @@ package commands
 
 import "core:fmt"
 import "core:log"
-import models "../../core/models"
-import dex "../../core/dex"
-import memory "../../core/memory"
+import models "../../src/lib/models"
+import dex "../../src/lib/dex"
+import memory "../../src/lib/memory"
 import token_cfg "../../src/token_config"
 import output "../output"
 
