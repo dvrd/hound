@@ -4,6 +4,7 @@ package output
 
 import "core:fmt"
 import models "../../core/models"
+import version "../../src/version"
 
 // ============================================================================
 // Error Display Functions
@@ -20,10 +21,11 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 		// Success - no message
 
 	case .MissingArgument:
-		fmt.eprintln("Error: Missing token symbol")
+		fmt.eprintfln("%s", version.get_version_info())
 		fmt.eprintln("")
 		fmt.eprintln("Usage: hound <symbol>")
 		fmt.eprintln("       hound list")
+		fmt.eprintln("       hound --version")
 		fmt.eprintln("")
 		fmt.eprintln("Examples:")
 		fmt.eprintln("  hound aura       # Check AURA price")
