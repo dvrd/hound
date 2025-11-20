@@ -31,7 +31,7 @@ import "core:net"
 import "core:strconv"
 import "core:time"
 import "../models"
-import client "../../vendor/odin-http/client"
+import client "../../../vendor/odin-http/client"
 
 // =============================================================================
 // DATA MODELS - DexScreener API Response Structures

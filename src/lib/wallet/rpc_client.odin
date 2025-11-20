@@ -9,7 +9,7 @@ import "core:log"
 import "core:net"
 import "core:bufio"
 import "core:strings"
-import http_client "../../vendor/odin-http/client"
+import http_client "../../../vendor/odin-http/client"
 import "../models"
 import "../blockchain"
 

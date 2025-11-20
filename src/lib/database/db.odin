@@ -7,7 +7,7 @@ import "core:strings"
 import "core:time"
 import "core:os"
 import "core:path/filepath"
-import sqlite3 "../../vendor/odin-sqlite3"
+import sqlite3 "../../../vendor/odin-sqlite3"
 import "../models"
 import "../memory"
 

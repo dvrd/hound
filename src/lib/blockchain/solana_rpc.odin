@@ -7,7 +7,7 @@ import "core:fmt"
 import "core:log"
 import "core:math"
 import "core:strconv"
-import client "../../vendor/odin-http/client"
+import client "../../../vendor/odin-http/client"
 import "../models"
 import "../memory"
 
