@@ -5,13 +5,13 @@ tasks:
     desc: Build the hound binary
     cmds:
       - mkdir -p bin
-      - odin build cli -out:bin/hound -o:speed
+      - odin build src/cli -out:bin/hound -o:speed
 
   debug:
     desc: Build with debug symbols
     cmds:
       - mkdir -p bin
-      - odin build cli -out:bin/hound_debug -debug
+      - odin build src/cli -out:bin/hound_debug -debug
 
   run:
     desc: 'Build and run with arguments (usage: task run -- aura)'
