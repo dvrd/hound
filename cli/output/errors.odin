@@ -68,34 +68,24 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 		fmt.eprintln("Try again or report at https://github.com/dvrd/hound/issues")
 
 	case .TokenNotConfigured:
-		fmt.eprintfln("Error: Token '%s' not found in configuration", token)
+		fmt.eprintfln("Error: Token '%s' not found in database", token)
 		fmt.eprintln("Run 'hound list' to see available tokens.")
-		fmt.eprintln("Add new tokens to ~/.config/hound/tokens.json")
+		fmt.eprintln("Add new tokens with: hound add <symbol> <name> <address>")
 
 	case .ConfigNotFound:
-		fmt.eprintln("Error: Configuration file not found")
-		fmt.eprintln("Expected location: ~/.config/hound/tokens.json")
+		fmt.eprintln("Error: Database not found")
+		fmt.eprintln("Expected location: ~/.config/hound/hound.db")
 		fmt.eprintln("")
-		fmt.eprintln("Create a config file with your token definitions:")
-		fmt.eprintln("{")
-		fmt.eprintln("  \"version\": \"1.0.0\",")
-		fmt.eprintln("  \"tokens\": [")
-		fmt.eprintln("    {")
-		fmt.eprintln("      \"symbol\": \"aura\",")
-		fmt.eprintln("      \"name\": \"AURA Memecoin\",")
-		fmt.eprintln("      \"contract_address\": \"DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2\",")
-		fmt.eprintln("      \"chain\": \"solana\"")
-		fmt.eprintln("    }")
-		fmt.eprintln("  ]")
-		fmt.eprintln("}")
+		fmt.eprintln("Add your first token to create the database:")
+		fmt.eprintln("  hound add <symbol> <name> <contract_address>")
+		fmt.eprintln("")
+		fmt.eprintln("Example:")
+		fmt.eprintln("  hound add aura \"AURA Memecoin\" DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2")
 
 	case .ConfigParseError:
-		fmt.eprintln("Error: Failed to parse configuration file")
-		fmt.eprintln("Check that ~/.config/hound/tokens.json is valid JSON.")
-		fmt.eprintln("Required format:")
-		fmt.eprintln("  - version: string")
-		fmt.eprintln("  - tokens: array of token objects")
-		fmt.eprintln("  - Each token needs: symbol, name, contract_address, chain")
+		fmt.eprintln("Error: Failed to read database")
+		fmt.eprintln("The database at ~/.config/hound/hound.db may be corrupted.")
+		fmt.eprintln("Try deleting the file and re-adding your tokens with 'hound add'.")
 
 	case .RPCConnectionFailed:
 		fmt.eprintln("Error: Cannot connect to Solana RPC")
@@ -142,12 +132,12 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 	case .DatabaseCorrupted:
 		fmt.eprintln("Error: Database integrity check failed")
 		fmt.eprintln("The database file at ~/.config/hound/hound.db is corrupted.")
-		fmt.eprintln("Delete the file to recreate it from tokens.json backup.")
+		fmt.eprintln("Delete the file and re-add your tokens with 'hound add'.")
 
 	case .MigrationFailed:
-		fmt.eprintln("Error: JSON to database migration failed")
-		fmt.eprintln("Could not migrate tokens.json to database.")
-		fmt.eprintln("Check file permissions and ensure tokens.json is valid.")
+		fmt.eprintln("Error: Database initialization failed")
+		fmt.eprintln("Could not create or update database schema.")
+		fmt.eprintln("Check file permissions at ~/.config/hound/hound.db")
 
 	// Pool Discovery errors
 	case .PoolSearchFailed:
