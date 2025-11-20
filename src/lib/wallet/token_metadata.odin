@@ -6,7 +6,7 @@ package wallet
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
-import http_client "../../../odin-http/client"
+import http_client "../../http/client"
 import models "../models"
 import db "../database"
 
