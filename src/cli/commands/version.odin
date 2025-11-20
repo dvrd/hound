@@ -4,8 +4,8 @@ package commands
 
 import "core:fmt"
 import "core:log"
-import models "../../src/lib/models"
-import version "../../src/version"
+import models "../../lib/models"
+import version "../../version"
 
 // ============================================================================
 // Version Command

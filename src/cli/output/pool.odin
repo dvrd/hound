@@ -3,7 +3,7 @@
 package output
 
 import "core:fmt"
-import models "../../src/lib/models"
+import models "../../lib/models"
 
 // ============================================================================
 // Pool Display Functions

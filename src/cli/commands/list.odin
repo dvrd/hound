@@ -3,10 +3,10 @@
 package commands
 
 import "core:log"
-import models "../../src/lib/models"
-import db "../../src/lib/database"
-import memory "../../src/lib/memory"
-import token_cfg "../../src/token_config"
+import models "../../lib/models"
+import db "../../lib/database"
+import memory "../../lib/memory"
+import token_cfg "../../token_config"
 import output "../output"
 
 // ============================================================================

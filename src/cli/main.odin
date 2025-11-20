@@ -6,9 +6,9 @@ import "core:log"
 import "core:os"
 import "core:strings"
 
-import models "../src/lib/models"
-import memory "../src/lib/memory"
-import token_cfg "../src/token_config"
+import models "../lib/models"
+import memory "../lib/memory"
+import token_cfg "../token_config"
 import commands "./commands"
 import output "./output"
 

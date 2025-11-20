@@ -3,8 +3,8 @@
 package output
 
 import "core:fmt"
-import models "../../src/lib/models"
-import version "../../src/version"
+import models "../../lib/models"
+import version "../../version"
 
 // ============================================================================
 // Error Display Functions

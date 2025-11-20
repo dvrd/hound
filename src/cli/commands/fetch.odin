@@ -4,10 +4,10 @@ package commands
 
 import "core:fmt"
 import "core:log"
-import models "../../src/lib/models"
-import dex "../../src/lib/dex"
-import memory "../../src/lib/memory"
-import token_cfg "../../src/token_config"
+import models "../../lib/models"
+import dex "../../lib/dex"
+import memory "../../lib/memory"
+import token_cfg "../../token_config"
 import output "../output"
 
 // ============================================================================
