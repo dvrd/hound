@@ -6,10 +6,11 @@ import "core:fmt"
 import "core:log"
 import "core:strconv"
 import "core:strings"
-import wallet "../wallet"
+import models "../../core/models"
+import wallet_mgr "../wallet_manager"
+import wallet_backend "../../core/wallet"
 import jupiter "../jupiter_swap"
 import tx "../transaction"
-import hound "../"
 
 // ============================================================================
 // Main Swap Dialog Entry Point
@@ -26,18 +27,18 @@ import hound "../"
 //   6. Export transaction (clipboard or Phantom)
 //
 // Reference: PRPs/hound-phase2-transaction-building.md (Swap Dialog section)
-show_swap_dialog :: proc(manager: ^wallet.WalletManager) -> bool {
+show_swap_dialog :: proc(manager: ^wallet_mgr.WalletManager) -> bool {
 	log.debug("Opening swap dialog")
 
 	// Step 1: Get portfolio to populate token list
-	wallets, wallet_err := wallet.get_wallets(manager)
+	wallets, wallet_err := wallet_mgr.get_wallets(manager)
 	if wallet_err != .None || len(wallets) == 0 {
 		show_error_alert("No wallets configured. Please add a wallet first.")
 		return false
 	}
 
 	// Get aggregated portfolio across all wallets
-	portfolio := wallet.get_aggregated_portfolio(manager)
+	portfolio := wallet_mgr.get_aggregated_portfolio(manager)
 
 	if len(portfolio.token_balances) == 0 && portfolio.sol_balance.amount == 0 {
 		show_error_alert("Portfolio is empty. Please add tokens to your wallet.")
@@ -80,11 +81,11 @@ show_swap_dialog :: proc(manager: ^wallet.WalletManager) -> bool {
 	// Step 5: Fetch quote
 	show_info_alert("Fetching Quote", "Please wait while we find the best route...")
 
-	// Convert amount to base units (assuming 6 decimals for most tokens)
-	// TODO: Look up actual decimals from token metadata
-	decimals := u64(6) // Default for USDC, USDT, etc.
-	if source_symbol == "SOL" {
-		decimals = 9 // SOL has 9 decimals
+	// Look up actual decimals from token metadata
+	source_token, found_source := models.get_token_by_symbol(&g_token_config, source_symbol)
+	decimals := u64(9) // Default to 9 if not found
+	if found_source {
+		decimals = u64(models.get_token_decimals(source_token))
 	}
 
 	amount_base_units := u64(amount * f64(pow_u64(10, decimals)))
@@ -142,7 +143,7 @@ show_swap_dialog :: proc(manager: ^wallet.WalletManager) -> bool {
 show_token_selection_dialog :: proc(
 	title: string,
 	info: string,
-	portfolio: wallet.PortfolioBalance,
+	portfolio: wallet_backend.PortfolioBalance,
 ) -> (
 	mint: string,
 	symbol: string,
@@ -192,8 +193,12 @@ show_token_selection_dialog :: proc(
 
 	// Find matching token
 	if symbol_input == "SOL" {
-		// SOL is always available
-		sol_mint := "So11111111111111111111111111111111111111112"
+		// SOL is always available - get mint from config
+		sol_mint := get_token_mint_from_config("SOL")
+		if sol_mint == "" {
+			// Fallback to well-known SOL mint if not in config
+			sol_mint = "So11111111111111111111111111111111111111112"
+		}
 		return sol_mint, "SOL", portfolio.sol_balance.amount, true
 	}
 
@@ -298,9 +303,8 @@ show_destination_token_dialog :: proc() -> (mint: string, symbol: string, ok: bo
 
 	log.debugf("User entered destination symbol: %s", symbol_input)
 
-	// Map common symbols to mints
-	// NOTE: In production, use token metadata service to look up mints
-	symbol_to_mint := get_common_token_mint(symbol_input)
+	// Map symbols to mints using token configuration
+	symbol_to_mint := get_token_mint_from_config(symbol_input)
 
 	if len(symbol_to_mint) == 0 {
 		show_error_alert(fmt.tprintf("Unknown token: %s\n\nPlease enter a common token symbol or the full mint address.", symbol_input))
@@ -435,34 +439,15 @@ show_info_alert :: proc(title: string, message: string) {
 	NSAlert_runModal(alert)
 }
 
-// get_common_token_mint maps common symbols to Solana mint addresses
+// get_token_mint_from_config looks up token mint address from global config
 //
-// NOTE: In production, use wallet::get_token_mint() or a token registry API
-get_common_token_mint :: proc(symbol: string) -> string {
-	switch symbol {
-	case "SOL":
-		return "So11111111111111111111111111111111111111112"
-	case "USDC":
-		return "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
-	case "USDT":
-		return "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
-	case "BONK":
-		return "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"
-	case "JUP":
-		return "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN"
-	case "RAY":
-		return "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R"
-	case "ORCA":
-		return "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE"
-	case "MNGO":
-		return "MangoCzJ36AjZyKwVj3VnYU4GTonjfVEnJmvvWaxLac"
-	case "SRM":
-		return "SRMuApVNdxXokk5GT7XD5cUUgXMBCoAz2LHeuAoKWRt"
-	case:
-		// Unknown token - return empty
-		// In production, query token metadata service
-		return ""
+// Uses core/models token configuration instead of hardcoded addresses
+get_token_mint_from_config :: proc(symbol: string) -> string {
+	token, found := models.get_token_by_symbol(&g_token_config, symbol)
+	if !found {
+		return "" // Token not in configuration
 	}
+	return models.get_token_mint(token)
 }
 
 // pow_u64 calculates base^exp for u64 (simple integer power)

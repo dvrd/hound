@@ -2,7 +2,7 @@ package transaction
 
 import "core:encoding/base64"
 import "core:log"
-import src "../"
+import models "../../core/models"
 
 // Transaction serialization utilities
 // Reference: PRPs/ai_docs/solana-transactions.md
@@ -57,7 +57,7 @@ validate_transaction_base64 :: proc(transaction_base64: string) -> bool {
 // Returns: Raw transaction bytes, or error
 //
 // NOTE: Caller is responsible for freeing the returned byte slice
-decode_transaction :: proc(transaction_base64: string) -> ([]u8, src.ErrorType) {
+decode_transaction :: proc(transaction_base64: string) -> ([]u8, models.ErrorType) {
 	if len(transaction_base64) == 0 {
 		return nil, .InvalidResponse
 	}
@@ -86,7 +86,7 @@ decode_transaction :: proc(transaction_base64: string) -> ([]u8, src.ErrorType) 
 // Returns: Base64-encoded string, or error
 //
 // NOTE: Caller is responsible for freeing the returned string
-encode_transaction_base64 :: proc(transaction_bytes: []u8) -> (string, src.ErrorType) {
+encode_transaction_base64 :: proc(transaction_bytes: []u8) -> (string, models.ErrorType) {
 	if len(transaction_bytes) == 0 {
 		return "", .InvalidResponse
 	}

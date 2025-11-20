@@ -5,8 +5,10 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "base:runtime"
-import src "../"
-import wallet "../wallet"
+import models "../../core/models"
+import db "../../core/database"
+import wallet_mgr "../wallet_manager"
+import token_cfg "../token_config"
 
 // ============================================================================
 // Delegate Class Definition
@@ -30,7 +32,7 @@ app_did_finish_launching :: proc "c" (
     fmt.println("Hound menu bar app launched!")
 
     // Load token config (once at startup)
-    config, config_err := src.load_token_config()
+    config, config_err := token_cfg.load_token_config()
     if config_err != .None {
         fmt.eprintln("ERROR: Failed to load token configuration")
         fmt.eprintln("Please create ~/.config/hound/tokens.json with your token definitions.")
@@ -49,7 +51,7 @@ app_did_finish_launching :: proc "c" (
             g_wallet_mode_enabled = true
 
             // Open database
-            db, db_err := src.database_open(db_path)
+            database, db_err := db.database_open(db_path)
             if db_err != .None {
                 fmt.eprintfln("ERROR: Failed to open database: %v", db_err)
                 g_wallet_mode_enabled = false
@@ -58,7 +60,7 @@ app_did_finish_launching :: proc "c" (
                 rpc_endpoint := "https://api.mainnet-beta.solana.com"
                 backup_endpoints: []string = nil
 
-                manager, init_err := wallet.init_wallet_manager(&g_token_config, db, rpc_endpoint, backup_endpoints)
+                manager, init_err := wallet_mgr.init_wallet_manager(&g_token_config, database, rpc_endpoint, backup_endpoints)
                 if init_err != .None {
                     fmt.eprintfln("ERROR: Failed to initialize wallet manager: %v", init_err)
                     g_wallet_mode_enabled = false
@@ -88,12 +90,7 @@ app_did_finish_launching :: proc "c" (
         symbol := "aura"
         g_current_symbol = symbol
 
-        // Initialize price database
-        db, db_err := init_price_db(symbol)
-        if db_err != .None {
-            fmt.eprintln("ERROR: Failed to initialize database")
-        }
-        g_price_db = db
+        // Price database initialization removed - managed by core/ services
 
         g_menu = create_menu(symbol)
         fmt.println("Created price tracking menu")
@@ -231,9 +228,8 @@ quit_app_action :: proc "c" (
         fmt.println("Timer invalidated")
     }
 
-    // Close database
-    close_price_db(&g_price_db)
-    fmt.println("Database closed")
+    // Database closing removed - managed by core/ services
+    fmt.println("MenuBar app terminating")
 
     // Terminate app
     app := NSApplication_sharedApplication()

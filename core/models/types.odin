@@ -1,5 +1,7 @@
 package models
 
+import "core:strings"
+
 // Error types for the application
 ErrorType :: enum {
 	None,
@@ -87,6 +89,7 @@ Token :: struct {
 	name:             string,
 	contract_address: string,
 	chain:            string,
+	decimals:         int,         // Token decimals (6 for USDC, 9 for SOL)
 	pools:            []PoolInfo, // Liquidity pools for on-chain pricing
 	is_quote_token:   bool, // True if this is a quote token (SOL, USDC)
 	usd_price:        f64, // USD price for quote tokens
@@ -104,4 +107,37 @@ TokenConfig :: struct {
 	version: string,
 	tokens:  []Token,
 	wallets: []Wallet, // Watch-only wallet addresses
+}
+
+// ============================================================================
+// Token Metadata Helper Functions
+// ============================================================================
+
+// get_token_by_symbol searches for a token by symbol (case-insensitive)
+get_token_by_symbol :: proc(config: ^TokenConfig, symbol: string) -> (Token, bool) {
+	lower_symbol := strings.to_lower(symbol)
+	defer delete(lower_symbol)
+
+	for token in config.tokens {
+		token_symbol_lower := strings.to_lower(token.symbol)
+		defer delete(token_symbol_lower)
+
+		if token_symbol_lower == lower_symbol {
+			return token, true
+		}
+	}
+	return Token{}, false
+}
+
+// get_token_mint returns the token's mint address (contract_address)
+get_token_mint :: proc(token: Token) -> string {
+	return token.contract_address
+}
+
+// get_token_decimals returns the token's decimals, defaulting to 9 (SOL default)
+get_token_decimals :: proc(token: Token) -> int {
+	if token.decimals > 0 {
+		return token.decimals
+	}
+	return 9 // Default to 9 for SOL
 }

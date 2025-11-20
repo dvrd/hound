@@ -6,6 +6,7 @@ import "core:time"
 import "base:runtime"
 import models "../../core/models"
 import wallet_mgr "../wallet_manager"
+import wallet_backend "../../core/wallet"
 import token_cfg "../token_config"
 import dex "../../core/dex"
 
@@ -18,12 +19,11 @@ g_menu: ^NSMenu  // Store menu reference for dynamic updates
 g_timer: ^NSTimer
 g_current_symbol: string
 g_current_price: models.PriceData
-g_price_db: PriceDB
 g_token_config: models.TokenConfig  // Cached config (loaded once)
 
 // Wallet support (Phase 1)
 g_wallet_manager: wallet_mgr.WalletManager
-g_current_portfolio: wallet_mgr.PortfolioBalance
+g_current_portfolio: wallet_backend.PortfolioBalance
 g_wallet_mode_enabled: bool = false  // Toggle between price tracking and wallet tracking
 
 // Menu item indices (hardcoded based on create_menu structure)
@@ -163,29 +163,8 @@ update_menu_prices :: proc(symbol: string, data: models.PriceData) {
         NSMenuItem_setTitle(price_item, NSString_fromString(price_text))
     }
 
-    // Update history items from database
-    history, db_err := get_recent_prices(&g_price_db, symbol, MENU_INDEX_HISTORY_COUNT)
-    if db_err == .None && len(history) > 0 {
-        // NO delete needed - command arena cleanup
-
-        for i in 0..<MENU_INDEX_HISTORY_COUNT {
-            history_item := NSMenuItem_itemAtIndex(g_menu, MENU_INDEX_HISTORY_START + i)
-            if history_item == nil do continue
-
-            if i < len(history) {
-                entry := history[i]
-                // Format timestamp
-                ts := time.unix(entry.timestamp, 0)
-                hour, min, _ := time.clock(ts)
-                price_str := fmt.tprintf("%.6f", entry.price_usd)
-                history_text := fmt.tprintf("  %02d:%02d - $%s", hour, min, price_str)
-                NSMenuItem_setTitle(history_item, NSString_fromString(history_text))
-            } else {
-                // No more history entries
-                NSMenuItem_setTitle(history_item, NSString_fromString("  --"))
-            }
-        }
-    }
+    // Price history display removed - menubar focuses on current price only
+    // Historical tracking moved to core/ services if needed
 }
 
 // ============================================================================
@@ -225,11 +204,8 @@ fetch_and_update :: proc(symbol: string) {
     // Update display
     update_menu_bar_display(symbol, data)
 
-    // Save to database (non-fatal if fails)
-    db_err := save_price(&g_price_db, symbol, data)
-    if db_err != .None {
-        fmt.eprintfln("[%s] Warning: Failed to save price to database", time_now_string())
-    }
+    // Price history saving removed - menubar focuses on current prices only
+    // Database operations moved to core/ services
 
     // Update menu items
     update_menu_prices(symbol, data)

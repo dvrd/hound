@@ -3,7 +3,7 @@ package transaction
 import "core:fmt"
 import "core:log"
 import "core:strings"
-import src "../"
+import models "../../core/models"
 
 // Phantom wallet deeplink integration
 // Reference: PRPs/ai_docs/solana-transactions.md (Phantom Deeplinks section)
@@ -25,7 +25,7 @@ import src "../"
 //
 // IMPORTANT: This generates a simple signing deeplink. For production apps with
 // encryption requirements, implement the full encrypted deeplink flow.
-generate_phantom_deeplink :: proc(transaction_base64: string) -> (string, src.ErrorType) {
+generate_phantom_deeplink :: proc(transaction_base64: string) -> (string, models.ErrorType) {
 	if len(transaction_base64) == 0 {
 		log.error("Cannot generate deeplink: empty transaction")
 		return "", .InvalidResponse
@@ -58,7 +58,7 @@ generate_phantom_deeplink :: proc(transaction_base64: string) -> (string, src.Er
 // Returns: Error if opening fails
 //
 // CRITICAL: Uses NSWorkspace to open URL (pattern from menubar app)
-open_phantom_deeplink :: proc(deeplink: string) -> src.ErrorType {
+open_phantom_deeplink :: proc(deeplink: string) -> models.ErrorType {
 	if len(deeplink) == 0 {
 		log.error("Cannot open empty deeplink")
 		return .InvalidResponse
@@ -138,7 +138,7 @@ url_encode :: proc(input: string) -> string {
 // Returns: QR code-compatible string (base64 transaction)
 //
 // NOTE: Many hardware wallets support scanning QR codes with transaction data
-generate_qr_code_data :: proc(transaction_base64: string) -> (string, src.ErrorType) {
+generate_qr_code_data :: proc(transaction_base64: string) -> (string, models.ErrorType) {
 	if !validate_transaction_base64(transaction_base64) {
 		return "", .InvalidResponse
 	}

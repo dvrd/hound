@@ -99,7 +99,7 @@ create_wallet_menu :: proc(manager: ^wallet_mgr.WalletManager) -> ^NSMenu {
 // ============================================================================
 
 // update_wallet_display updates menubar title with total portfolio value
-update_wallet_display :: proc(portfolio: wallet_mgr.PortfolioBalance) {
+update_wallet_display :: proc(portfolio: wallet_backend.PortfolioBalance) {
 	if g_status_item == nil do return
 
 	button := NSStatusItem_button(g_status_item)
@@ -119,7 +119,7 @@ update_wallet_display :: proc(portfolio: wallet_mgr.PortfolioBalance) {
 }
 
 // update_wallet_menu updates menu items with portfolio data
-update_wallet_menu :: proc(portfolio: wallet_mgr.PortfolioBalance) {
+update_wallet_menu :: proc(portfolio: wallet_backend.PortfolioBalance) {
 	if g_menu == nil do return
 
 	// Menu structure (hardcoded indices):

@@ -7,7 +7,7 @@ import "core:net"
 import "core:strconv"
 import "core:time"
 import client "../../vendor/odin-http/client"
-import src "../"
+import models "../../core/models"
 
 // Jupiter Swap API v6 endpoints
 // Reference: PRPs/ai_docs/jupiter-api-v6.md
@@ -36,7 +36,7 @@ get_quote :: proc(
 	slippage_bps: u16 = 50,
 ) -> (
 	JupiterQuote,
-	src.ErrorType,
+	models.ErrorType,
 ) {
 	assert(len(input_mint) > 0, "Input mint cannot be empty")
 	assert(len(output_mint) > 0, "Output mint cannot be empty")
@@ -176,7 +176,7 @@ build_swap_transaction :: proc(
 	user_public_key: string,
 ) -> (
 	JupiterSwapResponse,
-	src.ErrorType,
+	models.ErrorType,
 ) {
 	assert(len(user_public_key) > 0, "User public key cannot be empty")
 	assert(quote.is_valid, "Quote must be valid")
