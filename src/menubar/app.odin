@@ -5,8 +5,7 @@ import "core:strings"
 import "core:time"
 import "base:runtime"
 import models "../lib/models"
-import wallet_mgr "../wallet"
-import wallet_backend "../lib/wallet"
+import wallet "../lib/wallet"
 import token_cfg "../config"
 import dex "../lib/dex"
 
@@ -22,8 +21,8 @@ g_current_price: models.PriceData
 g_token_config: models.TokenConfig  // Cached config (loaded once)
 
 // Wallet support (Phase 1)
-g_wallet_manager: wallet_mgr.WalletManager
-g_current_portfolio: wallet_backend.PortfolioBalance
+g_wallet_manager: wallet.WalletManager
+g_current_portfolio: wallet.PortfolioBalance
 g_wallet_mode_enabled: bool = false  // Toggle between price tracking and wallet tracking
 
 // Menu item indices (hardcoded based on create_menu structure)
@@ -234,7 +233,7 @@ fetch_and_update_portfolio :: proc() {
 	fmt.printfln("[%s] Refreshing wallet portfolios...", time_now_string())
 
 	// Refresh all portfolios
-	err := wallet_mgr.refresh_all_portfolios(&g_wallet_manager)
+	err := wallet.refresh_all_portfolios(&g_wallet_manager)
 	if err != .None {
 		fmt.eprintfln("[%s] Error refreshing portfolios: %v", time_now_string(), err)
 
@@ -247,7 +246,7 @@ fetch_and_update_portfolio :: proc() {
 	}
 
 	// Get aggregated portfolio
-	portfolio := wallet_mgr.get_aggregated_portfolio(&g_wallet_manager)
+	portfolio := wallet.get_aggregated_portfolio(&g_wallet_manager)
 	g_current_portfolio = portfolio
 
 	// Update display

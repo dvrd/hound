@@ -1,27 +1,22 @@
 // Wallet manager - coordinates wallet operations
 // Manages wallet list, balance fetching, and portfolio aggregation
-package wallet_manager
+package wallet
 
 import "core:log"
-import models "../lib/models"
-import db "../lib/database"
-import wallet_backend "../lib/wallet"
-import blockchain "../lib/blockchain"
-import services "../lib/services"
+import models "../models"
+import db "../database"
 
 // ============================================================================
 // Types
 // ============================================================================
 
 // WalletManager coordinates all wallet operations
-// Acts as orchestrator - delegates business logic to wallet_service
 WalletManager :: struct {
 	config:          ^models.TokenConfig,
-	rpc_client:      wallet_backend.RPCClient,
-	balance_fetcher: wallet_backend.BalanceFetcher,
-	portfolios:      map[string]wallet_backend.PortfolioBalance,  // address -> portfolio (cache)
+	rpc_client:      RPCClient,
+	balance_fetcher: BalanceFetcher,
+	portfolios:      map[string]PortfolioBalance,  // address -> portfolio (cache)
 	db:              ^db.Database,                 // Database handle
-	service_ctx:     services.WalletServiceContext,  // Service context for delegation
 }
 
 // ============================================================================
@@ -46,11 +41,11 @@ init_wallet_manager :: proc(
 	log.info("Initializing wallet manager")
 
 	// Initialize RPC client
-	rpc_client := wallet_backend.init_rpc_client(rpc_endpoint, backup_endpoints)
+	rpc_client := init_rpc_client(rpc_endpoint, backup_endpoints)
 	log.debugf("RPC client initialized with endpoint: %s", rpc_endpoint)
 
 	// Create portfolio map
-	portfolios := make(map[string]wallet_backend.PortfolioBalance)
+	portfolios := make(map[string]PortfolioBalance)
 
 	// Create manager first
 	manager := WalletManager{
@@ -62,18 +57,9 @@ init_wallet_manager :: proc(
 	}
 
 	// Now initialize balance fetcher with pointer to manager's rpc_client
-	price_fetcher := wallet_backend.PriceFetcher{}  // Empty placeholder
-	manager.balance_fetcher = wallet_backend.init_balance_fetcher(&manager.rpc_client, &price_fetcher)
+	price_fetcher := PriceFetcher{}  // Empty placeholder
+	manager.balance_fetcher = init_balance_fetcher(&manager.rpc_client, &price_fetcher)
 	log.debug("Balance fetcher initialized")
-
-	// Initialize service context for delegation
-	manager.service_ctx = services.WalletServiceContext{
-		db              = db,
-		rpc_client      = &manager.rpc_client,
-		balance_fetcher = &manager.balance_fetcher,
-		config          = config,
-	}
-	log.debug("Wallet service context initialized")
 
 	log.info("Wallet manager initialized successfully")
 	return manager, .None
@@ -111,8 +97,8 @@ add_wallet :: proc(
 ) -> models.ErrorType {
 	assert(manager != nil, "Wallet manager cannot be nil")
 
-	// Delegate to wallet service
-	return services.validate_and_add_wallet(&manager.service_ctx, address, label, is_primary)
+	// Validate and add wallet
+	return validate_and_add_wallet(manager.db, address, label, is_primary)
 }
 
 // get_all_wallets retrieves all configured wallet addresses
@@ -123,8 +109,8 @@ add_wallet :: proc(
 get_wallets :: proc(manager: ^WalletManager) -> (wallets: []models.Wallet, err: models.ErrorType) {
 	assert(manager != nil, "Wallet manager cannot be nil")
 
-	// Delegate to wallet service
-	return services.get_all_wallets(&manager.service_ctx)
+	// Get all wallets from database
+	return get_all_wallets(manager.db)
 }
 
 // ============================================================================
@@ -140,11 +126,16 @@ get_wallets :: proc(manager: ^WalletManager) -> (wallets: []models.Wallet, err: 
 refresh_portfolio :: proc(
 	manager: ^WalletManager,
 	address: string,
-) -> (portfolio: wallet_backend.PortfolioBalance, err: models.ErrorType) {
+) -> (portfolio: PortfolioBalance, err: models.ErrorType) {
 	assert(manager != nil, "Wallet manager cannot be nil")
 
-	// Delegate to wallet service (includes fetch + persist)
-	fetched_portfolio, fetch_err := services.fetch_and_persist_portfolio(&manager.service_ctx, address)
+	// Fetch and persist portfolio using local operations
+	fetched_portfolio, fetch_err := fetch_and_persist_portfolio(
+		&manager.balance_fetcher,
+		manager.db,
+		manager.config,
+		address,
+	)
 	if fetch_err != .None {
 		return {}, fetch_err
 	}
@@ -165,7 +156,7 @@ refresh_portfolio :: proc(
 get_cached_portfolio :: proc(
 	manager: ^WalletManager,
 	address: string,
-) -> (portfolio: wallet_backend.PortfolioBalance, found: bool) {
+) -> (portfolio: PortfolioBalance, found: bool) {
 	assert(manager != nil, "Wallet manager cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 
@@ -223,9 +214,9 @@ refresh_all_portfolios :: proc(manager: ^WalletManager) -> models.ErrorType {
 // ASSERTION 1: Manager must not be nil
 //
 // Returns: Aggregated portfolio balance
-get_aggregated_portfolio :: proc(manager: ^WalletManager) -> wallet_backend.PortfolioBalance {
+get_aggregated_portfolio :: proc(manager: ^WalletManager) -> PortfolioBalance {
 	assert(manager != nil, "Wallet manager cannot be nil")
 
-	// Delegate to wallet service - aggregate all cached portfolios
-	return services.aggregate_portfolios(manager.portfolios)
+	// Aggregate all cached portfolios using local operation
+	return aggregate_portfolios(manager.portfolios)
 }

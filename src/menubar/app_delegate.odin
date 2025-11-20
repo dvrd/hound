@@ -7,7 +7,7 @@ import "core:path/filepath"
 import "base:runtime"
 import models "../lib/models"
 import db "../lib/database"
-import wallet_mgr "../wallet"
+import wallet "../lib/wallet"
 import token_cfg "../config"
 
 // ============================================================================
@@ -60,7 +60,7 @@ app_did_finish_launching :: proc "c" (
                 rpc_endpoint := "https://api.mainnet-beta.solana.com"
                 backup_endpoints: []string = nil
 
-                manager, init_err := wallet_mgr.init_wallet_manager(&g_token_config, database, rpc_endpoint, backup_endpoints)
+                manager, init_err := wallet.init_wallet_manager(&g_token_config, database, rpc_endpoint, backup_endpoints)
                 if init_err != .None {
                     fmt.eprintfln("ERROR: Failed to initialize wallet manager: %v", init_err)
                     g_wallet_mode_enabled = false
@@ -70,10 +70,6 @@ app_did_finish_launching :: proc "c" (
                     // When we copy the manager struct, all pointers still point to the local 'manager' variable
                     // We need to update them to point to g_wallet_manager fields
                     g_wallet_manager.balance_fetcher.rpc_client = &g_wallet_manager.rpc_client
-
-                    // CRITICAL: Fix service_ctx pointers too!
-                    g_wallet_manager.service_ctx.rpc_client = &g_wallet_manager.rpc_client
-                    g_wallet_manager.service_ctx.balance_fetcher = &g_wallet_manager.balance_fetcher
                     fmt.println("Wallet manager initialized")
                 }
             }

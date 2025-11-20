@@ -1,29 +1,11 @@
-// Wallet service - business logic for wallet operations
-// Stateless service functions for wallet management, portfolio fetching, and aggregation
-package services
+// Wallet operations - business logic for wallet management
+// Portfolio fetching, aggregation, and wallet management operations
+package wallet
 
 import "core:log"
 import "../models"
 import "../database"
 import "../blockchain"
-import "../wallet"
-
-// ============================================================================
-// Service Context
-// ============================================================================
-
-// WalletServiceContext holds dependencies for wallet operations
-//
-// This context is passed to all service functions, enabling:
-// - Dependency injection
-// - Stateless service functions
-// - Easy testing with mock contexts
-WalletServiceContext :: struct {
-	db:              ^database.Database,
-	rpc_client:      ^wallet.RPCClient,
-	balance_fetcher: ^wallet.BalanceFetcher,
-	config:          ^models.TokenConfig,
-}
 
 // ============================================================================
 // Portfolio Operations
@@ -36,25 +18,25 @@ WalletServiceContext :: struct {
 // 2. Enriches with USD prices
 // 3. Persists balances to database for history
 //
-// ASSERTION 1: Context must not be nil
-// ASSERTION 2: Address must not be empty
-//
 // Returns: Portfolio balance and error status
 fetch_and_persist_portfolio :: proc(
-	ctx: ^WalletServiceContext,
+	balance_fetcher: ^BalanceFetcher,
+	db_handle: ^database.Database,
+	config: ^models.TokenConfig,
 	address: string,
-) -> (portfolio: wallet.PortfolioBalance, err: models.ErrorType) {
-	assert(ctx != nil, "Wallet service context cannot be nil")
+) -> (portfolio: PortfolioBalance, err: models.ErrorType) {
+	assert(balance_fetcher != nil, "Balance fetcher cannot be nil")
+	assert(db_handle != nil, "Database handle cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 
 	log.infof("Fetching and persisting portfolio for: %s", address)
 
 	// Step 1: Fetch portfolio from blockchain
-	fetched_portfolio, fetch_err := wallet.fetch_portfolio_balance(
-		ctx.balance_fetcher,
+	fetched_portfolio, fetch_err := fetch_portfolio_balance(
+		balance_fetcher,
 		address,
-		ctx.config,
-		ctx.db,
+		config,
+		db_handle,
 	)
 	if fetch_err != .None {
 		log.errorf("Failed to fetch portfolio: %v", fetch_err)
@@ -64,7 +46,7 @@ fetch_and_persist_portfolio :: proc(
 
 	// Step 2: Persist SOL balance to database
 	sol_err := database.update_balance(
-		ctx.db,
+		db_handle,
 		address,
 		portfolio.sol_balance.mint,
 		portfolio.sol_balance.symbol,
@@ -79,7 +61,7 @@ fetch_and_persist_portfolio :: proc(
 	// Step 3: Persist token balances to database
 	for token_balance in portfolio.token_balances {
 		token_err := database.update_balance(
-			ctx.db,
+			db_handle,
 			address,
 			token_balance.mint,
 			token_balance.symbol,
@@ -109,10 +91,10 @@ RefreshPolicy :: enum {
 
 // RefreshResult represents the result of refreshing multiple wallets
 RefreshResult :: struct {
-	portfolios:    map[string]wallet.PortfolioBalance,  // address -> portfolio
+	portfolios:    map[string]PortfolioBalance,  // address -> portfolio
 	success_count: int,
 	failure_count: int,
-	errors:        map[string]models.ErrorType,         // address -> error
+	errors:        map[string]models.ErrorType,  // address -> error
 }
 
 // refresh_multiple_with_policy refreshes multiple wallets with error policy
@@ -121,27 +103,32 @@ RefreshResult :: struct {
 // - FailFast: Stop immediately on first error
 // - BestEffort: Continue refreshing remaining wallets, collect all errors
 //
-// ASSERTION 1: Context must not be nil
-// ASSERTION 2: Addresses slice must not be empty
-//
 // Returns: Refresh result with portfolios, counts, and errors
 refresh_multiple_with_policy :: proc(
-	ctx: ^WalletServiceContext,
+	balance_fetcher: ^BalanceFetcher,
+	db_handle: ^database.Database,
+	config: ^models.TokenConfig,
 	addresses: []string,
 	policy: RefreshPolicy = .BestEffort,
 ) -> (result: RefreshResult, err: models.ErrorType) {
-	assert(ctx != nil, "Wallet service context cannot be nil")
+	assert(balance_fetcher != nil, "Balance fetcher cannot be nil")
+	assert(db_handle != nil, "Database handle cannot be nil")
 	assert(len(addresses) > 0, "Addresses slice cannot be empty")
 
 	log.infof("Refreshing %d wallet(s) with policy: %v", len(addresses), policy)
 
 	// Initialize result
-	result.portfolios = make(map[string]wallet.PortfolioBalance)
+	result.portfolios = make(map[string]PortfolioBalance)
 	result.errors = make(map[string]models.ErrorType)
 
 	// Refresh each wallet
 	for address in addresses {
-		portfolio, refresh_err := fetch_and_persist_portfolio(ctx, address)
+		portfolio, refresh_err := fetch_and_persist_portfolio(
+			balance_fetcher,
+			db_handle,
+			config,
+			address,
+		)
 
 		if refresh_err == .None {
 			// Success
@@ -191,20 +178,18 @@ refresh_multiple_with_policy :: proc(
 // - Consolidated token balances
 // - Aggregate USD value
 //
-// ASSERTION 1: Portfolios map must not be empty
-//
 // Returns: Aggregated portfolio balance
 aggregate_portfolios :: proc(
-	portfolios: map[string]wallet.PortfolioBalance,
-) -> wallet.PortfolioBalance {
+	portfolios: map[string]PortfolioBalance,
+) -> PortfolioBalance {
 	assert(len(portfolios) > 0, "Portfolios map cannot be empty")
 
 	log.debugf("Aggregating %d portfolio(s)", len(portfolios))
 
 	// Initialize aggregated portfolio
-	aggregated := wallet.PortfolioBalance{
+	aggregated := PortfolioBalance{
 		wallet_address = "AGGREGATED",
-		sol_balance    = wallet.TokenBalance{
+		sol_balance    = TokenBalance{
 			mint     = "So11111111111111111111111111111111111111112",
 			symbol   = "SOL",
 			decimals = 9,
@@ -212,7 +197,7 @@ aggregate_portfolios :: proc(
 	}
 
 	// Token aggregation map: mint -> token balance
-	token_totals := make(map[string]wallet.TokenBalance)
+	token_totals := make(map[string]TokenBalance)
 
 	// Aggregate all portfolios
 	for _, portfolio in portfolios {
@@ -248,7 +233,7 @@ aggregate_portfolios :: proc(
 	}
 
 	// Convert token map to slice
-	token_list := make([dynamic]wallet.TokenBalance, 0, len(token_totals))
+	token_list := make([dynamic]TokenBalance, 0, len(token_totals))
 	for _, token_balance in token_totals {
 		append(&token_list, token_balance)
 	}
@@ -271,18 +256,14 @@ aggregate_portfolios :: proc(
 // - Duplicate checking
 // - Database insertion
 //
-// ASSERTION 1: Context must not be nil
-// ASSERTION 2: Address must not be empty
-// ASSERTION 3: Label must not be empty
-//
 // Returns: Error status
 validate_and_add_wallet :: proc(
-	ctx: ^WalletServiceContext,
+	db_handle: ^database.Database,
 	address: string,
 	label: string,
 	is_primary: bool = false,
 ) -> models.ErrorType {
-	assert(ctx != nil, "Wallet service context cannot be nil")
+	assert(db_handle != nil, "Database handle cannot be nil")
 	assert(len(address) > 0, "Wallet address cannot be empty")
 	assert(len(label) > 0, "Wallet label cannot be empty")
 
@@ -302,7 +283,7 @@ validate_and_add_wallet :: proc(
 	}
 
 	// Step 3: Insert into database (handles duplicates)
-	db_err := database.insert_wallet(ctx.db, wallet_obj)
+	db_err := database.insert_wallet(db_handle, wallet_obj)
 	if db_err != .None {
 		log.errorf("Failed to insert wallet into database: %v", db_err)
 		return db_err
@@ -318,15 +299,15 @@ validate_and_add_wallet :: proc(
 
 // get_all_wallets retrieves all configured wallets from database
 //
-// ASSERTION 1: Context must not be nil
-//
 // Returns: Array of wallets and error status
-get_all_wallets :: proc(ctx: ^WalletServiceContext) -> (wallets: []models.Wallet, err: models.ErrorType) {
-	assert(ctx != nil, "Wallet service context cannot be nil")
+get_all_wallets :: proc(
+	db_handle: ^database.Database,
+) -> (wallets: []models.Wallet, err: models.ErrorType) {
+	assert(db_handle != nil, "Database handle cannot be nil")
 
 	log.debug("Fetching all wallets from database")
 
-	wallet_list, db_err := database.get_all_wallets(ctx.db)
+	wallet_list, db_err := database.get_all_wallets(db_handle)
 	if db_err != .None {
 		log.errorf("Failed to fetch wallets: %v", db_err)
 		return nil, db_err

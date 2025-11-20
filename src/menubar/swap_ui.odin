@@ -7,8 +7,7 @@ import "core:log"
 import "core:strconv"
 import "core:strings"
 import models "../lib/models"
-import wallet_mgr "../wallet"
-import wallet_backend "../lib/wallet"
+import wallet "../lib/wallet"
 import jupiter "../swap"
 import tx "../transaction"
 
@@ -27,18 +26,18 @@ import tx "../transaction"
 //   6. Export transaction (clipboard or Phantom)
 //
 // Reference: PRPs/hound-phase2-transaction-building.md (Swap Dialog section)
-show_swap_dialog :: proc(manager: ^wallet_mgr.WalletManager) -> bool {
+show_swap_dialog :: proc(manager: ^wallet.WalletManager) -> bool {
 	log.debug("Opening swap dialog")
 
 	// Step 1: Get portfolio to populate token list
-	wallets, wallet_err := wallet_mgr.get_wallets(manager)
+	wallets, wallet_err := wallet.get_wallets(manager)
 	if wallet_err != .None || len(wallets) == 0 {
 		show_error_alert("No wallets configured. Please add a wallet first.")
 		return false
 	}
 
 	// Get aggregated portfolio across all wallets
-	portfolio := wallet_mgr.get_aggregated_portfolio(manager)
+	portfolio := wallet.get_aggregated_portfolio(manager)
 
 	if len(portfolio.token_balances) == 0 && portfolio.sol_balance.amount == 0 {
 		show_error_alert("Portfolio is empty. Please add tokens to your wallet.")
@@ -143,7 +142,7 @@ show_swap_dialog :: proc(manager: ^wallet_mgr.WalletManager) -> bool {
 show_token_selection_dialog :: proc(
 	title: string,
 	info: string,
-	portfolio: wallet_backend.PortfolioBalance,
+	portfolio: wallet.PortfolioBalance,
 ) -> (
 	mint: string,
 	symbol: string,

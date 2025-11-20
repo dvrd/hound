@@ -1,14 +1,14 @@
 // Token metadata discovery via Jupiter Token List API
 // Automatically discovers token symbol and name for unknown tokens
 #+feature dynamic-literals
-package wallet_manager
+package wallet
 
 import "core:encoding/json"
 import "core:fmt"
 import "core:log"
-import http_client "../../vendor/odin-http/client"
-import models "../lib/models"
-import db "../lib/database"
+import http_client "../../../vendor/odin-http/client"
+import models "../models"
+import db "../database"
 
 // ============================================================================
 // Constants
