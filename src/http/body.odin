@@ -96,7 +96,7 @@ body_error_status :: proc(e: Body_Error) -> Status {
 			return .Internal_Server_Error
 		}
 	case io.Error:
-		switch t {
+		#partial switch t {
 		case .EOF, .Unknown, .No_Progress, .Unexpected_EOF:
 			return .Bad_Request
 		case .Empty, .Short_Write, .Buffer_Full, .Short_Buffer,

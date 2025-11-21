@@ -18,6 +18,7 @@ import token_cfg "../../lib/config"
 import keystore_svc "../../lib/services"
 import services "../../lib/services"
 import output "../output"
+import utils "../../lib/utils"
 
 // ============================================================================
 // Phase 3: Flag Parsing and Configuration
@@ -487,6 +488,7 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 		from_token.contract_address,
 		to_token.contract_address,
 		amount_lamports,
+		target_wallet.address,  // Pass wallet address as taker
 		flags.slippage_bps,
 	)
 	if quote_err != .None {
@@ -541,12 +543,63 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 		return .None
 	}
 
-	// Phase 2: Show confirmation message (Phase 3 will execute)
+	// Phase 3: Execute swap transaction
 	fmt.println("")
-	fmt.println("✓ Swap confirmed!")
-	fmt.println("")
-	fmt.println("⚙ Transaction execution coming in Phase 3.")
-	fmt.println("Quote has been validated and is ready for execution.")
+	output.print_progress("Preparing transaction...")
+
+	// Step 1: Prompt for password
+	password, password_ok := utils.read_password_secure()
+	defer utils.zero_string(&password)
+
+	if !password_ok {
+		output.print_error("Failed to read password")
+		return .NetworkError
+	}
+
+	if len(password) == 0 {
+		output.print_error("Password cannot be empty")
+		return .InvalidToken
+	}
+
+	// Step 2: Retrieve and decrypt keypair (database already opened earlier in function)
+	output.print_progress("Decrypting keypair...")
+	keypair, decrypt_err := keystore_svc.unlock_keypair(database, target_wallet.address, password)
+
+	if decrypt_err != .None {
+		if decrypt_err == .KeypairNotFound {
+			output.print_error("No wallet keypair found. Import a wallet first with 'hound wallet import'")
+		} else {
+			output.print_error("Failed to decrypt keypair. Check your password.")
+		}
+		return decrypt_err
+	}
+
+	log.debug("Keypair decrypted successfully")
+
+	// Step 3: Execute transaction
+	output.print_progress("Signing and submitting transaction...")
+	result, exec_err := services.execute_swap_transaction(
+		quote,
+		keypair,
+		from_symbol,
+		to_symbol,
+	)
+
+	if exec_err != .None {
+		output.print_error("Transaction execution failed")
+		return exec_err
+	}
+
+	// Step 4: Save to swap history
+	log.debug("Recording swap to history")
+	history_err := db.insert_swap_history(database, target_wallet.address, result, flags.slippage_bps)
+	if history_err != .None {
+		log.warnf("Failed to save swap history: %v", history_err)
+		// Don't fail the command - transaction already succeeded
+	}
+
+	// Step 5: Display result
+	output.format_swap_result(result)
 
 	return .None
 }

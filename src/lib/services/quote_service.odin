@@ -28,19 +28,22 @@ QUOTE_CACHE_TTL :: 90 * time.Second
 // ASSERTION 1: Validate input/output mints are not empty
 // ASSERTION 2: Validate amount is positive
 // ASSERTION 3: Validate slippage_bps is reasonable (1-1000)
+// ASSERTION 4: Validate taker is not empty
 //
 // Parameters:
 //   - input_mint: Token to swap from (e.g., SOL mint)
 //   - output_mint: Token to swap to (e.g., USDC mint)
 //   - amount: Amount in lamports (smallest unit)
+//   - taker: Wallet address executing the swap (REQUIRED for transaction)
 //   - slippage_bps: Slippage tolerance in basis points (default: 50 = 0.5%)
 //                   Note: Used for minimum_out calculation, not sent to API
 //
-// Returns: SwapQuote with routing info, ErrorType
+// Returns: SwapQuote with routing info + transaction, ErrorType
 fetch_swap_quote :: proc(
 	input_mint: string,
 	output_mint: string,
 	amount: u64,
+	taker: string,
 	slippage_bps: int = 50,
 ) -> (models.SwapQuote, models.ErrorType) {
 	// ASSERTION 1: Validate mints
@@ -56,16 +59,20 @@ fetch_swap_quote :: proc(
 		fmt.tprintf("Slippage must be 1-1000 bps, got %d", slippage_bps),
 	)
 
-	log.debugf("Fetching quote: %s → %s, amount: %d, slippage: %dbps",
-		input_mint, output_mint, amount, slippage_bps)
+	// ASSERTION 4: Validate taker
+	assert(len(taker) > 0, "Taker wallet address cannot be empty")
 
-	// Build URL with query parameters (Ultra API doesn't use slippageBps in request)
+	log.debugf("Fetching quote: %s → %s, amount: %d, taker: %s, slippage: %dbps",
+		input_mint, output_mint, amount, taker, slippage_bps)
+
+	// Build URL with query parameters (include taker to get transaction)
 	url := fmt.tprintf(
-		"%s?inputMint=%s&outputMint=%s&amount=%d",
+		"%s?inputMint=%s&outputMint=%s&amount=%d&taker=%s",
 		JUPITER_QUOTE_URL,
 		input_mint,
 		output_mint,
 		amount,
+		taker,
 	)
 
 	log.debugf("Quote URL: %s", url)
