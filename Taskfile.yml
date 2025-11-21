@@ -109,19 +109,9 @@ tasks:
       - cat VERSION
 
   version:update:
-    desc: 'Update version (usage: task version:update -- 0.5.0)'
+    desc: 'Update version, sync files, and create git tag (usage: task version:update -- 0.5.0)'
     cmds:
-      - ./scripts/update_version.sh {{.CLI_ARGS}}
-
-  version:sync:
-    desc: Sync version.odin with VERSION file (regenerate version.odin)
-    cmds:
-      - ./scripts/update_version.sh
-
-  version:tag:
-    desc: 'Update version and create git tag (usage: task version:tag -- 0.5.0)'
-    cmds:
-      - ./scripts/update_version.sh {{.CLI_ARGS}} --tag
+      - ruby scripts/update_version.rb {{.CLI_ARGS}} --tag
 
   hooks:install:
     desc: Install git hooks (pre-commit for auto-syncing version.odin)

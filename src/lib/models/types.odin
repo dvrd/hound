@@ -55,6 +55,12 @@ ErrorType :: enum {
 	CryptoOperationFailed,  // Argon2/AES operation error
 	KeypairNotFound,        // No encrypted keypair in database
 	WalletAlreadyExists,    // Duplicate wallet import attempt
+
+	// Swap-specific errors (Phase 2)
+	QuoteExpired,           // Jupiter quote older than 90 seconds
+	HighPriceImpact,        // Price impact > 5%
+	InsufficientBalance,    // Wallet balance too low
+	SlippageExceeded,       // Actual output < minimum (Phase 3)
 }
 
 // API response structures matching DexScreener API
@@ -142,9 +148,77 @@ get_token_mint :: proc(token: Token) -> string {
 }
 
 // get_token_decimals returns the token's decimals, defaulting to 9 (SOL default)
+// TODO: Add decimals column to database schema (Phase 3)
 get_token_decimals :: proc(token: Token) -> int {
 	if token.decimals > 0 {
 		return token.decimals
 	}
-	return 9 // Default to 9 for SOL
+
+	// Hardcoded decimals for known tokens (temporary fix until database migration)
+	switch token.contract_address {
+	case "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v": // USDC
+		return 6
+	case "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB": // USDT
+		return 6
+	case "So11111111111111111111111111111111111111112": // SOL (native)
+		return 9
+	}
+
+	return 9 // Default to 9 for SOL-like tokens
+}
+
+// ============================================================================
+// Swap Types (Phase 2: Quote & Execution)
+// ============================================================================
+
+// Swap command flags (parallel to WalletFlags)
+SwapFlags :: struct {
+	dry_run:      bool,   // --dry-run: Simulation mode
+	slippage_bps: int,    // --slippage: Custom slippage (default: 50)
+	wallet_addr:  string, // --wallet: Specific wallet to use
+}
+
+// Single step in Jupiter's route plan
+RouteStep :: struct {
+	dex_label:     string,    // "Orca Whirlpool", "Raydium CLMM"
+	input_mint:    string,
+	output_mint:   string,
+	input_amount:  u64,
+	output_amount: u64,
+	fee_amount:    u64,
+	percent:       int,       // Percentage of total route (for splits)
+}
+
+// Swap quote from Jupiter API v6
+SwapQuote :: struct {
+	// Input/Output
+	input_mint:    string,
+	input_symbol:  string,
+	input_amount:  f64,       // Human-readable (e.g., 1.0 SOL)
+	input_lamports: u64,      // Raw amount (e.g., 1000000000)
+
+	output_mint:   string,
+	output_symbol: string,
+	output_amount: f64,       // Estimated output
+	output_lamports: u64,
+
+	// Rate & Slippage
+	rate:          f64,       // Exchange rate (output/input)
+	slippage_bps:  int,       // Slippage tolerance (basis points)
+	minimum_out:   f64,       // Minimum output after slippage
+
+	// Routing
+	route_plan:    []RouteStep,
+	primary_dex:   string,    // Main DEX label (e.g., "Orca Whirlpool")
+
+	// Impact & Fees
+	price_impact_pct: f64,    // Price impact percentage
+	network_fee_sol:  f64,    // Estimated network fee in SOL
+
+	// Metadata
+	fetched_at:    i64,       // Unix timestamp when quote was fetched
+	expires_at:    i64,       // Unix timestamp when quote expires (fetched_at + 90s)
+
+	// Raw Response (for Phase 3 transaction building)
+	jupiter_response: string, // Store full JSON string for /swap endpoint
 }

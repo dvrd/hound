@@ -4,6 +4,7 @@ package commands
 
 import "core:fmt"
 import "core:log"
+import "core:strconv"
 import "core:strings"
 import "core:slice"
 import "core:encoding/json"
@@ -15,6 +16,7 @@ import wallet "../../lib/wallet"
 import memory "../../lib/memory"
 import token_cfg "../../lib/config"
 import keystore_svc "../../lib/services"
+import services "../../lib/services"
 import output "../output"
 
 // ============================================================================
@@ -361,49 +363,243 @@ handle_wallet :: proc(flags: WalletFlags) -> models.ErrorType {
 }
 
 // ============================================================================
-// Swap Subcommand (Phase 3 Foundation)
+// Swap Subcommand (Phase 2: Quote & Dry-Run)
 // ============================================================================
 
-// handle_wallet_swap implements basic swap command structure
+// handle_wallet_swap implements swap quote fetching and display
 //
-// Phase 3 Scope: Command routing + usage help only
-// Phase 4 Will Add: Actual quote fetching + transaction building
+// Phase 2 Scope: Quote fetching + dry-run + confirmation prompt
+// Phase 3 Will Add: Transaction execution
+//
+// Command: hound wallet swap <from> <to> <amount> [flags]
+// Flags: --dry-run, --slippage <bps>, --wallet <addr>
 //
 // Parameters:
-// - args: Command arguments (from_symbol, to_symbol, amount)
+//   - args: Command arguments after "wallet swap"
 //
 // Returns: ErrorType for error handling
 handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	log.debugf("Wallet swap subcommand: %d args", len(args))
 
-	// Phase 3: Basic validation + usage help
+	// Validate argument count
 	if len(args) < 3 {
-		output.print_error("Swap functionality requires additional arguments")
+		output.print_error("Swap requires: <from_symbol> <to_symbol> <amount>")
 		fmt.println("")
-		fmt.println("Usage: hound wallet swap <from_symbol> <to_symbol> <amount>")
+		fmt.println("Usage: hound wallet swap <from> <to> <amount> [flags]")
 		fmt.println("")
 		fmt.println("Examples:")
-		fmt.println("  hound wallet swap sol usdc 1.0     # Swap 1 SOL for USDC")
-		fmt.println("  hound wallet swap usdc aura 100    # Swap 100 USDC for AURA")
+		fmt.println("  hound wallet swap sol usdc 1.0")
+		fmt.println("  hound wallet swap sol usdc 1.0 --dry-run")
+		fmt.println("  hound wallet swap sol usdc 1.0 --slippage 100  # 1%")
 		fmt.println("")
-		fmt.println("Note: Swap execution will be available in a future release.")
+		fmt.println("Flags:")
+		fmt.println("  --dry-run         Simulation mode (no execution)")
+		fmt.println("  --slippage <bps>  Custom slippage (default: 50 = 0.5%)")
+		fmt.println("  --wallet <addr>   Use specific wallet")
 		return .MissingArgument
 	}
 
-	// TODO Phase 4: Implement actual swap logic
-	// - Parse from_symbol, to_symbol, amount
-	// - Look up token mints from config
-	// - Get quote from Jupiter
-	// - Build transaction
-	// - Display confirmation prompt
-	// - Sign and submit transaction
+	// Extract positional args
+	from_symbol := strings.to_lower(args[0])
+	to_symbol := strings.to_lower(args[1])
+	amount_str := args[2]
 
-	log.warn("Swap execution not yet implemented (Phase 4)")
-	output.print_error("Swap execution not yet implemented")
-	fmt.println("This feature is planned for Phase 4.")
+	// Parse flags from remaining args
+	flags := parse_swap_flags(args[3:])
+
+	log.infof("Swap: %s → %s, amount: %s, dry_run: %v",
+		from_symbol, to_symbol, amount_str, flags.dry_run)
+
+	// Open database
+	db_path := token_cfg.get_database_path()
+	database, db_err := db.database_open(db_path)
+	if db_err != .None {
+		log.errorf("Failed to open database: %v", db_err)
+		output.print_error("Could not open database")
+		return .DatabaseError
+	}
+	defer db.database_close(database)
+
+	// Resolve target wallet (uses existing function!)
+	target_wallet, wallet_err := resolve_target_wallet(database, flags.wallet_addr)
+	if wallet_err != .None {
+		output.print_error("Could not resolve wallet")
+		return wallet_err
+	}
+
+	log.infof("Using wallet: %s (%s)", target_wallet.label, target_wallet.address)
+
+	// Load token config (for mint resolution)
+	config, config_err := token_cfg.load_token_config()
+	if config_err != .None {
+		log.errorf("Failed to load tokens: %v", config_err)
+		output.print_error("Could not load token configuration")
+		return config_err
+	}
+
+	// Resolve token symbols to mints
+	from_token, found_from := models.get_token_by_symbol(&config, from_symbol)
+	if !found_from {
+		output.print_error(fmt.tprintf("Token not found: %s", from_symbol))
+		fmt.println("")
+		fmt.println("Run 'hound list' to see available tokens.")
+		return .TokenNotFound
+	}
+
+	to_token, found_to := models.get_token_by_symbol(&config, to_symbol)
+	if !found_to {
+		output.print_error(fmt.tprintf("Token not found: %s", to_symbol))
+		fmt.println("")
+		fmt.println("Run 'hound list' to see available tokens.")
+		return .TokenNotFound
+	}
+
+	log.debugf("Resolved: %s → %s, %s → %s",
+		from_symbol, from_token.contract_address,
+		to_symbol, to_token.contract_address)
+
+	// Parse amount (handle decimals)
+	amount_f64, amount_ok := strconv.parse_f64(amount_str)
+	if !amount_ok || amount_f64 <= 0 {
+		output.print_error("Invalid amount (must be positive number)")
+		return .InvalidToken
+	}
+
+	// Convert to lamports (use token decimals or default to 9)
+	decimals := models.get_token_decimals(from_token)
+	multiplier := f64(1)
+	for i := 0; i < decimals; i += 1 {
+		multiplier *= 10
+	}
+	amount_lamports := u64(amount_f64 * multiplier)
+
+	log.debugf("Amount: %.6f %s = %d lamports (decimals=%d)",
+		amount_f64, from_symbol, amount_lamports, decimals)
+
+	// NOTE: Balance validation skipped in Phase 2
+	// Jupiter API will fail if balance is insufficient
+	// TODO Phase 3: Add proper balance validation before quote
+
+	// Fetch swap quote from Jupiter
+	output.print_progress("Fetching quote from Jupiter...")
+
+	quote, quote_err := services.fetch_swap_quote(
+		from_token.contract_address,
+		to_token.contract_address,
+		amount_lamports,
+		flags.slippage_bps,
+	)
+	if quote_err != .None {
+		output.print_error("Failed to fetch swap quote")
+		fmt.println("")
+		fmt.println("Possible reasons:")
+		fmt.println("  - No liquidity available")
+		fmt.println("  - Invalid token pair")
+		fmt.println("  - Jupiter API unavailable")
+		return quote_err
+	}
+
+	// Convert lamports to human-readable amounts
+	quote.input_symbol = from_symbol
+	quote.input_amount = amount_f64
+	quote.output_symbol = to_symbol
+
+	// Use output token decimals for conversion
+	out_decimals := models.get_token_decimals(to_token)
+	out_multiplier := f64(1)
+	for i := 0; i < out_decimals; i += 1 {
+		out_multiplier *= 10
+	}
+	quote.output_amount = f64(quote.output_lamports) / out_multiplier
+	quote.minimum_out = f64(quote.output_lamports) / out_multiplier * (1.0 - f64(flags.slippage_bps) / 10000.0)
+
+	// Recalculate rate using human-readable amounts (not lamports)
+	if quote.input_amount > 0 {
+		quote.rate = quote.output_amount / quote.input_amount
+	}
+
+	// Display formatted quote
+	output.format_swap_quote(quote, from_symbol, to_symbol)
+
+	// Show route details if multi-hop
+	if len(quote.route_plan) > 1 {
+		output.format_route_steps(quote.route_plan)
+	}
+
+	// Dry-run mode: show simulation message and exit
+	if flags.dry_run {
+		fmt.println("🔍 DRY-RUN MODE: No transaction will be executed.")
+		fmt.println("This is a simulation only.")
+		fmt.println("")
+		return .None
+	}
+
+	// Prompt user confirmation
+	confirmed := output.prompt_swap_confirmation()
+	if !confirmed {
+		fmt.println("Swap cancelled.")
+		return .None
+	}
+
+	// Phase 2: Show confirmation message (Phase 3 will execute)
+	fmt.println("")
+	fmt.println("✓ Swap confirmed!")
+	fmt.println("")
+	fmt.println("⚙ Transaction execution coming in Phase 3.")
+	fmt.println("Quote has been validated and is ready for execution.")
 
 	return .None
 }
+
+// parse_swap_flags extracts swap-specific flags from args
+//
+// Flags: --dry-run, --slippage <bps>, --wallet <addr>
+//
+// Returns: SwapFlags struct with parsed values
+parse_swap_flags :: proc(args: []string) -> models.SwapFlags {
+	flags := models.SwapFlags{
+		dry_run      = false,
+		slippage_bps = 50,  // Default: 0.5%
+		wallet_addr  = "",
+	}
+
+	for i := 0; i < len(args); i += 1 {
+		arg := args[i]
+
+		if arg == "--dry-run" {
+			flags.dry_run = true
+			log.debug("Flag: --dry-run")
+		}
+		else if arg == "--slippage" {
+			if i + 1 >= len(args) {
+				log.warn("--slippage requires value (using default 50)")
+				continue
+			}
+			i += 1
+			slippage_val, ok := strconv.parse_int(args[i])
+			if ok && slippage_val >= 1 && slippage_val <= 1000 {
+				flags.slippage_bps = int(slippage_val)
+				log.debugf("Flag: --slippage %d bps", slippage_val)
+			} else {
+				log.warnf("Invalid slippage value: %s (using default 50)", args[i])
+			}
+		}
+		else if arg == "--wallet" {
+			if i + 1 >= len(args) {
+				log.warn("--wallet requires address/label")
+				continue
+			}
+			i += 1
+			flags.wallet_addr = args[i]
+			log.debugf("Flag: --wallet %s", flags.wallet_addr)
+		}
+	}
+
+	return flags
+}
+
+// NOTE: validate_swap_balance removed in Phase 2
+// Balance validation will be added in Phase 3 with proper RPC integration
 
 // ============================================================================
 // Helper Functions

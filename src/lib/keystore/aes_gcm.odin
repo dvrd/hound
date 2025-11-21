@@ -12,11 +12,7 @@ GCM_NONCE_BYTES :: 12    // 96 bits (standard for GCM)
 GCM_TAG_BYTES :: 16      // 128 bits
 
 // Import randombytes_buf from libsodium (declared once for whole package)
-when ODIN_OS == .Darwin {
-	foreign import sodium "/opt/homebrew/lib/libsodium.dylib"
-} else when ODIN_OS == .Linux {
-	foreign import sodium "system:sodium"
-}
+foreign import sodium "system:sodium"
 
 @(default_calling_convention="c")
 foreign sodium {

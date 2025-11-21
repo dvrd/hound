@@ -14,11 +14,7 @@ ARGON2_SALT_BYTES :: 16      // 128 bits
 ARGON2_KEY_BYTES :: 32       // 256 bits for AES-256
 
 // FFI bindings to libsodium
-when ODIN_OS == .Darwin {
-	foreign import sodium "/opt/homebrew/lib/libsodium.dylib"
-} else when ODIN_OS == .Linux {
-	foreign import sodium "system:sodium"
-}
+foreign import sodium "system:sodium"
 
 @(default_calling_convention="c")
 foreign sodium {
