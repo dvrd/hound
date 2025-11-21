@@ -14,6 +14,7 @@ import db "../../lib/database"
 import wallet "../../lib/wallet"
 import memory "../../lib/memory"
 import token_cfg "../../lib/config"
+import keystore_svc "../../lib/services"
 import output "../output"
 
 // ============================================================================
@@ -445,4 +446,205 @@ get_cached_portfolio :: proc(
 	portfolio.token_balances = token_balances[:]
 
 	return portfolio, .None
+}
+
+// ============================================================================
+// Wallet Import Subcommand (Phase 1: Secure Keystore)
+// ============================================================================
+
+// handle_wallet_import implements "hound wallet import" workflow
+//
+// Imports a Solana keypair from BIP39 seed phrase with password encryption
+//
+// Returns: ErrorType for error handling
+handle_wallet_import :: proc() -> models.ErrorType {
+	log.info("Starting wallet import workflow")
+
+	// Step 1: Prompt for seed phrase (12 or 24 words)
+	seed_phrase, seed_err := prompt_seed_phrase()
+	if seed_err != .None {
+		return seed_err
+	}
+	defer {
+		// Zero seed phrase memory before deleting
+		for word in seed_phrase {
+			if len(word) > 0 {
+				mem_word := transmute([]byte)word
+				for i := 0; i < len(mem_word); i += 1 {
+					mem_word[i] = 0
+				}
+			}
+		}
+		delete(seed_phrase)
+	}
+
+	// Step 2: Prompt for password (with confirmation)
+	password, password_err := prompt_password_with_confirmation()
+	if password_err != .None {
+		return password_err
+	}
+	defer {
+		// Zero password memory before deleting
+		mem_password := transmute([]byte)password
+		for i := 0; i < len(mem_password); i += 1 {
+			mem_password[i] = 0
+		}
+		delete(password)
+	}
+
+	// Step 3: Prompt for wallet label
+	fmt.print("Enter wallet label (e.g., 'Main Wallet'): ")
+	label_buffer: [256]byte
+	n, read_err := os.read(os.stdin, label_buffer[:])
+	if read_err != nil {
+		log.errorf("Failed to read label: %v", read_err)
+		output.print_error("Could not read wallet label")
+		return .NetworkError
+	}
+	label := strings.trim_space(string(label_buffer[:n]))
+
+	if len(label) == 0 {
+		label = "Imported Wallet"
+	}
+
+	// Step 4: Open database
+	db_path := token_cfg.get_database_path()
+	database, db_err := db.database_open(db_path)
+	if db_err != .None {
+		log.errorf("Failed to open database: %v", db_err)
+		output.print_error("Could not open database")
+		return .DatabaseError
+	}
+	defer db.database_close(database)
+
+	// Step 5: Import keypair (encrypts and stores)
+	output.print_progress("Deriving keypair from seed phrase...")
+	address, import_err := keystore_svc.import_keypair(database, seed_phrase, password, label, true)
+	if import_err != .None {
+		log.errorf("Failed to import keypair: %v", import_err)
+		return import_err
+	}
+
+	// Step 6: Display success
+	output.print_success(fmt.tprintf("Wallet imported successfully!"))
+	fmt.println("")
+	fmt.printfln("Label:   %s", label)
+	fmt.printfln("Address: %s", address)
+	fmt.println("")
+	fmt.println("Your wallet is now encrypted and stored securely.")
+	fmt.println("Use the password to unlock your wallet for transactions.")
+
+	return .None
+}
+
+// prompt_seed_phrase prompts user to enter seed phrase and validates format
+//
+// Returns: Slice of seed words and error status
+prompt_seed_phrase :: proc() -> (words: []string, err: models.ErrorType) {
+	fmt.println("Enter your seed phrase (12 or 24 words).")
+	fmt.println("Words should be separated by spaces.")
+	fmt.print("Seed phrase: ")
+
+	// Read seed phrase from stdin
+	buffer: [1024]byte
+	n, read_err := os.read(os.stdin, buffer[:])
+	if read_err != nil {
+		log.errorf("Failed to read seed phrase: %v", read_err)
+		output.print_error("Could not read seed phrase")
+		return nil, .NetworkError
+	}
+
+	// Parse words
+	phrase := strings.trim_space(string(buffer[:n]))
+	words_dynamic := strings.split(phrase, " ")
+
+	// Filter out empty strings
+	words_filtered := make([dynamic]string, memory.command_allocator())
+	for word in words_dynamic {
+		trimmed := strings.trim_space(word)
+		if len(trimmed) > 0 {
+			append(&words_filtered, strings.clone(trimmed))
+		}
+	}
+
+	words = words_filtered[:]
+
+	// Validate word count
+	if len(words) != 12 && len(words) != 24 {
+		log.errorf("Invalid seed phrase length: %d words", len(words))
+		output.print_error(fmt.tprintf("Seed phrase must be 12 or 24 words (got %d)", len(words)))
+		return nil, .InvalidSeedPhrase
+	}
+
+	log.infof("Seed phrase parsed: %d words", len(words))
+	return words, .None
+}
+
+// prompt_password_with_confirmation prompts for password twice and validates match
+//
+// Returns: Password string and error status
+prompt_password_with_confirmation :: proc() -> (password: string, err: models.ErrorType) {
+	fmt.println("")
+	fmt.println("Create a strong password to encrypt your wallet.")
+	fmt.println("Requirements:")
+	fmt.println("  - At least 12 characters")
+	fmt.println("  - Contains uppercase and lowercase letters")
+	fmt.println("  - Contains at least one digit")
+	fmt.println("  - Contains at least one special character")
+	fmt.println("")
+
+	// First password entry
+	fmt.print("Password: ")
+	password1_buffer: [256]byte
+	n1, read_err1 := os.read(os.stdin, password1_buffer[:])
+	if read_err1 != nil {
+		log.errorf("Failed to read password: %v", read_err1)
+		output.print_error("Could not read password")
+		return "", .NetworkError
+	}
+	password1 := strings.trim_space(string(password1_buffer[:n1]))
+
+	// Second password entry
+	fmt.print("Confirm password: ")
+	password2_buffer: [256]byte
+	n2, read_err2 := os.read(os.stdin, password2_buffer[:])
+	if read_err2 != nil {
+		log.errorf("Failed to read password confirmation: %v", read_err2)
+		output.print_error("Could not read password confirmation")
+		// Zero first password before returning
+		for i := 0; i < len(password1); i += 1 {
+			password1_buffer[i] = 0
+		}
+		return "", .NetworkError
+	}
+	password2 := strings.trim_space(string(password2_buffer[:n2]))
+
+	// Compare passwords
+	if password1 != password2 {
+		log.error("Passwords do not match")
+		output.print_error("Passwords do not match")
+		// Zero both passwords
+		for i := 0; i < n1; i += 1 {
+			password1_buffer[i] = 0
+		}
+		for i := 0; i < n2; i += 1 {
+			password2_buffer[i] = 0
+		}
+		return "", .WeakPassword
+	}
+
+	// Zero confirmation password buffer
+	for i := 0; i < n2; i += 1 {
+		password2_buffer[i] = 0
+	}
+
+	password = strings.clone(password1)
+
+	// Zero original password buffer
+	for i := 0; i < n1; i += 1 {
+		password1_buffer[i] = 0
+	}
+
+	log.info("Password confirmed")
+	return password, .None
 }

@@ -149,6 +149,38 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 		fmt.eprintfln("Error: No liquidity pools found for token '%s'", token)
 		fmt.eprintln("This token may not have active trading pools yet.")
 		fmt.eprintln("Pools must have at least $1,000 liquidity and max 1% fees.")
+
+	// Keystore errors (Phase 1: Secure Keystore)
+	case .WeakPassword:
+		fmt.eprintln("Error: Password does not meet strength requirements")
+		fmt.eprintln("Your password must:")
+		fmt.eprintln("  - Be at least 12 characters long")
+		fmt.eprintln("  - Contain uppercase and lowercase letters")
+		fmt.eprintln("  - Contain at least one digit")
+		fmt.eprintln("  - Contain at least one special character")
+
+	case .InvalidSeedPhrase:
+		fmt.eprintln("Error: Invalid seed phrase")
+		fmt.eprintln("Seed phrase must be exactly 12 or 24 words.")
+		fmt.eprintln("Ensure you've copied the phrase correctly with proper spacing.")
+
+	case .CryptoOperationFailed:
+		fmt.eprintln("Error: Cryptographic operation failed")
+		fmt.eprintln("This may be due to:")
+		fmt.eprintln("  - Incorrect password")
+		fmt.eprintln("  - Corrupted encrypted data")
+		fmt.eprintln("  - Invalid seed phrase")
+		fmt.eprintln("Please verify your credentials and try again.")
+
+	case .KeypairNotFound:
+		fmt.eprintfln("Error: Wallet keypair not found")
+		fmt.eprintln("No encrypted wallet found in database.")
+		fmt.eprintln("Import a wallet first with: hound wallet import")
+
+	case .WalletAlreadyExists:
+		fmt.eprintln("Error: Wallet already exists")
+		fmt.eprintln("This seed phrase has already been imported.")
+		fmt.eprintln("Each wallet can only be imported once.")
 	}
 }
 
@@ -235,6 +267,22 @@ map_error_to_exit_code :: proc(err: models.ErrorType) -> int {
 		return 69  // Service unavailable
 
 	case .NoPoolsFound:
+		return 1  // General error
+
+	// Keystore errors
+	case .WeakPassword:
+		return 1  // General error (user input)
+
+	case .InvalidSeedPhrase:
+		return 1  // General error (user input)
+
+	case .CryptoOperationFailed:
+		return 70  // Internal software error
+
+	case .KeypairNotFound:
+		return 1  // General error
+
+	case .WalletAlreadyExists:
 		return 1  // General error
 
 	case:

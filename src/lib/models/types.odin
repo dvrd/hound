@@ -48,6 +48,13 @@ ErrorType :: enum {
 	// Pool Discovery errors
 	PoolSearchFailed,       // DexScreener API call succeeded but returned invalid/unexpected data
 	NoPoolsFound,           // No pools meet filtering criteria (min liquidity, max fees, etc.)
+
+	// Keystore errors
+	WeakPassword,           // Password doesn't meet strength requirements
+	InvalidSeedPhrase,      // BIP39 validation failed
+	CryptoOperationFailed,  // Argon2/AES operation error
+	KeypairNotFound,        // No encrypted keypair in database
+	WalletAlreadyExists,    // Duplicate wallet import attempt
 }
 
 // API response structures matching DexScreener API

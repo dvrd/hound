@@ -3,6 +3,7 @@ package database
 
 import "core:fmt"
 import "core:log"
+import "core:mem"
 import "core:strings"
 import "core:time"
 import "core:os"
@@ -178,6 +179,22 @@ create_schema :: proc(db: ^Database) -> models.ErrorType {
 
 		CREATE INDEX IF NOT EXISTS idx_balances_wallet ON balances(wallet_address);
 		CREATE INDEX IF NOT EXISTS idx_balances_updated ON balances(updated_at);
+
+		-- Encrypted Keypair Storage (Phase 1: Secure Keystore)
+		CREATE TABLE IF NOT EXISTS encrypted_keypairs (
+			address TEXT PRIMARY KEY,
+			encrypted_private_key BLOB NOT NULL,
+			salt BLOB NOT NULL,
+			nonce BLOB NOT NULL,
+			tag BLOB NOT NULL,
+			password_hash BLOB NOT NULL,
+			label TEXT NOT NULL,
+			is_primary INTEGER DEFAULT 0,
+			created_at INTEGER NOT NULL,
+			last_used INTEGER
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_encrypted_keypairs_primary ON encrypted_keypairs(is_primary);
 	`
 
 	errmsg: cstring
@@ -1191,4 +1208,201 @@ get_pool_stats :: proc(db: ^Database, token_symbol: string) -> (stats: PoolStats
 		log.errorf("Failed to fetch pool stats: %v", step_result)
 		return {}, .DatabaseError
 	}
+}
+
+// ============================================================================
+// Encrypted Keypair Operations (Phase 1: Secure Keystore)
+// ============================================================================
+
+// insert_encrypted_keypair stores an encrypted keypair in the database
+//
+// ASSERTION 1: Database handle must not be nil
+// ASSERTION 2: Address must not be empty
+// ASSERTION 3: Encrypted private key must not be empty
+// ASSERTION 4: Label must not be empty
+//
+// Returns: Error status
+insert_encrypted_keypair :: proc(
+	db: ^Database,
+	address: string,
+	encrypted_private_key: []byte,
+	salt: [16]byte,
+	nonce: [12]byte,
+	tag: [16]byte,
+	password_hash: [32]byte,
+	label: string,
+	is_primary: bool,
+) -> models.ErrorType {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+	assert(len(address) > 0, "Address cannot be empty")
+	assert(len(encrypted_private_key) > 0, "Encrypted private key cannot be empty")
+	assert(len(label) > 0, "Label cannot be empty")
+
+	log.debugf("Inserting encrypted keypair for address: %s", address)
+
+	sql := `INSERT OR REPLACE INTO encrypted_keypairs
+	        (address, encrypted_private_key, salt, nonce, tag, password_hash, label, is_primary, created_at, last_used)
+	        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL)`
+
+	stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to prepare insert: %v", prep_result)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	// Get current Unix timestamp
+	created_at := time.now()._nsec / 1_000_000_000
+
+	// Create addressable slices for BLOB binding
+	salt_data := salt
+	nonce_data := nonce
+	tag_data := tag
+	password_hash_data := password_hash
+
+	salt_slice := salt_data[:]
+	nonce_slice := nonce_data[:]
+	tag_slice := tag_data[:]
+	password_hash_slice := password_hash_data[:]
+
+	// Bind parameters
+	sqlite3.bind_text(stmt, 1, cstring(raw_data(address)), i32(len(address)), nil)
+	sqlite3.bind_blob(stmt, 2, raw_data(encrypted_private_key), i32(len(encrypted_private_key)), nil)
+	sqlite3.bind_blob(stmt, 3, raw_data(salt_slice), i32(len(salt_slice)), nil)
+	sqlite3.bind_blob(stmt, 4, raw_data(nonce_slice), i32(len(nonce_slice)), nil)
+	sqlite3.bind_blob(stmt, 5, raw_data(tag_slice), i32(len(tag_slice)), nil)
+	sqlite3.bind_blob(stmt, 6, raw_data(password_hash_slice), i32(len(password_hash_slice)), nil)
+	sqlite3.bind_text(stmt, 7, cstring(raw_data(label)), i32(len(label)), nil)
+	sqlite3.bind_int(stmt, 8, is_primary ? 1 : 0)
+	sqlite3.bind_int64(stmt, 9, created_at)
+
+	step_result := sqlite3.step(stmt)
+	if step_result != .Done {
+		log.errorf("Failed to insert encrypted keypair: %v", step_result)
+		return .DatabaseError
+	}
+
+	log.infof("Successfully stored encrypted keypair for address: %s", address)
+	return .None
+}
+
+// EncryptedKeypairData represents the encrypted keypair data from database
+EncryptedKeypairData :: struct {
+	address:               string,
+	encrypted_private_key: []byte,
+	salt:                  [16]byte,
+	nonce:                 [12]byte,
+	tag:                   [16]byte,
+	password_hash:         [32]byte,
+	label:                 string,
+	is_primary:            bool,
+	created_at:            i64,
+	last_used:             i64, // 0 if never used
+}
+
+// get_encrypted_keypair retrieves an encrypted keypair by address
+//
+// ASSERTION 1: Database handle must not be nil
+// ASSERTION 2: Address must not be empty
+//
+// Returns: EncryptedKeypairData, found flag, and error status
+get_encrypted_keypair :: proc(db: ^Database, address: string) -> (data: EncryptedKeypairData, found: bool, err: models.ErrorType) {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+	assert(len(address) > 0, "Address cannot be empty")
+
+	log.debugf("Retrieving encrypted keypair for address: %s", address)
+
+	sql := `SELECT address, encrypted_private_key, salt, nonce, tag, password_hash, label, is_primary, created_at,
+	               COALESCE(last_used, 0) as last_used
+	        FROM encrypted_keypairs WHERE address = ?1`
+
+	stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to prepare select: %v", prep_result)
+		return {}, false, .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	sqlite3.bind_text(stmt, 1, cstring(raw_data(address)), i32(len(address)), nil)
+
+	step_result := sqlite3.step(stmt)
+	if step_result == .Row {
+		// Extract address and label
+		data.address = strings.clone(string(sqlite3.column_text(stmt, 0)))
+		data.label = strings.clone(string(sqlite3.column_text(stmt, 6)))
+
+		// Extract BLOB data
+		encrypted_key_ptr := sqlite3.column_blob(stmt, 1)
+		encrypted_key_len := sqlite3.column_bytes(stmt, 1)
+		data.encrypted_private_key = make([]byte, encrypted_key_len)
+		mem.copy(raw_data(data.encrypted_private_key), encrypted_key_ptr, int(encrypted_key_len))
+
+		// Extract fixed-size arrays from BLOBs
+		salt_ptr := cast([^]byte)sqlite3.column_blob(stmt, 2)
+		nonce_ptr := cast([^]byte)sqlite3.column_blob(stmt, 3)
+		tag_ptr := cast([^]byte)sqlite3.column_blob(stmt, 4)
+		password_hash_ptr := cast([^]byte)sqlite3.column_blob(stmt, 5)
+
+		copy(data.salt[:], salt_ptr[:16])
+		copy(data.nonce[:], nonce_ptr[:12])
+		copy(data.tag[:], tag_ptr[:16])
+		copy(data.password_hash[:], password_hash_ptr[:32])
+
+		// Extract metadata
+		data.is_primary = sqlite3.column_int(stmt, 7) == 1
+		data.created_at = sqlite3.column_int64(stmt, 8)
+		data.last_used = sqlite3.column_int64(stmt, 9)
+
+		log.infof("Found encrypted keypair: %s (%s)", data.address, data.label)
+		return data, true, .None
+	} else if step_result == .Done {
+		log.debugf("Encrypted keypair not found: %s", address)
+		return {}, false, .None
+	} else {
+		log.errorf("Query failed: %v", step_result)
+		return {}, false, .DatabaseError
+	}
+}
+
+// update_keypair_last_used updates the last_used timestamp for a keypair
+//
+// ASSERTION 1: Database handle must not be nil
+// ASSERTION 2: Address must not be empty
+//
+// Returns: Error status
+update_keypair_last_used :: proc(db: ^Database, address: string) -> models.ErrorType {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+	assert(len(address) > 0, "Address cannot be empty")
+
+	log.debugf("Updating last_used for address: %s", address)
+
+	sql := `UPDATE encrypted_keypairs SET last_used = ?1 WHERE address = ?2`
+
+	stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to prepare update: %v", prep_result)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	// Get current Unix timestamp
+	now := time.now()._nsec / 1_000_000_000
+
+	sqlite3.bind_int64(stmt, 1, now)
+	sqlite3.bind_text(stmt, 2, cstring(raw_data(address)), i32(len(address)), nil)
+
+	step_result := sqlite3.step(stmt)
+	if step_result != .Done {
+		log.errorf("Failed to update last_used: %v", step_result)
+		return .DatabaseError
+	}
+
+	log.debug("Updated last_used timestamp")
+	return .None
 }

@@ -119,7 +119,12 @@ run :: proc() -> models.ErrorType {
 	if first_arg == "wallet" {
 		log.debug("Wallet command invoked")
 
-		// Check for swap subcommand first (Phase 2 compatibility)
+		// Check for import subcommand (Phase 1: Secure Keystore)
+		if len(os.args) > 2 && os.args[2] == "import" {
+			return commands.handle_wallet_import()
+		}
+
+		// Check for swap subcommand (Phase 2 compatibility)
 		if len(os.args) > 2 && os.args[2] == "swap" {
 			// Pass remaining args (from_symbol, to_symbol, amount)
 			swap_args: []string
