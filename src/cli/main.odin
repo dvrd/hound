@@ -115,10 +115,34 @@ run :: proc() -> models.ErrorType {
 		return commands.handle_add(symbol, name, address)
 	}
 
-	// Handle "wallet" command
+	// Handle "wallet" command with subcommand support
 	if first_arg == "wallet" {
 		log.debug("Wallet command invoked")
-		return commands.handle_wallet()
+
+		// Check for subcommands or address parameter
+		if len(os.args) > 2 {
+			subcommand := os.args[2]
+
+			// Check if this is a swap subcommand
+			if subcommand == "swap" {
+				// Pass remaining args (from_symbol, to_symbol, amount)
+				swap_args: []string
+				if len(os.args) > 3 {
+					swap_args = os.args[3:]
+				} else {
+					swap_args = []string{}
+				}
+				return commands.handle_wallet_swap(swap_args)
+			} else {
+				// Treat as wallet address (backward compat)
+				// Example: hound wallet 9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFi
+				address_flag := subcommand
+				return commands.handle_wallet(address_flag)
+			}
+		} else {
+			// No subcommand - show default (primary) wallet
+			return commands.handle_wallet()
+		}
 	}
 
 	// Handle "history" command

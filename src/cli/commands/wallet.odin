@@ -15,7 +15,7 @@ import output "../output"
 // Wallet Command Handler
 // ============================================================================
 
-// handle_wallet displays all assets in the primary wallet
+// handle_wallet displays all assets in a wallet
 //
 // Shows:
 // - Token symbols and balances
@@ -24,9 +24,12 @@ import output "../output"
 // - 24-hour price changes
 // - Portfolio total
 //
+// Parameters:
+// - address_flag: Optional wallet address (empty string for primary wallet)
+//
 // Returns: ErrorType for error handling in main
-handle_wallet :: proc() -> models.ErrorType {
-	log.debug("Handling wallet command")
+handle_wallet :: proc(address_flag: string = "") -> models.ErrorType {
+	log.debugf("Handling wallet command: address_flag='%s'", address_flag)
 
 	// Get database path
 	db_path := token_cfg.get_database_path()
@@ -40,39 +43,46 @@ handle_wallet :: proc() -> models.ErrorType {
 	}
 	defer db.database_close(database)
 
-	// Get all wallets (need at least one primary wallet)
-	wallets, wallets_err := db.get_all_wallets(database)
-	if wallets_err != .None {
-		log.errorf("Failed to get wallets: %v", wallets_err)
-		return .DatabaseError
-	}
+	// Determine target wallet
+	target_wallet: models.Wallet
+	wallet_err: models.ErrorType
 
-	if len(wallets) == 0 {
-		output.print_error("No wallet configured")
-		fmt.eprintln("")
-		fmt.eprintln("Please configure a wallet in the database first.")
-		fmt.eprintln("Database location: ~/.config/hound/hound.db")
-		return .MissingArgument
-	}
+	if len(address_flag) > 0 {
+		// User specified address
+		log.debugf("Using specified address: %s", address_flag)
 
-	// Find primary wallet
-	primary_wallet: models.Wallet
-	found_primary := false
-	for wallet_item in wallets {
-		if wallet_item.is_primary {
-			primary_wallet = wallet_item
-			found_primary = true
-			break
+		found: bool
+		target_wallet, found, wallet_err = db.get_wallet_by_address(database, address_flag)
+		if wallet_err != .None {
+			log.errorf("Database query failed: %v", wallet_err)
+			return .DatabaseError
+		}
+		if !found {
+			log.warnf("Wallet not found: %s", address_flag)
+			output.print_error(fmt.tprintf("Wallet address not found: %s", address_flag))
+			fmt.println("")
+			fmt.println("Run 'hound wallet list' to see configured wallets.")
+			return .ConfigNotFound
+		}
+	} else {
+		// Use primary wallet
+		log.debug("Using primary wallet")
+
+		target_wallet, wallet_err = db.get_primary_wallet(database)
+		if wallet_err == .ConfigNotFound {
+			log.warn("No primary wallet configured")
+			output.print_error("No primary wallet configured")
+			fmt.println("")
+			fmt.println("Please configure a wallet in the database first.")
+			fmt.println("Database location: ~/.config/hound/hound.db")
+			return .ConfigNotFound
+		} else if wallet_err != .None {
+			log.errorf("Failed to get primary wallet: %v", wallet_err)
+			return .DatabaseError
 		}
 	}
 
-	// If no primary wallet, use first wallet
-	if !found_primary {
-		primary_wallet = wallets[0]
-		log.warn("No primary wallet found, using first wallet")
-	}
-
-	log.infof("Using wallet: %s (%s)", primary_wallet.label, primary_wallet.address)
+	log.infof("Using wallet: %s (%s)", target_wallet.label, target_wallet.address)
 
 	// Initialize RPC client
 	rpc_endpoint := "https://api.mainnet-beta.solana.com"
@@ -99,7 +109,7 @@ handle_wallet :: proc() -> models.ErrorType {
 	// Fetch portfolio balance
 	portfolio, portfolio_err := wallet.fetch_portfolio_balance(
 		&balance_fetcher,
-		primary_wallet.address,
+		target_wallet.address,
 		&config,
 		database,
 	)
@@ -109,11 +119,11 @@ handle_wallet :: proc() -> models.ErrorType {
 
 		// Try to show cached balances from database
 		output.print_warning("Failed to fetch fresh balances, trying cached data...")
-		cached_portfolio, cached_err := get_cached_portfolio(database, primary_wallet.address)
+		cached_portfolio, cached_err := get_cached_portfolio(database, target_wallet.address)
 
 		if cached_err == .None && len(cached_portfolio.token_balances) > 0 {
-			output.format_wallet_table(primary_wallet, cached_portfolio)
-			fmt.eprintln("")
+			output.format_wallet_table(target_wallet, cached_portfolio)
+			fmt.println("")
 			output.print_warning("Displayed cached balances (prices may be stale)")
 		} else {
 			output.print_error("Could not fetch wallet balances")
@@ -124,19 +134,64 @@ handle_wallet :: proc() -> models.ErrorType {
 		if portfolio.total_usd == 0 && len(portfolio.token_balances) == 0 {
 			output.print_info("Wallet is empty")
 			fmt.println("")
-			fmt.printfln("Wallet: %s (%s)", primary_wallet.label, primary_wallet.address)
+			fmt.printfln("Wallet: %s (%s)", target_wallet.label, target_wallet.address)
 			fmt.println("No assets found.")
 			fmt.println("")
 			fmt.println("This wallet has no token balances.")
 		} else {
 			// Display portfolio table
-			output.format_wallet_table(primary_wallet, portfolio)
+			output.format_wallet_table(target_wallet, portfolio)
 		}
 	}
 
 	// Cleanup memory
 	memory.reset_command_arena()
 	memory.log_memory_stats()
+
+	return .None
+}
+
+// ============================================================================
+// Swap Subcommand (Phase 3 Foundation)
+// ============================================================================
+
+// handle_wallet_swap implements basic swap command structure
+//
+// Phase 3 Scope: Command routing + usage help only
+// Phase 4 Will Add: Actual quote fetching + transaction building
+//
+// Parameters:
+// - args: Command arguments (from_symbol, to_symbol, amount)
+//
+// Returns: ErrorType for error handling
+handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
+	log.debugf("Wallet swap subcommand: %d args", len(args))
+
+	// Phase 3: Basic validation + usage help
+	if len(args) < 3 {
+		output.print_error("Swap functionality requires additional arguments")
+		fmt.println("")
+		fmt.println("Usage: hound wallet swap <from_symbol> <to_symbol> <amount>")
+		fmt.println("")
+		fmt.println("Examples:")
+		fmt.println("  hound wallet swap sol usdc 1.0     # Swap 1 SOL for USDC")
+		fmt.println("  hound wallet swap usdc aura 100    # Swap 100 USDC for AURA")
+		fmt.println("")
+		fmt.println("Note: Swap execution will be available in a future release.")
+		return .MissingArgument
+	}
+
+	// TODO Phase 4: Implement actual swap logic
+	// - Parse from_symbol, to_symbol, amount
+	// - Look up token mints from config
+	// - Get quote from Jupiter
+	// - Build transaction
+	// - Display confirmation prompt
+	// - Sign and submit transaction
+
+	log.warn("Swap execution not yet implemented (Phase 4)")
+	output.print_error("Swap execution not yet implemented")
+	fmt.println("This feature is planned for Phase 4.")
 
 	return .None
 }

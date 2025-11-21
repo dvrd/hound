@@ -872,6 +872,98 @@ get_all_wallets :: proc(db: ^Database) -> (wallets: []models.Wallet, err: models
 	return wallet_list[:], .None
 }
 
+// get_primary_wallet retrieves the wallet marked as primary
+//
+// ASSERTION 1: Database must not be nil
+// ASSERTION 2: Database connection must not be nil
+//
+// Returns: Wallet and error status
+get_primary_wallet :: proc(db: ^Database) -> (models.Wallet, models.ErrorType) {
+	// Use command arena for allocations
+	context.allocator = memory.command_allocator()
+
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+
+	log.debug("Querying for primary wallet")
+
+	stmt: ^sqlite3.Statement
+	query := "SELECT address, label, is_primary FROM wallets WHERE is_primary = 1 LIMIT 1"
+
+	result := sqlite3.prepare_v2(db.handle, cstring(raw_data(query)), -1, &stmt, nil)
+	if result != .Ok {
+		log.errorf("Failed to prepare query: %v", result)
+		return {}, .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	step_result := sqlite3.step(stmt)
+	if step_result == .Row {
+		wallet := models.Wallet{
+			address    = strings.clone(string(sqlite3.column_text(stmt, 0))),
+			label      = strings.clone(string(sqlite3.column_text(stmt, 1))),
+			is_primary = sqlite3.column_int(stmt, 2) == 1,
+		}
+		log.infof("Found primary wallet: %s (%s)", wallet.label, wallet.address)
+		return wallet, .None
+	} else if step_result == .Done {
+		log.warn("No primary wallet configured")
+		return {}, .ConfigNotFound
+	}
+
+	log.errorf("Database query failed: %v", step_result)
+	return {}, .DatabaseError
+}
+
+// get_wallet_by_address retrieves wallet by address
+//
+// ASSERTION 1: Database must not be nil
+// ASSERTION 2: Address must not be empty
+//
+// Returns: Wallet, found flag, and error status
+get_wallet_by_address :: proc(
+	db: ^Database,
+	address: string,
+) -> (models.Wallet, bool, models.ErrorType) {
+	// Use command arena for allocations
+	context.allocator = memory.command_allocator()
+
+	assert(db != nil, "Database handle cannot be nil")
+	assert(len(address) > 0, "Address cannot be empty")
+
+	log.debugf("Querying for wallet: %s", address)
+
+	stmt: ^sqlite3.Statement
+	query := "SELECT address, label, is_primary FROM wallets WHERE address = ? LIMIT 1"
+
+	result := sqlite3.prepare_v2(db.handle, cstring(raw_data(query)), -1, &stmt, nil)
+	if result != .Ok {
+		log.errorf("Failed to prepare query: %v", result)
+		return {}, false, .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	// CRITICAL: Parameter binding is 1-indexed!
+	sqlite3.bind_text(stmt, 1, cstring(raw_data(address)), i32(len(address)), nil)
+
+	step_result := sqlite3.step(stmt)
+	if step_result == .Row {
+		wallet := models.Wallet{
+			address    = strings.clone(string(sqlite3.column_text(stmt, 0))),
+			label      = strings.clone(string(sqlite3.column_text(stmt, 1))),
+			is_primary = sqlite3.column_int(stmt, 2) == 1,
+		}
+		log.debugf("Found wallet: %s", wallet.label)
+		return wallet, true, .None
+	} else if step_result == .Done {
+		log.debugf("Wallet not found: %s", address)
+		return {}, false, .None
+	}
+
+	log.errorf("Database query failed: %v", step_result)
+	return {}, false, .DatabaseError
+}
+
 // update_balances updates or inserts balance records for a wallet
 //
 // ASSERTION 1: Validate db is not nil
