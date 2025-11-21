@@ -222,3 +222,30 @@ SwapQuote :: struct {
 	// Raw Response (for Phase 3 transaction building)
 	jupiter_response: string, // Store full JSON string for /swap endpoint
 }
+
+// Swap transaction execution result (Phase 3)
+SwapTransactionResult :: struct {
+	// Transaction identifiers
+	signature:       string,      // Base58-encoded transaction signature
+	slot:            u64,          // Confirmed slot number
+	block_time:      i64,          // Unix timestamp
+	status:          string,       // "confirmed", "finalized", or "failed"
+	error_message:   string,       // Empty if successful
+
+	// Swap details (actual amounts from blockchain)
+	input_amount:    f64,          // Actual input amount
+	output_amount:   f64,          // Actual output amount
+	price_impact:    f64,          // Actual price impact
+	slippage_actual: f64,          // Actual slippage percentage
+
+	// Fees (in lamports)
+	network_fee:     u64,          // Transaction fee
+	priority_fee:    u64,          // Priority fee
+
+	// Metadata
+	dex:             string,       // DEX used (from quote)
+	input_mint:      string,
+	input_symbol:    string,
+	output_mint:     string,
+	output_symbol:   string,
+}

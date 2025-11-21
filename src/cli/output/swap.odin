@@ -85,3 +85,68 @@ prompt_swap_confirmation :: proc() -> bool {
 
 	return response_lower == "y" || response_lower == "yes"
 }
+
+// format_swap_result displays the result of a swap execution (Phase 3)
+//
+// Shows transaction details, amounts, fees, and status after execution.
+// Includes success/failure indicators and Solana Explorer link.
+//
+// Parameters:
+//   - result: SwapTransactionResult from transaction execution
+format_swap_result :: proc(result: models.SwapTransactionResult) {
+	fmt.println("")
+
+	// Status header with emoji
+	status_icon := "✅"
+	if result.status == "failed" {
+		status_icon = "❌"
+	} else if result.status != "finalized" {
+		status_icon = "⏳"
+	}
+
+	fmt.printfln("%s Swap %s", status_icon, strings.to_upper(result.status))
+	fmt.println("═══════════════════════════════════════════")
+
+	// Transaction signature (clickable link)
+	fmt.printfln("Signature:   %s", result.signature)
+	fmt.printfln("Explorer:    https://solscan.io/tx/%s", result.signature)
+
+	// Swap details
+	fmt.println("")
+	fmt.printfln("Swapped:     %.6f %s → %.6f %s",
+		result.input_amount, result.input_symbol,
+		result.output_amount, result.output_symbol)
+
+	// DEX used
+	fmt.printfln("Via:         %s", result.dex)
+
+	// Price impact (warning if > 5%)
+	if result.price_impact > 5.0 {
+		fmt.printfln("Price Impact: ⚠ %.2f%%", result.price_impact)
+	} else {
+		fmt.printfln("Price Impact: %.2f%%", result.price_impact)
+	}
+
+	// Fees
+	network_fee_sol := f64(result.network_fee) / 1_000_000_000.0
+	fmt.printfln("Network Fee: %.6f SOL", network_fee_sol)
+
+	if result.priority_fee > 0 {
+		priority_fee_sol := f64(result.priority_fee) / 1_000_000_000.0
+		fmt.printfln("Priority Fee: %.6f SOL", priority_fee_sol)
+	}
+
+	// Block info (if available)
+	if result.slot > 0 {
+		fmt.printfln("Slot:        %d", result.slot)
+	}
+
+	// Error message (if failed)
+	if len(result.error_message) > 0 {
+		fmt.println("")
+		fmt.printfln("Error:       %s", result.error_message)
+	}
+
+	fmt.println("═══════════════════════════════════════════")
+	fmt.println("")
+}

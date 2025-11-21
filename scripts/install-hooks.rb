@@ -32,7 +32,7 @@ def main
   puts ""
 
   # Install pre-commit hook
-  hook_src = project_root / 'scripts' / 'pre-commit'
+  hook_src = project_root / 'scripts' / 'pre-commit.rb'
   hook_dst = hooks_dir / 'pre-commit'
 
   unless hook_src.exist?
@@ -56,10 +56,14 @@ def main
   puts "#{GREEN}✓ Installed pre-commit hook#{NC}"
   puts ""
   puts "The hook will automatically:"
-  puts "  • Detect commits to master branch"
-  puts "  • Auto-bump patch version"
-  puts "  • Update src/version/version.odin"
-  puts "  • Create git tag"
+  puts "  • Detect commits to master branch without version bump"
+  puts "  • Show reminder with task commands"
+  puts "  • Give 3 seconds to abort (Ctrl+C)"
+  puts ""
+  puts "To bump version before committing:"
+  puts "  task version:patch  # Bug fixes (0.0.X)"
+  puts "  task version:minor  # New features (0.X.0)"
+  puts "  task version:major  # Breaking changes (X.0.0)"
   puts ""
   puts "#{GREEN}Installation complete!#{NC}"
 end
