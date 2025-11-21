@@ -1,8 +1,6 @@
 // MenuBar Application Entry Point
 // PATTERN: Phase 4 BASE - Initialize services → create state → setup UI → run event loop
-// NOTE: This file defines a NEW main entry point to replace app_delegate.odin's main()
-// The app_delegate.odin main() will be removed in the next refactoring step
-package menubar_main
+package menubar
 
 import "core:fmt"
 import "core:log"
@@ -15,15 +13,7 @@ import db "../lib/database"
 import wallet "../lib/wallet"
 import token_cfg "../lib/config"
 import appkit "../appkit"
-import menubar "../menubar"
-import state "../menubar/state"
-
-// ============================================================================
-// Global State (required for Objective-C callbacks)
-// ============================================================================
-
-// Note: Global state is actually stored in menubar.g_menubar_state
-// We reference it here for convenience
+import state "./state"
 
 // ============================================================================
 // Main Entry Point
@@ -95,7 +85,7 @@ main :: proc() {
 	menubar_state := state.create_state(database, rpc_client, balance_fetcher, config)
 
 	// 8. Set global state for callbacks
-	menubar.g_menubar_state = &menubar_state
+	g_menubar_state = &menubar_state
 
 	log.info("MenuBar state initialized")
 
@@ -109,49 +99,49 @@ main :: proc() {
 	appkit.class_addMethod(
 		delegate_class,
 		appkit.selector("applicationDidFinishLaunching:"),
-		auto_cast menubar.app_did_finish_launching,
+		auto_cast app_did_finish_launching,
 		"v@:@",  // void, self, SEL, NSNotification
 	)
 
 	appkit.class_addMethod(
 		delegate_class,
 		appkit.selector("timerFired:"),
-		auto_cast menubar.timer_fired,
+		auto_cast timer_fired,
 		"v@:@",  // void, self, SEL, NSTimer
 	)
 
 	appkit.class_addMethod(
 		delegate_class,
 		appkit.selector("refreshPrice:"),
-		auto_cast menubar.refresh_price_action,
+		auto_cast refresh_price_action,
 		"v@:@",  // void, self, SEL, id
 	)
 
 	appkit.class_addMethod(
 		delegate_class,
 		appkit.selector("refreshPortfolio:"),
-		auto_cast menubar.refresh_portfolio_action,
+		auto_cast refresh_portfolio_action,
 		"v@:@",  // void, self, SEL, id
 	)
 
 	appkit.class_addMethod(
 		delegate_class,
 		appkit.selector("showSwapDialog:"),
-		auto_cast menubar.show_swap_dialog_action,
+		auto_cast show_swap_dialog_action,
 		"v@:@",  // void, self, SEL, id
 	)
 
 	appkit.class_addMethod(
 		delegate_class,
 		appkit.selector("manageWallets:"),
-		auto_cast menubar.manage_wallets_action,
+		auto_cast manage_wallets_action,
 		"v@:@",  // void, self, SEL, id
 	)
 
 	appkit.class_addMethod(
 		delegate_class,
 		appkit.selector("quitApp:"),
-		auto_cast menubar.quit_app_action,
+		auto_cast quit_app_action,
 		"v@:@",  // void, self, SEL, id
 	)
 
@@ -174,7 +164,7 @@ main :: proc() {
 	appkit.retain(status_item)  // Retain to prevent deallocation
 	appkit.NSStatusItem_setVisible(status_item, true)
 
-	menubar.g_menubar_state.status_item = cast(rawptr)status_item
+	g_menubar_state.status_item = cast(rawptr)status_item
 
 	button := appkit.NSStatusItem_button(status_item)
 	if button != nil {
@@ -186,21 +176,21 @@ main :: proc() {
 	// 13. Create initial empty menu (will be populated after first fetch)
 	initial_menu := appkit.NSMenu_new()
 	appkit.NSStatusItem_setMenu(status_item, initial_menu)
-	menubar.g_menubar_state.menu = cast(rawptr)initial_menu
+	g_menubar_state.menu = cast(rawptr)initial_menu
 
 	log.info("Initial menu created")
 
 	// 14. Start refresh timer (5.0 seconds, repeating)
 	timer := appkit.NSTimer_scheduledTimerWithTimeInterval(
-		menubar.g_menubar_state.refresh_interval,
+		g_menubar_state.refresh_interval,
 		appkit.id(delegate),
 		appkit.selector("timerFired:"),
 		nil,
 		true,  // Repeats
 	)
-	menubar.g_menubar_state.timer = cast(rawptr)timer
+	g_menubar_state.timer = cast(rawptr)timer
 
-	log.infof("Timer started (%.1f second interval)", menubar.g_menubar_state.refresh_interval)
+	log.infof("Timer started (%.1f second interval)", g_menubar_state.refresh_interval)
 
 	fmt.println("Starting Hound menu bar app...")
 
