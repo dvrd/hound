@@ -35,6 +35,7 @@ TokenBalance :: struct {
 	decimals:   int,     // Token decimals
 	usd_price:  f64,     // Current USD price per token
 	usd_value:  f64,     // Total USD value (amount * price)
+	change_24h: f64,     // 24-hour price change percentage (e.g., 3.45 = +3.45%)
 }
 
 // PortfolioBalance represents a wallet's complete portfolio
@@ -118,12 +119,13 @@ fetch_portfolio_balance :: proc(
 	sol_usd_value := sol_amount * sol_price
 
 	portfolio.sol_balance = TokenBalance{
-		mint      = "So11111111111111111111111111111111111111112",  // Wrapped SOL mint
-		symbol    = "SOL",
-		amount    = sol_amount,
-		decimals  = 9,
-		usd_price = sol_price,
-		usd_value = sol_usd_value,
+		mint       = "So11111111111111111111111111111111111111112",  // Wrapped SOL mint
+		symbol     = "SOL",
+		amount     = sol_amount,
+		decimals   = 9,
+		usd_price  = sol_price,
+		usd_value  = sol_usd_value,
+		change_24h = 0.0,  // TODO: SOL oracle doesn't provide 24h change yet
 	}
 	portfolio.total_usd = sol_usd_value
 
@@ -168,6 +170,7 @@ fetch_portfolio_balance :: proc(
 		symbol := ""
 		usd_price := 0.0
 		usd_value := 0.0
+		change_24h := 0.0
 
 		if found {
 			symbol = token.symbol
@@ -179,14 +182,16 @@ fetch_portfolio_balance :: proc(
 				price_data, price_err := dex.fetch_onchain_price(token)
 				if price_err == .None {
 					usd_price = price_data.price_usd
-					log.debugf("On-chain price for %s: $%.6f", symbol, usd_price)
+					change_24h = price_data.change_24h
+					log.debugf("On-chain price for %s: $%.6f (24h: %+.2f%%)", symbol, usd_price, change_24h)
 				} else {
 					log.warnf("On-chain price failed for %s, trying API", symbol)
 					// Fallback to API
 					price_data, api_err := dex.fetch_price(token.contract_address)
 					if api_err == .None {
 						usd_price = price_data.price_usd
-						log.debugf("API price for %s: $%.6f", symbol, usd_price)
+						change_24h = price_data.change_24h
+						log.debugf("API price for %s: $%.6f (24h: %+.2f%%)", symbol, usd_price, change_24h)
 					} else {
 						log.warnf("Failed to fetch price for %s: %v", symbol, api_err)
 					}
@@ -197,7 +202,8 @@ fetch_portfolio_balance :: proc(
 				price_data, api_err := dex.fetch_price(token.contract_address)
 				if api_err == .None {
 					usd_price = price_data.price_usd
-					log.debugf("API price for %s: $%.6f", symbol, usd_price)
+					change_24h = price_data.change_24h
+					log.debugf("API price for %s: $%.6f (24h: %+.2f%%)", symbol, usd_price, change_24h)
 				} else {
 					log.warnf("Failed to fetch price for %s: %v", symbol, api_err)
 				}
@@ -222,8 +228,9 @@ fetch_portfolio_balance :: proc(
 			price_data, api_err := dex.fetch_price(account.account.mint)
 			if api_err == .None {
 				usd_price = price_data.price_usd
+				change_24h = price_data.change_24h
 				usd_value = account.account.ui_amount * usd_price
-				log.debugf("API price for unknown token: $%.6f", usd_price)
+				log.debugf("API price for unknown token: $%.6f (24h: %+.2f%%)", usd_price, change_24h)
 			} else {
 				log.warnf("Failed to fetch price for unknown token: %v", api_err)
 			}
@@ -231,12 +238,13 @@ fetch_portfolio_balance :: proc(
 
 		// Add to balance list
 		token_balance := TokenBalance{
-			mint      = account.account.mint,
-			symbol    = symbol,
-			amount    = account.account.ui_amount,
-			decimals  = account.account.decimals,
-			usd_price = usd_price,
-			usd_value = usd_value,
+			mint       = account.account.mint,
+			symbol     = symbol,
+			amount     = account.account.ui_amount,
+			decimals   = account.account.decimals,
+			usd_price  = usd_price,
+			usd_value  = usd_value,
+			change_24h = change_24h,
 		}
 		append(&token_balance_list, token_balance)
 

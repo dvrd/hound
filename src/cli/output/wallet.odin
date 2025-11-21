@@ -62,7 +62,7 @@ format_wallet_json :: proc(
 			balance    = balance.amount,
 			price_usd  = balance.usd_price,
 			value_usd  = balance.usd_value,
-			change_24h = 0.0,  // TODO Phase 4: Integrate actual 24h change data
+			change_24h = balance.change_24h,
 		}
 		append(&assets, asset)
 	}
@@ -211,7 +211,7 @@ calculate_column_widths :: proc(balances: []wallet.TokenBalance) -> ColumnWidths
 		}
 
 		// Change width (using tprintf for temp string - no need to delete)
-		change_str := fmt.tprintf("+0.00%%")
+		change_str := fmt.tprintf("%+.2f%%", balance.change_24h)
 		change_width := len(change_str)
 		if change_width > widths.change {
 			widths.change = change_width
@@ -252,10 +252,8 @@ format_table_row :: proc(balance: wallet.TokenBalance, widths: ColumnWidths) {
 	// Print row with proper alignment (using tprintf for temp values)
 	value_str := fmt.tprintf("$%.2f", balance.usd_value)
 
-	// Note: 24h change not available in TokenBalance struct
-	// For Phase 1, we show "+0.00%" as placeholder
-	// Phase 2 will fetch actual price changes
-	change_str := "+0.00%"
+	// Format 24h change with sign
+	change_str := fmt.tprintf("%+.2f%%", balance.change_24h)
 
 	// Print row with proper alignment
 	fmt.printfln("%-*s  %*s  %*s  %*s  %*s",
@@ -323,11 +321,3 @@ format_price_value :: proc(price: f64) -> string {
 	}
 }
 
-// format_change formats 24h price change with sign
-//
-// Note: Placeholder for Phase 1
-// Phase 2 will integrate actual price change data
-format_change :: proc(price: f64) -> string {
-	// Placeholder - always returns neutral
-	return fmt.aprintf("+0.00%%")
-}
