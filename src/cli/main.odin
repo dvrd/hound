@@ -16,13 +16,24 @@ import output "./output"
 // Main Entry Point
 // ============================================================================
 
+is_verbose :: proc(args: []string) -> bool {
+	for arg in args {
+		if arg == "--verbose" {
+			return true
+		}
+	}
+  return false
+}
+
 main :: proc() {
 	log_level := log.Level.Info
 	if ODIN_DEBUG {
 		log_level = log.Level.Debug
 	}
 
-	context.logger = log.create_console_logger(log_level, {.Level, .Terminal_Color})
+  if is_verbose(os.args) {
+    context.logger = log.create_console_logger(log_level, {.Level, .Terminal_Color})
+  }
 
 	log.debug("Hound price fetcher starting")
 	log.debugf("Log level: %v", log_level)
@@ -102,6 +113,19 @@ run :: proc() -> models.ErrorType {
 		address := os.args[4]
 
 		return commands.handle_add(symbol, name, address)
+	}
+
+	// Handle "wallet" command
+	if first_arg == "wallet" {
+		log.debug("Wallet command invoked")
+		return commands.handle_wallet()
+	}
+
+	// Handle "history" command
+	if first_arg == "history" {
+		log.debug("History command invoked")
+		// Pass remaining args (after "history") to handler for flag parsing
+		return commands.handle_history(os.args[2:])
 	}
 
 	// Load token configuration (needed for all other commands)
