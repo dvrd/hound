@@ -124,6 +124,6 @@ tasks:
       - ruby scripts/update_version.rb patch
 
   hooks:install:
-    desc: Install git hooks (pre-commit for auto-syncing version.odin)
+    desc: Install git hooks (pre-commit for auto-bumping version on master)
     cmds:
-      - ./scripts/install-hooks.sh
+      - ruby scripts/install-hooks.rb
