@@ -1,7 +1,7 @@
 #!/usr/bin/env ruby
 # Script to update version information
-# Usage: ruby scripts/update_version.rb [new_version] [--tag]
-# If new_version is provided, updates VERSION file, otherwise reads existing VERSION
+# Usage: ruby scripts/update_version.rb [major|minor|patch]
+# Bumps the version based on semver and creates git tag
 
 require 'pathname'
 
@@ -26,6 +26,23 @@ def parse_version(version)
   }
 end
 
+def bump_version(version_info, bump_type)
+  case bump_type
+  when 'major'
+    { major: version_info[:major] + 1, minor: 0, patch: 0 }
+  when 'minor'
+    { major: version_info[:major], minor: version_info[:minor] + 1, patch: 0 }
+  when 'patch'
+    { major: version_info[:major], minor: version_info[:minor], patch: version_info[:patch] + 1 }
+  else
+    nil
+  end
+end
+
+def format_version(version_info)
+  "#{version_info[:major]}.#{version_info[:minor]}.#{version_info[:patch]}"
+end
+
 def tag_exists?(tag)
   system("git rev-parse #{tag} > /dev/null 2>&1")
 end
@@ -48,8 +65,8 @@ def create_git_tag(version)
   end
 end
 
-def generate_version_odin(version_file_path, version_info)
-  content = <<~ODIN
+def generate_version_odin_content(version_info)
+  <<~ODIN
     package version
 
     // Version information
@@ -71,8 +88,11 @@ def generate_version_odin(version_file_path, version_info)
     \treturn "hound v" + VERSION
     }
   ODIN
+end
 
-  File.write(version_file_path, content)
+def needs_update?(file_path, expected_content)
+  return true unless file_path.exist?
+  File.read(file_path) != expected_content
 end
 
 def main
@@ -81,18 +101,14 @@ def main
   version_odin = project_root / 'src' / 'version' / 'version.odin'
 
   # Parse command line arguments
-  new_version = ARGV[0] unless ARGV[0] == '--tag'
-  should_tag = ARGV.include?('--tag')
+  bump_type = ARGV[0]
 
-  # If a new version is provided, update VERSION file
-  if new_version
-    unless validate_semver(new_version)
-      warn 'Error: Version must be in semver format (e.g., 0.4.2)'
-      exit 1
-    end
-
-    File.write(version_file, "#{new_version}\n")
-    puts "✓ Updated VERSION to #{new_version}"
+  unless bump_type && %w[major minor patch].include?(bump_type)
+    warn "Usage: ruby scripts/update_version.rb [major|minor|patch]"
+    warn "  major - bump major version (X.0.0)"
+    warn "  minor - bump minor version (0.X.0)"
+    warn "  patch - bump patch version (0.0.X)"
+    exit 1
   end
 
   # Read current version
@@ -101,24 +117,46 @@ def main
     exit 1
   end
 
-  version = File.read(version_file).strip
-  version_info = parse_version(version)
+  current_version = File.read(version_file).strip
+  current_info = parse_version(current_version)
 
-  unless version_info
-    warn "Error: Invalid version format in VERSION file: #{version}"
+  unless current_info
+    warn "Error: Invalid version format in VERSION file: #{current_version}"
     exit 1
   end
 
-  # Generate version.odin
-  generate_version_odin(version_odin, version_info)
-  puts '✓ Generated src/version/version.odin'
-  puts "  Version: #{version_info[:full]} " \
-       "(major=#{version_info[:major]}, " \
-       "minor=#{version_info[:minor]}, " \
-       "patch=#{version_info[:patch]})"
+  # Bump version
+  new_info = bump_version(current_info, bump_type)
+  new_version = format_version(new_info)
+  new_info[:full] = new_version
 
-  # Optional: Create git tag if --tag flag is provided
-  create_git_tag(version_info[:full]) if should_tag
+  puts "Bumping #{bump_type}: #{current_version} → #{new_version}"
+
+  # Update VERSION file if needed
+  new_version_content = "#{new_version}\n"
+  if needs_update?(version_file, new_version_content)
+    File.write(version_file, new_version_content)
+    puts "✓ Updated VERSION file"
+  else
+    puts "○ VERSION file already up to date"
+  end
+
+  # Generate version.odin if needed
+  new_odin_content = generate_version_odin_content(new_info)
+  if needs_update?(version_odin, new_odin_content)
+    File.write(version_odin, new_odin_content)
+    puts "✓ Updated src/version/version.odin"
+  else
+    puts "○ version.odin already up to date"
+  end
+
+  puts "  Version: #{new_version} " \
+       "(major=#{new_info[:major]}, " \
+       "minor=#{new_info[:minor]}, " \
+       "patch=#{new_info[:patch]})"
+
+  # Create git tag
+  create_git_tag(new_version)
 end
 
 # Run main with error handling

@@ -108,10 +108,20 @@ tasks:
     cmds:
       - cat VERSION
 
-  version:update:
-    desc: 'Update version, sync files, and create git tag (usage: task version:update -- 0.5.0)'
+  version:major:
+    desc: Bump major version (X.0.0) and create git tag
     cmds:
-      - ruby scripts/update_version.rb {{.CLI_ARGS}} --tag
+      - ruby scripts/update_version.rb major
+
+  version:minor:
+    desc: Bump minor version (0.X.0) and create git tag
+    cmds:
+      - ruby scripts/update_version.rb minor
+
+  version:patch:
+    desc: Bump patch version (0.0.X) and create git tag
+    cmds:
+      - ruby scripts/update_version.rb patch
 
   hooks:install:
     desc: Install git hooks (pre-commit for auto-syncing version.odin)
