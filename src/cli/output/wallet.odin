@@ -6,8 +6,95 @@ import "core:fmt"
 import "core:log"
 import "core:strings"
 import "core:time"
+import "core:encoding/json"
+import "core:os"
 import models "../../lib/models"
 import wallet "../../lib/wallet"
+
+// ============================================================================
+// JSON Output Formatting (Phase 3)
+// ============================================================================
+
+// JSON output structures
+JsonAsset :: struct {
+	symbol:     string,
+	balance:    f64,
+	price_usd:  f64,
+	value_usd:  f64,
+	change_24h: f64,
+}
+
+JsonWalletOutput :: struct {
+	wallet_address:  string,
+	label:           string,
+	assets:          []JsonAsset,
+	total_value_usd: f64,
+	timestamp:       i64,
+}
+
+// format_wallet_json outputs portfolio in JSON format
+//
+// Matches spec from PRD:
+// {
+//   "wallet_address": "...",
+//   "label": "...",
+//   "assets": [...],
+//   "total_value_usd": 0.0,
+//   "timestamp": 0
+// }
+format_wallet_json :: proc(
+	wallet_info: models.Wallet,
+	portfolio: wallet.PortfolioBalance,
+	balances: []wallet.TokenBalance,
+) {
+	assert(len(wallet_info.address) > 0, "Wallet address cannot be empty")
+	assert(balances != nil, "Balances slice cannot be nil")
+
+	log.debug("Formatting wallet output as JSON")
+
+	// Build assets array
+	assets := make([dynamic]JsonAsset)
+	defer delete(assets)
+
+	for balance in balances {
+		asset := JsonAsset{
+			symbol     = balance.symbol,
+			balance    = balance.amount,
+			price_usd  = balance.usd_price,
+			value_usd  = balance.usd_value,
+			change_24h = 0.0,  // TODO Phase 4: Integrate actual 24h change data
+		}
+		append(&assets, asset)
+	}
+
+	// Build output structure
+	output := JsonWalletOutput{
+		wallet_address  = wallet_info.address,
+		label           = wallet_info.label,
+		assets          = assets[:],
+		total_value_usd = portfolio.total_usd,
+		timestamp       = time.to_unix_seconds(time.now()),
+	}
+
+	// Marshal to stdout using json.marshal_to_writer
+	marshal_opt := json.Marshal_Options{
+		pretty     = true,
+		spec       = .JSON,
+		use_spaces = true,
+		spaces     = 2,
+	}
+
+	writer := os.stream_from_handle(os.stdout)
+	if err := json.marshal_to_writer(writer, output, &marshal_opt); err != nil {
+		log.errorf("Failed to marshal JSON: %v", err)
+		fmt.eprintln("Error: Failed to output JSON")
+	}
+
+	// Newline after JSON
+	fmt.println("")
+
+	log.debug("JSON output complete")
+}
 
 // ============================================================================
 // Table Formatting
@@ -24,6 +111,8 @@ ColumnWidths :: struct {
 
 // format_wallet_table displays portfolio in formatted table
 //
+// Phase 3 enhancement: Now accepts balances array (pre-sorted, pre-filtered)
+//
 // Layout:
 // - Header with wallet info
 // - Column headers
@@ -35,34 +124,22 @@ ColumnWidths :: struct {
 format_wallet_table :: proc(
 	wallet_info: models.Wallet,
 	portfolio: wallet.PortfolioBalance,
+	balances: []wallet.TokenBalance,  // Phase 3: Pre-sorted and filtered
 ) {
+	assert(len(wallet_info.address) > 0, "Wallet address cannot be empty")
+	assert(balances != nil, "Balances slice cannot be nil")
+
 	// Header
 	fmt.printfln("Wallet: %s (%s)", wallet_info.label, wallet_info.address)
 	fmt.println("")
 
-	// Build combined balances (SOL + tokens)
-	all_balances := make([dynamic]wallet.TokenBalance)
-	defer delete(all_balances)
-
-	// Add SOL if non-zero
-	if portfolio.sol_balance.amount > 0 {
-		append(&all_balances, portfolio.sol_balance)
-	}
-
-	// Add all token balances
-	for token_balance in portfolio.token_balances {
-		if token_balance.amount > 0 {  // Skip zero balances
-			append(&all_balances, token_balance)
-		}
-	}
-
-	if len(all_balances) == 0 {
+	if len(balances) == 0 {
 		fmt.println("No assets in wallet")
 		return
 	}
 
 	// Calculate column widths
-	widths := calculate_column_widths(all_balances[:])
+	widths := calculate_column_widths(balances)
 
 	// Print table header
 	format_table_header(widths)
@@ -70,8 +147,8 @@ format_wallet_table :: proc(
 	// Print separator line
 	format_separator_line(widths)
 
-	// Print each token row
-	for balance in all_balances {
+	// Print each token row (balances already sorted and filtered)
+	for balance in balances {
 		format_table_row(balance, widths)
 	}
 
