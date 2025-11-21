@@ -26,14 +26,17 @@ is_verbose :: proc(args: []string) -> bool {
 }
 
 main :: proc() {
-	log_level := log.Level.Info
+	log_level := log.Level.Warning
+
+  if is_verbose(os.args) {
+		log_level = log.Level.Info
+  }
+
 	if ODIN_DEBUG {
 		log_level = log.Level.Debug
 	}
 
-  if is_verbose(os.args) {
-    context.logger = log.create_console_logger(log_level, {.Level, .Terminal_Color})
-  }
+  context.logger = log.create_console_logger(log_level, {.Level, .Terminal_Color})
 
 	log.debug("Hound price fetcher starting")
 	log.debugf("Log level: %v", log_level)
