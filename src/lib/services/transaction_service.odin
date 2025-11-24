@@ -42,14 +42,32 @@ execute_swap_transaction :: proc(
 		return {}, models.ErrorType.QuoteExpired
 	}
 
+	// Debug: Log the Jupiter response to see what fields are present
+	log.debugf("Jupiter response JSON (first 500 chars): %s", quote.jupiter_response[:min(len(quote.jupiter_response), 500)])
+
 	// Extract transaction and requestId from quote JSON
 	transaction_b64, request_id, extract_err := extract_transaction_and_request_id(quote.jupiter_response)
 	if extract_err != .None {
+		log.error("Failed to extract transaction and requestId from Jupiter response")
+		log.errorf("Full response: %s", quote.jupiter_response)
 		return {}, extract_err
 	}
 
 	// ASSERTION 3: Transaction must be present
 	if len(transaction_b64) == 0 {
+		// Check if Jupiter returned an error message
+		error_msg := extract_error_message(quote.jupiter_response)
+		if len(error_msg) > 0 {
+			log.errorf("Jupiter API error: %s", error_msg)
+
+			// Map common Jupiter errors to our error types
+			if error_msg == "Insufficient funds" {
+				return {}, models.ErrorType.InsufficientBalance
+			}
+
+			return {}, models.ErrorType.InvalidResponse
+		}
+
 		log.error("Transaction field is empty or missing in quote")
 		return {}, models.ErrorType.InvalidResponse
 	}
@@ -134,6 +152,38 @@ extract_transaction_and_request_id :: proc(raw_json: string) -> (transaction: st
 	}
 
 	return tx_str, req_id_str, .None
+}
+
+// extract_error_message parses Jupiter error message from response
+//
+// Returns: error message string (empty if no error)
+extract_error_message :: proc(raw_json: string) -> string {
+	// Parse JSON
+	json_val: json.Value
+	if unmarshal_err := json.unmarshal_string(raw_json, &json_val); unmarshal_err != nil {
+		return ""
+	}
+
+	obj, is_obj := json_val.(json.Object)
+	if !is_obj {
+		return ""
+	}
+
+	// Try "errorMessage" field first
+	if error_val, has_error := obj["errorMessage"]; has_error {
+		if error_str, is_str := error_val.(json.String); is_str {
+			return error_str
+		}
+	}
+
+	// Try "error" field as fallback
+	if error_val, has_error := obj["error"]; has_error {
+		if error_str, is_str := error_val.(json.String); is_str {
+			return error_str
+		}
+	}
+
+	return ""
 }
 
 // sign_transaction signs a base64-encoded Solana transaction with Ed25519 private key

@@ -599,7 +599,17 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	)
 
 	if exec_err != .None {
-		output.print_error("Transaction execution failed")
+		// Provide specific error messages for common issues
+		if exec_err == .InsufficientBalance {
+			output.print_error("Insufficient funds in wallet")
+			fmt.println("")
+			fmt.println("Your wallet doesn't have enough SOL to complete this swap.")
+			fmt.println("Please deposit SOL to your wallet and try again.")
+			fmt.println("")
+			fmt.printfln("Wallet address: %s", target_wallet.address)
+		} else {
+			output.print_error("Transaction execution failed")
+		}
 		return exec_err
 	}
 
