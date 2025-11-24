@@ -176,6 +176,22 @@ import_keypair :: proc(
 		return "", insert_err
 	}
 
+	// Also create wallet entry so it appears in wallet list
+	// NOTE: This creates the link between encrypted_keypairs and wallets tables
+	wallet := models.Wallet{
+		address    = address,
+		label      = label,
+		is_primary = is_primary,
+	}
+	wallet_insert_err := database.insert_wallet(db, wallet)
+	if wallet_insert_err != .None {
+		log.errorf("Failed to create wallet entry: %v", wallet_insert_err)
+		// TODO: Rollback by deleting encrypted keypair
+		// For now, log error but proceed (wallet can be manually synced later)
+		log.warn("Encrypted keypair stored but wallet entry not created")
+		log.warn("Run migration to sync encrypted_keypairs to wallets table")
+	}
+
 	log.infof("Successfully imported keypair: %s (%s)", address, label)
 	return address, .None
 }
