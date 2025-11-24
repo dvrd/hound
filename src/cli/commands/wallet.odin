@@ -287,7 +287,16 @@ handle_wallet :: proc(flags: WalletFlags) -> models.ErrorType {
 	log.infof("Target wallet: %s (%s)", target_wallet.label, target_wallet.address)
 
 	// Step 4: Initialize RPC client and balance fetcher
-	rpc_endpoint := "https://api.mainnet-beta.solana.com"
+	// Check for custom RPC endpoint from environment variable
+	rpc_endpoint := os.get_env("HOUND_RPC_ENDPOINT", context.temp_allocator)
+	if len(rpc_endpoint) == 0 {
+		// Default to public RPC (slow but free)
+		rpc_endpoint = "https://api.mainnet-beta.solana.com"
+		log.debug("Using default public RPC endpoint")
+	} else {
+		log.infof("Using custom RPC endpoint: %s", rpc_endpoint)
+	}
+
 	backup_endpoints: []string = nil
 	rpc_client := wallet.init_rpc_client(rpc_endpoint, backup_endpoints)
 
