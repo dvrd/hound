@@ -89,13 +89,13 @@ tasks:
   menubar:bundle:
     desc: Create Hound.app bundle
     cmds:
-      - ./scripts/create_app_bundle.sh
+      - ruby scripts/create_app_bundle.rb
 
   menubar:dmg:
     desc: Create DMG installer
     deps: [menubar:bundle]
     cmds:
-      - ./scripts/create_dmg.sh
+      - ruby scripts/create_dmg.rb
 
   menubar:clean:
     desc: Remove app bundle and DMG
