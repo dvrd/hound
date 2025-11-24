@@ -118,17 +118,27 @@ run :: proc() -> models.ErrorType {
 		return commands.handle_add(symbol, name, address)
 	}
 
-	// Handle "wallet" command with Phase 3 flag support
+	// Handle "wallet" command with subcommands
 	if first_arg == "wallet" {
 		log.debug("Wallet command invoked")
 
-		// Check for import subcommand (Phase 1: Secure Keystore)
-		if len(os.args) > 2 && os.args[2] == "import" {
-			return commands.handle_wallet_import()
+		// Check for subcommand
+		subcommand := ""
+		if len(os.args) > 2 {
+			subcommand = os.args[2]
 		}
 
-		// Check for swap subcommand (Phase 2 compatibility)
-		if len(os.args) > 2 && os.args[2] == "swap" {
+		// Route to subcommand handlers
+		switch subcommand {
+		case "help", "--help", "-h", "":
+			// Show help if no subcommand or explicit help
+			commands.print_wallet_help()
+			return .None
+
+		case "import":
+			return commands.handle_wallet_import()
+
+		case "swap":
 			// Pass remaining args (from_symbol, to_symbol, amount)
 			swap_args: []string
 			if len(os.args) > 3 {
@@ -137,16 +147,28 @@ run :: proc() -> models.ErrorType {
 				swap_args = []string{}
 			}
 			return commands.handle_wallet_swap(swap_args)
-		}
 
-		// Parse flags from remaining args
-		flags, flag_err := commands.parse_wallet_flags(os.args)
-		if flag_err != .None {
-			log.errorf("Flag parsing failed: %v", flag_err)
-			return flag_err
-		}
+		case "list":
+			return commands.handle_wallet_list()
 
-		return commands.handle_wallet(flags)
+		case "status":
+			return commands.handle_wallet_status()
+
+		case "switch":
+			if len(os.args) < 4 {
+				output.print_error("Missing wallet address/label argument")
+				fmt.println("Usage: hound wallet switch <address|label>")
+				return .MissingArgument
+			}
+			return commands.handle_wallet_switch(os.args[3])
+
+		case:
+			// Unknown subcommand - show help
+			output.print_error(fmt.tprintf("Unknown wallet subcommand: %s", subcommand))
+			fmt.println("")
+			commands.print_wallet_help()
+			return .InvalidToken
+		}
 	}
 
 	// Handle "history" command

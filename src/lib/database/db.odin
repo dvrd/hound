@@ -1423,3 +1423,90 @@ update_keypair_last_used :: proc(db: ^Database, address: string) -> models.Error
 	log.debug("Updated last_used timestamp")
 	return .None
 }
+
+// set_primary_wallet sets a wallet as the primary wallet
+//
+// This function updates the database to mark one wallet as primary
+// and unmarks all other wallets. This is a transactional operation.
+//
+// ASSERTION 1: Database must not be nil
+// ASSERTION 2: Address must not be empty
+//
+// Parameters:
+//   - db: Database handle
+//   - address: Wallet address to set as primary
+//
+// Returns: Error status
+set_primary_wallet :: proc(db: ^Database, address: string) -> models.ErrorType {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(len(address) > 0, "Address cannot be empty")
+
+	log.infof("Setting primary wallet: %s", address)
+
+	// Step 1: Verify the wallet exists
+	_, found, verify_err := get_wallet_by_address(db, address)
+	if verify_err != .None {
+		log.errorf("Failed to verify wallet exists: %v", verify_err)
+		return verify_err
+	}
+	if !found {
+		log.errorf("Wallet not found: %s", address)
+		return .ConfigNotFound
+	}
+
+	// Step 2: Begin transaction
+	exec_result := sqlite3.exec(db.handle, "BEGIN TRANSACTION", nil, nil, nil)
+	if exec_result != .Ok {
+		log.errorf("Failed to begin transaction: %v", exec_result)
+		return .DatabaseError
+	}
+
+	// Step 3: Unmark all wallets as primary
+	sql_unmark := `UPDATE wallets SET is_primary = 0 WHERE is_primary = 1`
+	stmt_unmark: ^sqlite3.Statement
+	prep_result_unmark := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql_unmark)), i32(len(sql_unmark)), &stmt_unmark, nil)
+	if prep_result_unmark != .Ok {
+		log.errorf("Failed to prepare unmark statement: %v", prep_result_unmark)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt_unmark)
+
+	step_result_unmark := sqlite3.step(stmt_unmark)
+	if step_result_unmark != .Done {
+		log.errorf("Failed to unmark primary wallets: %v", step_result_unmark)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+
+	// Step 4: Mark the target wallet as primary
+	sql_mark := `UPDATE wallets SET is_primary = 1 WHERE address = ?1`
+	stmt_mark: ^sqlite3.Statement
+	prep_result_mark := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql_mark)), i32(len(sql_mark)), &stmt_mark, nil)
+	if prep_result_mark != .Ok {
+		log.errorf("Failed to prepare mark statement: %v", prep_result_mark)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt_mark)
+
+	sqlite3.bind_text(stmt_mark, 1, cstring(raw_data(address)), i32(len(address)), nil)
+
+	step_result_mark := sqlite3.step(stmt_mark)
+	if step_result_mark != .Done {
+		log.errorf("Failed to mark wallet as primary: %v", step_result_mark)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+
+	// Step 5: Commit transaction
+	commit_result := sqlite3.exec(db.handle, "COMMIT", nil, nil, nil)
+	if commit_result != .Ok {
+		log.errorf("Failed to commit transaction: %v", commit_result)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+
+	log.infof("Successfully set primary wallet: %s", address)
+	return .None
+}

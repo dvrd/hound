@@ -1,5 +1,5 @@
 // Wallet command implementation
-// Displays cryptocurrency holdings with current prices
+// Manages Solana wallets and displays cryptocurrency holdings
 package commands
 
 import "core:fmt"
@@ -913,4 +913,153 @@ prompt_password_with_confirmation :: proc() -> (password: string, err: models.Er
 
 	log.info("Password confirmed and validated")
 	return password, .None
+}
+
+// ============================================================================
+// Wallet Subcommand Handlers
+// ============================================================================
+
+// print_wallet_help displays comprehensive help for wallet command
+print_wallet_help :: proc() {
+	fmt.println("hound wallet - Manage Solana wallets and view balances")
+	fmt.println("")
+	fmt.println("USAGE:")
+	fmt.println("  hound wallet [subcommand] [flags]")
+	fmt.println("")
+	fmt.println("SUBCOMMANDS:")
+	fmt.println("  list       List all configured wallets")
+	fmt.println("  status     Show current wallet status and balances")
+	fmt.println("  switch     Switch active wallet")
+	fmt.println("  import     Import a wallet from seed phrase")
+	fmt.println("  swap       Swap tokens between pairs")
+	fmt.println("  help       Show this help message")
+	fmt.println("")
+	fmt.println("FLAGS:")
+	fmt.println("  --wallet <addr|label>  Use specific wallet (for status command)")
+	fmt.println("  --all                  Show zero-balance tokens (for status command)")
+	fmt.println("  --json                 Output in JSON format (for status command)")
+	fmt.println("  --sort <field>         Sort by: value, symbol, balance (for status command)")
+	fmt.println("  --refresh              Force price refresh (for status command)")
+	fmt.println("")
+	fmt.println("EXAMPLES:")
+	fmt.println("  hound wallet list                # List all wallets")
+	fmt.println("  hound wallet status              # Show primary wallet balances")
+	fmt.println("  hound wallet status --wallet main  # Show specific wallet")
+	fmt.println("  hound wallet switch main         # Switch to 'main' wallet")
+	fmt.println("  hound wallet import              # Import new wallet")
+	fmt.println("  hound wallet swap sol usdc 1.0   # Swap 1 SOL for USDC")
+	fmt.println("")
+}
+
+// handle_wallet_list lists all configured wallets
+//
+// Returns: ErrorType for error handling
+handle_wallet_list :: proc() -> models.ErrorType {
+	log.info("Listing all wallets")
+
+	// Open database
+	db_path := token_cfg.get_database_path()
+	database, db_err := db.database_open(db_path)
+	if db_err != .None {
+		log.errorf("Failed to open database: %v", db_err)
+		output.print_error("Could not open database")
+		return .DatabaseError
+	}
+	defer db.database_close(database)
+
+	// Get all wallets
+	wallets, wallets_err := db.get_all_wallets(database)
+	if wallets_err != .None {
+		log.errorf("Failed to get wallets: %v", wallets_err)
+		output.print_error("Could not retrieve wallets")
+		return wallets_err
+	}
+
+	if len(wallets) == 0 {
+		fmt.println("No wallets configured.")
+		fmt.println("")
+		fmt.println("Import a wallet with: hound wallet import")
+		return .None
+	}
+
+	// Display wallets
+	fmt.println("Configured Wallets:")
+	fmt.println("")
+	fmt.println("┌────────────────────────┬──────────────────────────────────────────────┬─────────┐")
+	fmt.println("│ Label                  │ Address                                      │ Status  │")
+	fmt.println("├────────────────────────┼──────────────────────────────────────────────┼─────────┤")
+
+	for wallet in wallets {
+		label_padded := fmt.tprintf("%-22s", wallet.label)
+		address_short := fmt.tprintf("%-44s", wallet.address)
+		status := wallet.is_primary ? "PRIMARY" : "       "
+
+		fmt.printfln("│ %s │ %s │ %s │", label_padded, address_short, status)
+	}
+
+	fmt.println("└────────────────────────┴──────────────────────────────────────────────┴─────────┘")
+	fmt.println("")
+	fmt.printfln("Total: %d wallet(s)", len(wallets))
+	fmt.println("")
+
+	return .None
+}
+
+// handle_wallet_status shows current wallet status and balances
+//
+// This is a wrapper around handle_wallet() that parses flags from os.args
+//
+// Returns: ErrorType for error handling
+handle_wallet_status :: proc() -> models.ErrorType {
+	log.info("Showing wallet status")
+
+	// Parse flags from os.args (starting after "wallet status")
+	flags, flags_err := parse_wallet_flags(os.args)
+	if flags_err != .None {
+		return flags_err
+	}
+
+	// Delegate to existing handle_wallet implementation
+	return handle_wallet(flags)
+}
+
+// handle_wallet_switch switches the active (primary) wallet
+//
+// Parameters:
+//   - identifier: Wallet address, partial address, or label
+//
+// Returns: ErrorType for error handling
+handle_wallet_switch :: proc(identifier: string) -> models.ErrorType {
+	log.infof("Switching to wallet: %s", identifier)
+
+	// Open database
+	db_path := token_cfg.get_database_path()
+	database, db_err := db.database_open(db_path)
+	if db_err != .None {
+		log.errorf("Failed to open database: %v", db_err)
+		output.print_error("Could not open database")
+		return .DatabaseError
+	}
+	defer db.database_close(database)
+
+	// Resolve target wallet (reuses existing function)
+	target_wallet, wallet_err := resolve_target_wallet(database, identifier)
+	if wallet_err != .None {
+		return wallet_err
+	}
+
+	// Set as primary wallet
+	switch_err := db.set_primary_wallet(database, target_wallet.address)
+	if switch_err != .None {
+		log.errorf("Failed to set primary wallet: %v", switch_err)
+		output.print_error("Could not switch wallet")
+		return switch_err
+	}
+
+	// Display success
+	output.print_success(fmt.tprintf("Switched to wallet: %s", target_wallet.label))
+	fmt.printfln("Address: %s", target_wallet.address)
+	fmt.println("")
+
+	return .None
 }
