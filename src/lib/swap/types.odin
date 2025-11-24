@@ -2,8 +2,8 @@ package jupiter_swap
 
 import "core:time"
 
-// Jupiter quote response from GET /v6/quote
-// Reference: PRPs/ai_docs/jupiter-api-v6.md
+// Jupiter quote response from GET /ultra/v1/order
+// Reference: https://dev.jup.ag/docs/ultra/get-order
 JupiterQuote :: struct {
 	input_mint:             string,
 	output_mint:            string,
@@ -14,6 +14,10 @@ JupiterQuote :: struct {
 	slippage_bps:           u16, // Basis points (50 = 0.5%)
 	price_impact_pct:       string, // Percentage as string
 	route_plan:             []RoutePlanStep,
+
+	// Ultra API fields (present when taker parameter is provided)
+	transaction:            string, // Base64-encoded unsigned transaction
+	request_id:             string, // UUID for execute endpoint
 
 	// Caching metadata
 	cached_at:              time.Time,

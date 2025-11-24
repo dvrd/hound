@@ -13,25 +13,26 @@ import state "../state"
 // Swap Quote Operations
 // ============================================================================
 
-// handle_get_swap_quote fetches a swap quote from Jupiter API
+// handle_get_swap_quote fetches a swap quote from Jupiter Ultra API
 //
 // This handler implements the business logic for swap quote fetching:
-// 1. Validates input parameters (mints, amounts)
-// 2. Converts amount to base units using token decimals
-// 3. Calls Jupiter API to get quote
-// 4. Resets request arena after API call
-// 5. Returns quote or error (NO UI updates)
+// 1. Validates input parameters (mints, amounts, wallet address)
+// 2. Calls Jupiter Ultra API to get quote (with taker for transaction generation)
+// 3. Resets request arena after API call
+// 4. Returns quote or error (NO UI updates)
 //
 // ASSERTION 1: State must not be nil
 // ASSERTION 2: From mint must not be empty
 // ASSERTION 3: To mint must not be empty
 // ASSERTION 4: Amount must be greater than zero
+// ASSERTION 5: Wallet address must not be empty (required for Ultra API)
 //
 // Parameters:
 //   - st: MenuBar state
 //   - from_mint: Source token mint address (Solana contract address)
 //   - to_mint: Destination token mint address
 //   - amount: Amount in base units (already scaled by decimals)
+//   - wallet_address: Wallet address that will execute swap (taker)
 //
 // Returns: Jupiter quote and error status
 //
@@ -41,13 +42,15 @@ handle_get_swap_quote :: proc(
 	from_mint: string,
 	to_mint: string,
 	amount: u64,
+	wallet_address: string,
 ) -> (quote: swap.JupiterQuote, err: models.ErrorType) {
 	assert(st != nil, "MenuBarState cannot be nil")
 	assert(len(from_mint) > 0, "From mint cannot be empty")
 	assert(len(to_mint) > 0, "To mint cannot be empty")
 	assert(amount > 0, "Amount must be greater than zero")
+	assert(len(wallet_address) > 0, "Wallet address cannot be empty")
 
-	log.infof("Handling swap quote: %s -> %s, amount: %d", from_mint, to_mint, amount)
+	log.infof("Handling swap quote: %s -> %s, amount: %d, taker: %s", from_mint, to_mint, amount, wallet_address)
 
 	// Step 1: Validate inputs
 	validate_err := validate_swap_inputs(from_mint, to_mint, amount)
@@ -58,12 +61,14 @@ handle_get_swap_quote :: proc(
 
 	log.debug("Swap inputs validated")
 
-	// Step 2: Get quote from Jupiter API
+	// Step 2: Get quote from Jupiter Ultra API
 	// NOTE: Uses slippage_bps from state configuration
+	// NOTE: Passes wallet_address as taker to get transaction in response
 	fetched_quote, quote_err := swap.get_quote(
 		from_mint,
 		to_mint,
 		amount,
+		wallet_address,
 		u16(st.slippage_bps),
 	)
 	if quote_err != .None {

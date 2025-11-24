@@ -9,30 +9,32 @@ import "core:time"
 import client "../../http/client"
 import models "../models"
 
-// Jupiter Swap API v6 endpoints
-// Reference: PRPs/ai_docs/jupiter-api-v6.md
-JUPITER_QUOTE_API :: "https://quote-api.jup.ag/v6/quote"
-JUPITER_SWAP_API :: "https://quote-api.jup.ag/v6/swap"
+// Jupiter Ultra API endpoints
+// Reference: https://dev.jup.ag/docs/ultra/get-order
+JUPITER_QUOTE_API :: "https://lite-api.jup.ag/ultra/v1/order"
+JUPITER_SWAP_API :: "https://lite-api.jup.ag/ultra/v1/execute"
 
 // Rate limit: 600 requests per 60 seconds (same as Price API)
 // Cache quotes for 90 seconds (quote validity period)
 
-// Fetch swap quote from Jupiter v6 Quote API
+// Fetch swap quote from Jupiter Ultra API
 //
 // Parameters:
 //   - input_mint: Token to swap from (Solana mint address)
 //   - output_mint: Token to swap to (Solana mint address)
 //   - amount: Amount in base units (multiply by 10^decimals)
+//   - taker: Wallet address that will execute the swap (required for transaction generation)
 //   - slippage_bps: Slippage tolerance in basis points (50 = 0.5%)
 //
 // Returns: JupiterQuote with route and pricing info, or error
 //
 // CRITICAL: Quotes expire after ~90 seconds. Cache accordingly.
-// Reference: PRPs/ai_docs/jupiter-api-v6.md (Quote expiry section)
+// Reference: https://dev.jup.ag/docs/ultra/get-order
 get_quote :: proc(
 	input_mint: string,
 	output_mint: string,
 	amount: u64,
+	taker: string,
 	slippage_bps: u16 = 50,
 ) -> (
 	JupiterQuote,
@@ -41,12 +43,14 @@ get_quote :: proc(
 	assert(len(input_mint) > 0, "Input mint cannot be empty")
 	assert(len(output_mint) > 0, "Output mint cannot be empty")
 	assert(amount > 0, "Amount must be greater than 0")
+	assert(len(taker) > 0, "Taker wallet address cannot be empty")
 
 	log.debugf(
-		"Fetching Jupiter quote: %s → %s, amount: %d, slippage: %d BPS",
+		"Fetching Jupiter Ultra quote: %s → %s, amount: %d, taker: %s, slippage: %d BPS",
 		input_mint,
 		output_mint,
 		amount,
+		taker,
 		slippage_bps,
 	)
 
@@ -56,16 +60,16 @@ get_quote :: proc(
 		return cached_quote, .None
 	}
 
-	// Build URL with query parameters
-	// NOTE: Jupiter v6 uses camelCase in URL parameters
+	// Build URL with query parameters for Ultra API
+	// NOTE: Jupiter Ultra API requires taker parameter to generate transaction
 	// fmt.tprintf uses temp allocator - no manual cleanup needed
 	url := fmt.tprintf(
-		"%s?inputMint=%s&outputMint=%s&amount=%d&slippageBps=%d",
+		"%s?inputMint=%s&outputMint=%s&amount=%d&taker=%s",
 		JUPITER_QUOTE_API,
 		input_mint,
 		output_mint,
 		amount,
-		slippage_bps,
+		taker,
 	)
 
 	log.debugf("API URL: %s", url)
@@ -137,8 +141,8 @@ get_quote :: proc(
 		return {}, .InvalidResponse
 	}
 
-	// Build JupiterQuote struct from response
-	// Reference: PRPs/ai_docs/jupiter-api-v6.md (Response structure)
+	// Build JupiterQuote struct from Ultra API response
+	// Reference: https://dev.jup.ag/docs/ultra/get-order
 	quote := JupiterQuote {
 		input_mint             = get_json_string(response_obj, "inputMint"),
 		output_mint            = get_json_string(response_obj, "outputMint"),
@@ -149,6 +153,8 @@ get_quote :: proc(
 		slippage_bps           = u16(get_json_int(response_obj, "slippageBps")),
 		price_impact_pct       = get_json_string(response_obj, "priceImpactPct"),
 		route_plan             = parse_route_plan(response_obj),
+		transaction            = get_json_string(response_obj, "transaction"),
+		request_id             = get_json_string(response_obj, "requestId"),
 		cached_at              = time.now(),
 		is_valid               = true,
 	}
@@ -161,16 +167,19 @@ get_quote :: proc(
 	return quote, .None
 }
 
-// Build unsigned swap transaction from quote
+// Extract unsigned swap transaction from Ultra API quote
+//
+// With Jupiter Ultra API, the transaction is already included in the quote response
+// when the taker parameter is provided to get_quote().
 //
 // Parameters:
-//   - quote: Jupiter quote from get_quote()
-//   - user_public_key: User's wallet public key (Solana address)
+//   - quote: Jupiter quote from get_quote() (must include transaction field)
+//   - user_public_key: User's wallet public key (for validation)
 //
 // Returns: JupiterSwapResponse with base64-encoded unsigned transaction
 //
 // CRITICAL: Transaction includes recent blockhash and expires after ~150 blocks (~60s)
-// Reference: PRPs/ai_docs/solana-transactions.md (Transaction lifetime)
+// Reference: https://dev.jup.ag/docs/ultra/get-order
 build_swap_transaction :: proc(
 	quote: JupiterQuote,
 	user_public_key: string,
@@ -181,7 +190,7 @@ build_swap_transaction :: proc(
 	assert(len(user_public_key) > 0, "User public key cannot be empty")
 	assert(quote.is_valid, "Quote must be valid")
 
-	log.debugf("Building swap transaction for user: %s", user_public_key)
+	log.debugf("Extracting swap transaction from Ultra API quote for user: %s", user_public_key)
 
 	// Check if quote is still valid (~90 seconds)
 	elapsed := time.since(quote.cached_at)
@@ -190,102 +199,27 @@ build_swap_transaction :: proc(
 		return {}, .InvalidToken // Reuse error enum, could add .QuoteExpired
 	}
 
-	// Build JSON request body (pattern from src/solana_rpc.odin:60-91)
-	request_obj := json.Object{}
-
-	// Reconstruct full quote object (Jupiter requires complete quote in swap request)
-	// Reference: PRPs/ai_docs/jupiter-api-v6.md (POST /v6/swap)
-	quote_obj := json.Object{}
-	quote_obj["inputMint"] = json.String(quote.input_mint)
-	quote_obj["outputMint"] = json.String(quote.output_mint)
-	quote_obj["inAmount"] = json.String(quote.in_amount)
-	quote_obj["outAmount"] = json.String(quote.out_amount)
-	quote_obj["otherAmountThreshold"] = json.String(quote.other_amount_threshold)
-	quote_obj["swapMode"] = json.String(quote.swap_mode)
-	quote_obj["slippageBps"] = json.Integer(quote.slippage_bps)
-	quote_obj["priceImpactPct"] = json.String(quote.price_impact_pct)
-
-	// NOTE: routePlan is optional in Jupiter API request
-	// Omitting for simplicity - Jupiter will reconstruct from the quote parameters
-
-	// Build full swap request
-	request_obj["quoteResponse"] = quote_obj
-	request_obj["userPublicKey"] = json.String(user_public_key)
-	request_obj["wrapAndUnwrapSol"] = json.Boolean(true) // Auto-wrap/unwrap SOL
-	request_obj["dynamicComputeUnitLimit"] = json.Boolean(true) // CRITICAL: Use dynamic CU limits
-	request_obj["prioritizationFeeLamports"] = json.String("auto") // CRITICAL: Auto priority fees
-
-	log.debug("Sending swap request to Jupiter")
-
-	// HTTP POST with JSON (pattern from src/solana_rpc.odin)
-	req: client.Request
-	client.request_init(&req, .Post)
-	defer client.request_destroy(&req) // CRITICAL
-
-	if marshal_err := client.with_json(&req, request_obj); marshal_err != nil {
-		log.errorf("Failed to marshal swap request: %v", marshal_err)
+	// With Ultra API, transaction field should already be present in quote
+	if len(quote.transaction) == 0 {
+		log.error("Quote does not contain transaction field (was taker parameter provided?)")
 		return {}, .InvalidResponse
 	}
 
-	res, err := client.request(&req, JUPITER_SWAP_API)
-	if err != nil {
-		log.errorf("Jupiter swap request failed: %v", err)
-		#partial switch e in err {
-		case net.Network_Error:
-			return {}, .NetworkTimeout
-		case net.TCP_Send_Error, net.Dial_Error:
-			return {}, .ConnectionFailed
-		case:
-			return {}, .NetworkError
-		}
-	}
-	defer client.response_destroy(&res)
-
-	// Check HTTP status
-	log.debugf("Swap response status: %v", res.status)
-	if res.status != .OK {
-		log.errorf("Jupiter swap failed: %v", res.status)
-		#partial switch res.status {
-		case .Bad_Request:
-			return {}, .InvalidToken
-		case .Too_Many_Requests:
-			return {}, .RateLimited
-		case:
-			return {}, .ServerError
-		}
-	}
-
-	// Extract response body
-	body, allocation, body_err := client.response_body(&res)
-	if body_err != nil {
-		log.errorf("Failed to extract swap response body: %v", body_err)
-		return {}, .InvalidResponse
-	}
-	defer client.body_destroy(body, allocation)
-
-	log.debug("Parsing swap response JSON")
-
-	// Parse swap response
-	response_json: json.Value
-	spec := json.Specification{}
-	if json_err := json.unmarshal_string(body.(string), &response_json, spec); json_err != nil {
-		log.errorf("Failed to parse swap response: %v", json_err)
+	if len(quote.request_id) == 0 {
+		log.error("Quote does not contain requestId field")
 		return {}, .InvalidResponse
 	}
 
-	response_obj, is_obj := response_json.(json.Object)
-	if !is_obj {
-		log.error("Swap response is not a JSON object")
-		return {}, .InvalidResponse
-	}
+	log.debugf("Transaction extracted from quote (length: %d bytes base64)", len(quote.transaction))
 
-	// Extract transaction data
+	// Return the transaction wrapped in JupiterSwapResponse
+	// Note: Ultra API doesn't provide lastValidBlockHeight, using 0 as placeholder
 	swap_response := JupiterSwapResponse {
-		swap_transaction        = get_json_string(response_obj, "swapTransaction"),
-		last_valid_block_height = u64(get_json_int(response_obj, "lastValidBlockHeight")),
+		swap_transaction        = quote.transaction,
+		last_valid_block_height = 0, // Not provided by Ultra API
 	}
 
-	log.debugf("Transaction built successfully, expires at block: %d", swap_response.last_valid_block_height)
+	log.info("Transaction extracted successfully from Ultra API quote")
 
 	return swap_response, .None
 }
