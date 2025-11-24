@@ -138,6 +138,9 @@ run :: proc() -> models.ErrorType {
 		case "import":
 			return commands.handle_wallet_import()
 
+		case "update-password":
+			return commands.handle_wallet_update_password()
+
 		case "swap":
 			// Pass remaining args (from_symbol, to_symbol, amount)
 			swap_args: []string

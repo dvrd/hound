@@ -1288,6 +1288,74 @@ insert_encrypted_keypair :: proc(
 	return .None
 }
 
+// update_encrypted_keypair updates password-related fields for an encrypted keypair
+//
+// ASSERTION 1: Database handle must not be nil
+// ASSERTION 2: Address must not be empty
+// ASSERTION 3: Encrypted private key must not be empty
+//
+// Returns: ErrorType for error handling
+update_encrypted_keypair :: proc(
+	db: ^Database,
+	address: string,
+	encrypted_private_key: []byte,
+	salt: [16]byte,
+	nonce: [12]byte,
+	tag: [16]byte,
+	password_hash: [32]byte,
+) -> models.ErrorType {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(db.handle != nil, "Database connection cannot be nil")
+	assert(len(address) > 0, "Address cannot be empty")
+	assert(len(encrypted_private_key) > 0, "Encrypted private key cannot be empty")
+
+	log.debugf("Updating encrypted keypair for address: %s", address)
+
+	sql := `UPDATE encrypted_keypairs
+	        SET encrypted_private_key = ?2,
+	            salt = ?3,
+	            nonce = ?4,
+	            tag = ?5,
+	            password_hash = ?6
+	        WHERE address = ?1`
+
+	stmt: ^sqlite3.Statement
+	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
+	if prep_result != .Ok {
+		log.errorf("Failed to prepare update: %v", prep_result)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt)
+
+	// Create addressable slices for BLOB binding
+	salt_data := salt
+	nonce_data := nonce
+	tag_data := tag
+	password_hash_data := password_hash
+
+	salt_slice := salt_data[:]
+	nonce_slice := nonce_data[:]
+	tag_slice := tag_data[:]
+	password_hash_slice := password_hash_data[:]
+
+	// Bind parameters
+	sqlite3.bind_text(stmt, 1, cstring(raw_data(address)), i32(len(address)), nil)
+	sqlite3.bind_blob(stmt, 2, raw_data(encrypted_private_key), i32(len(encrypted_private_key)), nil)
+	sqlite3.bind_blob(stmt, 3, raw_data(salt_slice), i32(len(salt_slice)), nil)
+	sqlite3.bind_blob(stmt, 4, raw_data(nonce_slice), i32(len(nonce_slice)), nil)
+	sqlite3.bind_blob(stmt, 5, raw_data(tag_slice), i32(len(tag_slice)), nil)
+	sqlite3.bind_blob(stmt, 6, raw_data(password_hash_slice), i32(len(password_hash_slice)), nil)
+
+	step_result := sqlite3.step(stmt)
+	if step_result != .Done {
+		log.errorf("Failed to update encrypted keypair: %v", step_result)
+		return .DatabaseError
+	}
+
+	log.infof("Successfully updated encrypted keypair for address: %s", address)
+	return .None
+}
+
 // EncryptedKeypairData represents the encrypted keypair data from database
 EncryptedKeypairData :: struct {
 	address:               string,

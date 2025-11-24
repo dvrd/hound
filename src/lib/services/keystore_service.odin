@@ -300,3 +300,108 @@ unlock_keypair :: proc(
 	log.infof("Successfully unlocked keypair: %s", address)
 	return keypair, .None
 }
+
+// update_keypair_password updates the password for an encrypted keypair
+//
+// ASSERTION 1: Database must be available
+// ASSERTION 2: Seed phrase must be 12 or 24 words
+// ASSERTION 3: New password must be strong enough
+// ASSERTION 4: Derived address must match existing wallet
+//
+// Returns: Error status
+update_keypair_password :: proc(
+	db: ^database.Database,
+	seed_phrase: []string,
+	old_password: string,
+	new_password: string,
+) -> (address: string, err: models.ErrorType) {
+	assert(db != nil, "Database handle cannot be nil")
+	assert(len(seed_phrase) == 12 || len(seed_phrase) == 24, "Seed phrase must be 12 or 24 words")
+	assert(len(new_password) > 0, "New password cannot be empty")
+
+	log.infof("Updating password for keypair from %d-word seed phrase", len(seed_phrase))
+
+	// ASSERTION 3: Validate new password strength
+	password_err := validate_password_strength(new_password)
+	if password_err != .None {
+		return "", password_err
+	}
+
+	// Derive keypair from seed phrase to get the address
+	keypair, keypair_err := keystore.derive_keypair_from_seed(seed_phrase)
+	if keypair_err != .None {
+		log.error("Failed to derive keypair from seed phrase")
+		return "", keypair_err
+	}
+	defer keystore.zero_keypair(&keypair)
+
+	// Generate Solana address from public key
+	address = keystore.keypair_to_address(&keypair)
+	log.infof("Derived address: %s", address)
+
+	// ASSERTION 4: Check if wallet exists in database
+	existing, found, get_err := database.get_encrypted_keypair(db, address)
+	if get_err != .None {
+		log.error("Failed to check for existing wallet")
+		return "", get_err
+	}
+	if !found {
+		log.errorf("Wallet not found: %s", address)
+		return "", .KeypairNotFound
+	}
+	defer {
+		delete(existing.address)
+		delete(existing.label)
+		delete(existing.encrypted_private_key)
+	}
+
+	// Generate new cryptographically secure salt and nonce
+	salt := keystore.generate_salt()
+	nonce := keystore.generate_nonce()
+
+	// Derive new encryption key from new password using Argon2id
+	encryption_key, key_err := keystore.derive_key_from_password(new_password, salt)
+	if key_err != .None {
+		log.error("Failed to derive encryption key from new password")
+		return "", key_err
+	}
+	defer keystore.secure_zero_memory(&encryption_key, size_of(encryption_key))
+
+	// Hash new password for verification
+	password_hash, hash_err := keystore.hash_password(new_password, salt)
+	if hash_err != .None {
+		log.error("Failed to hash new password")
+		return "", hash_err
+	}
+
+	// Serialize private key to bytes for encryption
+	private_key_bytes: [ed25519.PRIVATE_KEY_SIZE]byte
+	ed25519.private_key_bytes(&keypair.private_key_struct, private_key_bytes[:])
+	defer keystore.secure_zero_memory(&private_key_bytes, size_of(private_key_bytes))
+
+	// Encrypt private key with new password
+	encrypted, encrypt_err := keystore.encrypt_aes256gcm(private_key_bytes[:], encryption_key, nonce)
+	if encrypt_err != .None {
+		log.error("Failed to encrypt private key with new password")
+		return "", encrypt_err
+	}
+	defer delete(encrypted.ciphertext)
+
+	// Update encrypted keypair in database
+	update_err := database.update_encrypted_keypair(
+		db,
+		address,
+		encrypted.ciphertext,
+		salt,
+		encrypted.nonce,
+		encrypted.tag,
+		password_hash,
+	)
+	if update_err != .None {
+		log.error("Failed to update encrypted keypair")
+		return "", update_err
+	}
+
+	log.infof("Successfully updated password for keypair: %s", address)
+	return address, .None
+}

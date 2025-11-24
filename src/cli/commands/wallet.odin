@@ -799,6 +799,89 @@ handle_wallet_import :: proc() -> models.ErrorType {
 	return .None
 }
 
+// handle_wallet_update_password implements "hound wallet update-password" workflow
+//
+// Updates wallet password by providing the seed phrase again
+//
+// Returns: ErrorType for error handling
+handle_wallet_update_password :: proc() -> models.ErrorType {
+	log.info("Starting wallet password update workflow")
+
+	// Step 1: Prompt for seed phrase (12 or 24 words)
+	fmt.println("To update your wallet password, you need to provide your seed phrase.")
+	fmt.println("")
+	seed_phrase, seed_err := prompt_seed_phrase()
+	if seed_err != .None {
+		return seed_err
+	}
+	defer {
+		// Zero seed phrase memory
+		for word in seed_phrase {
+			if len(word) > 0 {
+				mem_word := transmute([]byte)word
+				for i := 0; i < len(mem_word); i += 1 {
+					mem_word[i] = 0
+				}
+			}
+		}
+	}
+
+	// Step 2: Prompt for new password (with confirmation)
+	fmt.println("")
+	fmt.println("Now create your new password.")
+	new_password, password_err := prompt_password_with_confirmation()
+	if password_err != .None {
+		return password_err
+	}
+	defer {
+		// Zero password memory
+		if len(new_password) > 0 {
+			mem_password := transmute([]byte)new_password
+			for i := 0; i < len(mem_password); i += 1 {
+				mem_password[i] = 0
+			}
+		}
+	}
+
+	// Step 3: Open database
+	db_path := token_cfg.get_database_path()
+	database, db_err := db.database_open(db_path)
+	if db_err != .None {
+		log.errorf("Failed to open database: %v", db_err)
+		output.print_error("Could not open database")
+		return .DatabaseError
+	}
+	defer db.database_close(database)
+
+	// Step 4: Update keypair password
+	output.print_progress("Updating wallet password...")
+	address, update_err := keystore_svc.update_keypair_password(database, seed_phrase, "", new_password)
+	if update_err != .None {
+		log.errorf("Failed to update password: %v", update_err)
+
+		// Provide helpful error messages
+		if update_err == .KeypairNotFound {
+			output.print_error("No wallet found matching this seed phrase")
+			fmt.println("")
+			fmt.println("The seed phrase you provided doesn't match any imported wallet.")
+			fmt.println("Please check your seed phrase and try again.")
+		} else {
+			output.print_error("Failed to update wallet password")
+		}
+		return update_err
+	}
+
+	// Step 5: Display success
+	output.print_success("Password updated successfully!")
+	fmt.println("")
+	fmt.printfln("Wallet: %s", address)
+	fmt.println("")
+	fmt.println("Your wallet password has been updated.")
+	fmt.println("Use the new password to unlock your wallet for transactions.")
+
+	return .None
+}
+
 // prompt_seed_phrase prompts user to enter seed phrase and validates format
 //
 // Returns: Slice of seed words and error status
@@ -940,12 +1023,13 @@ print_wallet_help :: proc() {
 	fmt.println("  hound wallet [subcommand] [flags]")
 	fmt.println("")
 	fmt.println("SUBCOMMANDS:")
-	fmt.println("  list       List all configured wallets")
-	fmt.println("  status     Show current wallet status and balances")
-	fmt.println("  switch     Switch active wallet")
-	fmt.println("  import     Import a wallet from seed phrase")
-	fmt.println("  swap       Swap tokens between pairs")
-	fmt.println("  help       Show this help message")
+	fmt.println("  list            List all configured wallets")
+	fmt.println("  status          Show current wallet status and balances")
+	fmt.println("  switch          Switch active wallet")
+	fmt.println("  import          Import a wallet from seed phrase")
+	fmt.println("  update-password Update wallet password (requires seed phrase)")
+	fmt.println("  swap            Swap tokens between pairs")
+	fmt.println("  help            Show this help message")
 	fmt.println("")
 	fmt.println("FLAGS:")
 	fmt.println("  --wallet <addr|label>  Use specific wallet (for status command)")
