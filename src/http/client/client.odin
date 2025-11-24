@@ -10,6 +10,7 @@ import "core:log"
 import "core:net"
 import "core:strconv"
 import "core:strings"
+import "core:time"
 
 import http ".."
 import openssl "../openssl"
@@ -507,4 +508,68 @@ scan_num_bytes :: proc(
 	}
 
 	return n, data[:n], nil, false
+}
+
+// ============================================================================
+// Enhanced HTTP Client APIs with Retry and Logging
+// ============================================================================
+
+// Enhanced GET with configuration (retry + logging)
+get_with_config :: proc(
+	target: string,
+	config: Config,
+	allocator := context.allocator,
+) -> (
+	res: Response,
+	err: Error,
+	stats: Retry_Stats,
+) {
+	r: Request
+	request_init(&r, .Get, allocator)
+	defer request_destroy(&r)
+
+	return request_with_config(&r, target, config, allocator)
+}
+
+// Enhanced request with configuration (retry + logging)
+request_with_config :: proc(
+	req: ^Request,
+	target: string,
+	config: Config,
+	allocator := context.allocator,
+) -> (
+	res: Response,
+	err: Error,
+	stats: Retry_Stats,
+) {
+	// Create request context for logging
+	ctx := Request_Context {
+		method     = http.method_string(req.method),
+		url        = target,
+		attempt    = 1,
+		start_time = time.now(),
+	}
+
+	// Log request start
+	log_request_start(ctx, config.logging)
+	log_request_headers(req.headers, config.logging)
+
+	if bytes.buffer_length(&req.body) > 0 {
+		log_request_body(bytes.buffer_to_bytes(&req.body), config.logging)
+	}
+
+	// Execute with retry
+	res, err, stats = request_with_retry(req, target, config.retry, allocator)
+
+	duration := time.since(ctx.start_time)
+
+	// Log response
+	if err == nil {
+		log_response_success(ctx, res.status, duration, config.logging)
+		log_response_headers(res.headers, config.logging)
+	} else {
+		log_response_error(ctx, err, duration, stats, config.logging)
+	}
+
+	return
 }
