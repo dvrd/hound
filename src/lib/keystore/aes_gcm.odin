@@ -80,11 +80,11 @@ encrypt_aes256gcm :: proc(
 
 	// ASSERTION 4: Verify encryption succeeded
 	assert(len(ciphertext) == len(plaintext), "Ciphertext length mismatch")
-	assert(len(tag) == GCM_TAG_BYTES, "Tag must be 16 bytes")
+	assert(len(tag_data) == GCM_TAG_BYTES, "Tag must be 16 bytes")
 
 	encrypted.ciphertext = ciphertext
 	encrypted.nonce = nonce
-	encrypted.tag = tag
+	encrypted.tag = tag_data  // Use tag_data which contains the actual tag from seal_oneshot
 
 	log.info("Successfully encrypted data with AES-256-GCM")
 	return encrypted, .None
