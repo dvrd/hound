@@ -1322,7 +1322,24 @@ get_encrypted_keypair :: proc(db: ^Database, address: string) -> (data: Encrypte
 	stmt: ^sqlite3.Statement
 	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
 	if prep_result != .Ok {
-		log.errorf("Failed to prepare select: %v", prep_result)
+		error_msg := string(sqlite3.errmsg(db.handle))
+		log.errorf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		log.errorf("SQLite Error: Failed to prepare SELECT statement")
+		log.errorf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+		log.errorf("Error Code: %v", prep_result)
+		log.errorf("Error Message: %s", error_msg)
+		log.errorf("SQL Query: %s", sql)
+		log.errorf("Table: encrypted_keypairs")
+		log.errorf("")
+		log.errorf("Possible causes:")
+		log.errorf("  1. Table 'encrypted_keypairs' does not exist")
+		log.errorf("  2. Database schema is outdated")
+		log.errorf("  3. Database file is corrupted")
+		log.errorf("")
+		log.errorf("To diagnose:")
+		log.errorf("  sqlite3 ~/.config/hound/hound.db \".tables\"")
+		log.errorf("  sqlite3 ~/.config/hound/hound.db \".schema encrypted_keypairs\"")
+		log.errorf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		return {}, false, .DatabaseError
 	}
 	defer sqlite3.finalize(stmt)

@@ -715,7 +715,7 @@ handle_wallet_import :: proc() -> models.ErrorType {
 		return seed_err
 	}
 	defer {
-		// Zero seed phrase memory before deleting
+		// Zero seed phrase memory (no delete needed - using command arena)
 		for word in seed_phrase {
 			if len(word) > 0 {
 				mem_word := transmute([]byte)word
@@ -724,7 +724,6 @@ handle_wallet_import :: proc() -> models.ErrorType {
 				}
 			}
 		}
-		delete(seed_phrase)
 	}
 
 	// Step 2: Prompt for password (with confirmation)
@@ -733,12 +732,13 @@ handle_wallet_import :: proc() -> models.ErrorType {
 		return password_err
 	}
 	defer {
-		// Zero password memory before deleting
-		mem_password := transmute([]byte)password
-		for i := 0; i < len(mem_password); i += 1 {
-			mem_password[i] = 0
+		// Zero password memory (no delete needed - using command arena)
+		if len(password) > 0 {
+			mem_password := transmute([]byte)password
+			for i := 0; i < len(mem_password); i += 1 {
+				mem_password[i] = 0
+			}
 		}
-		delete(password)
 	}
 
 	// Step 3: Prompt for wallet label
@@ -812,7 +812,8 @@ prompt_seed_phrase :: proc() -> (words: []string, err: models.ErrorType) {
 	for word in words_dynamic {
 		trimmed := strings.trim_space(word)
 		if len(trimmed) > 0 {
-			append(&words_filtered, strings.clone(trimmed))
+			// Use command arena allocator (no manual cleanup needed)
+			append(&words_filtered, strings.clone(trimmed, memory.command_allocator()))
 		}
 	}
 
@@ -887,13 +888,29 @@ prompt_password_with_confirmation :: proc() -> (password: string, err: models.Er
 		password2_buffer[i] = 0
 	}
 
-	password = strings.clone(password1)
+	// Validate password strength before accepting
+	password_strength_err := keystore_svc.validate_password_strength(password1)
+	if password_strength_err != .None {
+		log.errorf("Password validation failed: %v", password_strength_err)
+		output.print_error("Password does not meet security requirements")
+		// Zero both password buffers
+		for i := 0; i < n1; i += 1 {
+			password1_buffer[i] = 0
+		}
+		for i := 0; i < n2; i += 1 {
+			password2_buffer[i] = 0
+		}
+		return "", password_strength_err
+	}
+
+	// Use command arena allocator (no manual cleanup needed)
+	password = strings.clone(password1, memory.command_allocator())
 
 	// Zero original password buffer
 	for i := 0; i < n1; i += 1 {
 		password1_buffer[i] = 0
 	}
 
-	log.info("Password confirmed")
+	log.info("Password confirmed and validated")
 	return password, .None
 }
