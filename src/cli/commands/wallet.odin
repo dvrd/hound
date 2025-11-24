@@ -347,7 +347,11 @@ handle_wallet :: proc(flags: WalletFlags) -> models.ErrorType {
 	for token_balance in portfolio.token_balances {
 		// Filter zero balances unless --all flag
 		if token_balance.amount > 0 || flags.show_all {
-			append(&all_balances, token_balance)
+			// Also filter out tokens with no price (failed to fetch price)
+			// These are unknown tokens that show "TokenNotFound" error
+			if token_balance.usd_price > 0 {
+				append(&all_balances, token_balance)
+			}
 		}
 	}
 
