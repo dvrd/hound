@@ -38,7 +38,7 @@ handle_history :: proc(args: []string) -> models.ErrorType {
 
 		if arg == "--limit" {
 			if i + 1 >= len(args) {
-				output.print_error("Missing value for --limit flag")
+				log.error("Missing value for --limit flag")
 				fmt.eprintln("")
 				fmt.eprintln("Usage: hound history [--limit N] [--wallet ADDRESS]")
 				return .MissingArgument
@@ -47,14 +47,14 @@ handle_history :: proc(args: []string) -> models.ErrorType {
 			// Parse limit value
 			limit_val, ok := strconv.parse_int(args[i + 1], 10)
 			if !ok || limit_val <= 0 {
-				output.print_error("Invalid limit value (must be positive integer)")
+				log.error("Invalid limit value (must be positive integer)")
 				return .MissingArgument
 			}
 			limit = int(limit_val)
 			i += 1 // Skip next arg since we consumed it
 		} else if arg == "--wallet" {
 			if i + 1 >= len(args) {
-				output.print_error("Missing value for --wallet flag")
+				log.error("Missing value for --wallet flag")
 				fmt.eprintln("")
 				fmt.eprintln("Usage: hound history [--limit N] [--wallet ADDRESS]")
 				return .MissingArgument
@@ -70,7 +70,7 @@ handle_history :: proc(args: []string) -> models.ErrorType {
 	// Open database
 	db_path := token_cfg.get_database_path()
 	if !os.exists(db_path) {
-		output.print_error("Database not found")
+		log.error("Database not found")
 		fmt.eprintln("")
 		fmt.eprintln("No swap history available yet.")
 		fmt.eprintln("Swaps will be recorded after you perform your first transaction.")
@@ -80,7 +80,6 @@ handle_history :: proc(args: []string) -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -89,7 +88,6 @@ handle_history :: proc(args: []string) -> models.ErrorType {
 	entries, query_err := db.get_swap_history(database, wallet_address, limit)
 	if query_err != .None {
 		log.errorf("Failed to query swap history: %v", query_err)
-		output.print_error("Could not retrieve swap history")
 		return .DatabaseError
 	}
 	defer delete(entries)

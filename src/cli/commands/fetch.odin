@@ -56,7 +56,6 @@ handle_fetch :: proc(symbol: string, force_refresh: bool) -> models.ErrorType {
 		price_data, err = dex.fetch_onchain_price(token)
 		if err != .None {
 			log.warnf("On-chain fetch failed (%v), falling back to API", err)
-			output.print_warning("On-chain fetch failed, falling back to API...")
 			price_data, err = dex.fetch_price(token.contract_address)
 		} else {
 			log.info("On-chain price fetch successful")
@@ -83,7 +82,6 @@ handle_fetch :: proc(symbol: string, force_refresh: bool) -> models.ErrorType {
 			price_data, err = dex.fetch_onchain_price(token_with_pool)
 			if err != .None {
 				log.warnf("On-chain fetch failed after discovery (%v), falling back to API", err)
-				output.print_warning("Pool fetch failed, falling back to API...")
 				price_data, err = dex.fetch_price(token.contract_address)
 			} else {
 				log.info("On-chain price fetch successful from discovered pool")
@@ -91,7 +89,6 @@ handle_fetch :: proc(symbol: string, force_refresh: bool) -> models.ErrorType {
 		} else {
 			// Pool discovery failed - fallback to API
 			log.warnf("Pool discovery failed (%v), falling back to API", discovery_err)
-			output.print_warning("Pool discovery failed, using API...")
 			price_data, err = dex.fetch_price(token.contract_address)
 		}
 	}

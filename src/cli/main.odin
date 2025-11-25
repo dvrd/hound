@@ -45,7 +45,7 @@ main :: proc() {
 	mem_err := memory.memory_init()
 	if mem_err != .None {
 		log.errorf("Failed to initialize memory system: %v", mem_err)
-		output.print_error("Memory initialization failed")
+		log.error("Memory initialization failed")
 		os.exit(1)
 	}
 
@@ -102,7 +102,7 @@ run :: proc() -> models.ErrorType {
 	// Handle "add" command
 	if first_arg == "add" {
 		if len(os.args) < 5 {
-			output.print_error("Missing arguments for add command")
+			log.error("Missing arguments for add command")
 			fmt.eprintln("")
 			fmt.eprintln("Usage: hound add <symbol> <name> <contract_address>")
 			fmt.eprintln("")
@@ -182,7 +182,7 @@ run :: proc() -> models.ErrorType {
 
 		case:
 			// Unknown subcommand - show help
-			output.print_error(fmt.tprintf("Unknown wallet subcommand: %s", subcommand))
+			log.error(fmt.tprintf("Unknown wallet subcommand: %s", subcommand))
 			fmt.println("")
 			commands.print_wallet_help()
 			return .InvalidToken
@@ -213,7 +213,7 @@ run :: proc() -> models.ErrorType {
 	// Handle "fetch" command
 	if first_arg == "fetch" {
 		if len(os.args) < 3 {
-			output.print_error("Missing token symbol for fetch command")
+			log.error("Missing token symbol for fetch command")
 			fmt.eprintln("")
 			fmt.eprintln("Usage: hound fetch <symbol> [--refresh]")
 			fmt.eprintln("")

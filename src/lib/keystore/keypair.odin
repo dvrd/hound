@@ -164,11 +164,14 @@ derive_keypair_from_seed_bip44 :: proc(
 	}
 
 	// Step 2: BIP39 - Convert mnemonic to 64-byte seed
-	bip39_seed, bip39_err := mnemonic_to_seed(seed_phrase, passphrase, allocator)
+	// mnemonic_to_seed() now uses secure arena internally
+	bip39_seed, bip39_err := mnemonic_to_seed(seed_phrase, passphrase)
 	if bip39_err != .None {
 		log.errorf("BIP39 mnemonic-to-seed failed: %v", bip39_err)
 		return {}, bip39_err
 	}
+	// Explicit zeroing for seed after use
+	defer secure_zero_memory(&bip39_seed, size_of(bip39_seed))
 
 	// Step 3: BIP32/BIP44 - Derive key at Solana path
 	// Path: m/44'/501'/account'/change'
@@ -181,11 +184,14 @@ derive_keypair_from_seed_bip44 :: proc(
 
 	log.debugf("Using derivation path: %s", derivation_path)
 
-	hd_key, derive_err := derive_from_path(bip39_seed, derivation_path, allocator)
+	// derive_from_path() now uses secure arena internally
+	hd_key, derive_err := derive_from_path(bip39_seed, derivation_path)
 	if derive_err != .None {
 		log.errorf("BIP32 derivation failed: %v", derive_err)
 		return {}, derive_err
 	}
+	// Explicit zeroing for hd_key after use
+	defer secure_zero_memory(&hd_key.key, size_of(hd_key.key))
 
 	// Step 4: Convert HDKey to Ed25519 keypair
 	derived_keypair, keypair_err := hd_key_to_keypair(hd_key)

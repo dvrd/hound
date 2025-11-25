@@ -4,11 +4,14 @@ package keystore
 
 import "core:crypto/hmac"
 import "core:crypto/hash"
+import "core:log"
 import models "../models"
+import memory "../memory"
 
 // PBKDF2 with HMAC-SHA512 (RFC 2898)
 // Used by BIP39 to convert mnemonic + passphrase to seed
 //
+// SECURITY: Uses secure arena with automatic memory zeroing
 // ASSERTION 1: Iterations must be positive
 // ASSERTION 2: Key length must be positive
 // ASSERTION 3: Output key must match requested length
@@ -17,10 +20,19 @@ pbkdf2_hmac_sha512 :: proc(
 	salt: []byte,
 	iterations: int,
 	key_len: int,
-	allocator := context.allocator,
 ) -> (key: []byte, err: models.ErrorType) {
 	assert(iterations > 0, "Iterations must be positive")
 	assert(key_len > 0, "Key length must be positive")
+
+	log.debugf("PBKDF2-HMAC-SHA512: %d iterations, %d byte output", iterations, key_len)
+
+	// Use secure arena for all PBKDF2 operations
+	// Only set up arena if not already active (allows nesting)
+	arena_was_active := memory.is_secure_arena_active()
+	if !arena_was_active {
+		context.allocator = memory.secure_allocator()
+	}
+	defer if !arena_was_active { memory.reset_secure_arena() }
 
 	// HMAC-SHA512 produces 64-byte output
 	hash_len := 64
@@ -28,18 +40,17 @@ pbkdf2_hmac_sha512 :: proc(
 	// Calculate number of blocks needed
 	block_count := (key_len + hash_len - 1) / hash_len
 
-	// Allocate output buffer
-	key = make([]byte, key_len, allocator)
+	// Allocate output buffer in secure arena
+	key = make([]byte, key_len)
 
 	// For each block
 	for i := 1; i <= block_count; i += 1 {
 		// U1 = HMAC(password, salt || INT_32_BE(i))
-		block, block_err := pbkdf2_derive_block(password, salt, iterations, i, allocator)
+		block, block_err := pbkdf2_derive_block(password, salt, iterations, i)
 		if block_err != .None {
-			delete(key)
-			return nil, block_err
+			return nil, block_err  // Arena reset in defer
 		}
-		defer delete(block)
+		// No defer delete needed - secure arena handles cleanup
 
 		// Copy to output (handle last block partial copy)
 		offset := (i - 1) * hash_len
@@ -51,11 +62,13 @@ pbkdf2_hmac_sha512 :: proc(
 	// ASSERTION 3: Verify output length
 	assert(len(key) == key_len, "Output key length mismatch")
 
+	log.debug("PBKDF2-HMAC-SHA512: derivation complete")
 	return key, .None
 }
 
 // Derive a single PBKDF2 block
 //
+// SECURITY: Uses secure arena (inherited from parent context.allocator)
 // ASSERTION 1: Block must be exactly 64 bytes (HMAC-SHA512 output)
 // ASSERTION 2: Block index must be positive
 @(private)
@@ -64,18 +77,18 @@ pbkdf2_derive_block :: proc(
 	salt: []byte,
 	iterations: int,
 	block_index: int,
-	allocator := context.allocator,
 ) -> (block: []byte, err: models.ErrorType) {
 	assert(block_index > 0, "Block index must be positive")
 
+	// Use secure arena (already set by parent function)
 	hash_len := 64
-	block = make([]byte, hash_len, allocator)
-	u := make([]byte, hash_len, allocator)
-	defer delete(u)
+	block = make([]byte, hash_len)  // Secure arena
+	u := make([]byte, hash_len)     // Secure arena
+	// No defer delete needed
 
 	// First iteration: U1 = HMAC(password, salt || INT_32_BE(block_index))
-	salt_with_index := make([]byte, len(salt) + 4, allocator)
-	defer delete(salt_with_index)
+	salt_with_index := make([]byte, len(salt) + 4)  // Secure arena
+	// No defer delete needed
 	copy(salt_with_index, salt)
 
 	// Append block index as big-endian u32
@@ -90,12 +103,12 @@ pbkdf2_derive_block :: proc(
 
 	// Remaining iterations: Ui = HMAC(password, U{i-1})
 	// PERFORMANCE: Pre-allocate temp buffer ONCE instead of 2048 times
-	temp := make([]byte, hash_len, allocator)
-	defer delete(temp)
+	temp_buffer := make([]byte, hash_len)  // Secure arena
+	// No defer delete needed
 
 	for j := 2; j <= iterations; j += 1 {
-		copy(temp, u)
-		hmac.sum(hash.Algorithm.SHA512, u, temp, password)
+		copy(temp_buffer, u)
+		hmac.sum(hash.Algorithm.SHA512, u, temp_buffer, password)
 
 		// XOR with accumulated result
 		for k := 0; k < hash_len; k += 1 {

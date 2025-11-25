@@ -10,6 +10,7 @@ import "core:strings"
 import "core:strconv"
 import "core:log"
 import models "../models"
+import memory "../memory"
 
 // BIP32 Hierarchical Deterministic Key
 //
@@ -28,6 +29,7 @@ HARDENED_OFFSET :: 0x80000000
 
 // BIP32: Derive master key from BIP39 seed
 //
+// SECURITY: Uses secure arena with automatic memory zeroing
 // ASSERTION 1: Seed must be exactly 64 bytes (BIP39 output)
 // ASSERTION 2: HMAC-SHA512 must produce exactly 64 bytes
 // ASSERTION 3: Master key must be exactly 32 bytes
@@ -45,18 +47,25 @@ HARDENED_OFFSET :: 0x80000000
 // Returns: Master HDKey, error status
 derive_master_key :: proc(
 	seed: [64]byte,
-	allocator := context.allocator,
 ) -> (master: HDKey, err: models.ErrorType) {
 	assert(len(seed) == 64, "Seed must be 64 bytes")
 
 	log.info("Deriving BIP32 master key from seed")
 
+	// Use secure arena for HD key derivation
+	// Only set up arena if not already active (allows nesting)
+	arena_was_active := memory.is_secure_arena_active()
+	if !arena_was_active {
+		context.allocator = memory.secure_allocator()
+	}
+	defer if !arena_was_active { memory.reset_secure_arena() }
+
 	// SLIP-0010: Use "ed25519 seed" for Ed25519 curves
 	hmac_key := "ed25519 seed"
 
 	// Apply HMAC-SHA512
-	hmac_output := make([]byte, 64, allocator)
-	defer delete(hmac_output)
+	hmac_output := make([]byte, 64)  // Secure arena
+	// No defer delete needed
 
 	// Create a local copy to get addressable slice
 	seed_copy := seed
@@ -92,6 +101,7 @@ derive_master_key :: proc(
 
 // BIP32: Derive child key from parent
 //
+// SECURITY: Uses secure arena with automatic memory zeroing
 // ASSERTION 1: Parent key must be exactly 32 bytes
 // ASSERTION 2: Parent chain code must be exactly 32 bytes
 // ASSERTION 3: Index must be hardened (>= 2^31) for Ed25519
@@ -114,7 +124,6 @@ derive_child_key :: proc(
 	parent: HDKey,
 	index: u32,
 	hardened: bool,
-	allocator := context.allocator,
 ) -> (child: HDKey, err: models.ErrorType) {
 	assert(len(parent.key) == 32, "Parent key must be 32 bytes")
 	assert(len(parent.chain_code) == 32, "Parent chain code must be 32 bytes")
@@ -125,6 +134,14 @@ derive_child_key :: proc(
 		return {}, .CryptoOperationFailed
 	}
 
+	// Use secure arena
+	// Only set up arena if not already active (allows nesting)
+	arena_was_active := memory.is_secure_arena_active()
+	if !arena_was_active {
+		context.allocator = memory.secure_allocator()
+	}
+	defer if !arena_was_active { memory.reset_secure_arena() }
+
 	// Calculate hardened index
 	hardened_index := index | HARDENED_OFFSET
 
@@ -134,8 +151,8 @@ derive_child_key :: proc(
 	log.debugf("Deriving hardened child key at index %d'", index)
 
 	// Construct HMAC data: 0x00 || parent_key (32 bytes) || index (4 bytes big-endian)
-	data := make([]byte, 1 + 32 + 4, allocator)
-	defer delete(data)
+	data := make([]byte, 1 + 32 + 4)  // Secure arena
+	// No defer delete needed
 
 	data[0] = 0x00  // Hardened derivation prefix
 	// Copy parent key
@@ -149,8 +166,8 @@ derive_child_key :: proc(
 	data[36] = u8(hardened_index & 0xFF)
 
 	// Apply HMAC-SHA512 with parent chain code as key
-	hmac_output := make([]byte, 64, allocator)
-	defer delete(hmac_output)
+	hmac_output := make([]byte, 64)  // Secure arena
+	// No defer delete needed
 
 	chain_code_copy := parent.chain_code
 	hmac.sum(
@@ -184,6 +201,7 @@ derive_child_key :: proc(
 
 // BIP32: Parse derivation path string
 //
+// SECURITY: Uses secure arena for path parsing
 // ASSERTION 1: Path must start with "m/" or "m"
 // ASSERTION 2: Each index must be valid u32
 // ASSERTION 3: Ed25519 requires all indices to be hardened (marked with ')
@@ -198,7 +216,6 @@ derive_child_key :: proc(
 // Returns: Array of hardened indices, error status
 parse_derivation_path :: proc(
 	path: string,
-	allocator := context.allocator,
 ) -> (indices: []u32, err: models.ErrorType) {
 	// ASSERTION 1: Verify path starts with "m/" or "m"
 	if !strings.has_prefix(path, "m/") && path != "m" {
@@ -209,25 +226,39 @@ parse_derivation_path :: proc(
 	// Handle "m" (master only)
 	if path == "m" {
 		log.info("Parsing master-only path")
-		return make([]u32, 0, allocator), .None
+		// Use secure arena for empty slice allocation
+		arena_was_active := memory.is_secure_arena_active()
+		if !arena_was_active {
+			context.allocator = memory.secure_allocator()
+		}
+		return make([]u32, 0), .None
 	}
+
+	// Use secure arena for path parsing
+	// Only set up arena if not already active (allows nesting)
+	arena_was_active := memory.is_secure_arena_active()
+	if !arena_was_active {
+		context.allocator = memory.secure_allocator()
+	}
+	defer if !arena_was_active { memory.reset_secure_arena() }
 
 	// Remove "m/" prefix
 	path_trimmed := strings.trim_prefix(path, "m/")
 
 	// Split by '/'
-	parts := strings.split(path_trimmed, "/", allocator)
-	defer delete(parts)
+	parts := strings.split(path_trimmed, "/")  // Secure arena
+	// No defer delete needed
 
 	if len(parts) == 0 {
 		log.info("Parsing master-only path (empty after m/)")
-		return make([]u32, 0, allocator), .None
+		return make([]u32, 0), .None
 	}
 
 	log.debugf("Parsing derivation path with %d components", len(parts))
 
 	// Parse each index
-	indices = make([]u32, len(parts), allocator)
+	indices = make([]u32, len(parts))  // Secure arena
+	// No defer delete needed
 
 	for part, i in parts {
 		// Check for hardened marker
@@ -236,8 +267,7 @@ parse_derivation_path :: proc(
 		// ASSERTION 3: Ed25519 requires hardened derivation
 		if !is_hardened {
 			log.errorf("Ed25519 requires hardened derivation, but index %d is not hardened: '%s'", i, part)
-			delete(indices)
-			return nil, .InvalidSeedPhrase
+			return nil, .InvalidSeedPhrase  // Arena reset in defer
 		}
 
 		// Remove hardened marker
@@ -247,8 +277,7 @@ parse_derivation_path :: proc(
 		index, parse_ok := strconv.parse_u64(index_str)
 		if !parse_ok || index > u64(max(u32)) {
 			log.errorf("Invalid index at position %d: '%s'", i, part)
-			delete(indices)
-			return nil, .InvalidSeedPhrase
+			return nil, .InvalidSeedPhrase  // Arena reset in defer
 		}
 
 		// ASSERTION 2: Verify valid u32
@@ -264,6 +293,7 @@ parse_derivation_path :: proc(
 
 // BIP32: Derive key from full derivation path
 //
+// SECURITY: Uses secure arena for entire derivation chain
 // ASSERTION 1: Seed must be exactly 64 bytes
 // ASSERTION 2: Path must parse successfully
 //
@@ -281,38 +311,39 @@ parse_derivation_path :: proc(
 derive_from_path :: proc(
 	seed: [64]byte,
 	path: string,
-	allocator := context.allocator,
 ) -> (key: HDKey, err: models.ErrorType) {
 	assert(len(seed) == 64, "Seed must be 64 bytes")
 
 	log.infof("Deriving key from path: %s", path)
 
+	// Use secure arena for entire derivation chain
+	// Only set up arena if not already active (allows nesting)
+	arena_was_active := memory.is_secure_arena_active()
+	if !arena_was_active {
+		context.allocator = memory.secure_allocator()
+	}
+	defer if !arena_was_active { memory.reset_secure_arena() }
+
 	// Step 1: Parse path
-	indices, parse_err := parse_derivation_path(path, allocator)
+	indices, parse_err := parse_derivation_path(path)
 	if parse_err != .None {
 		log.errorf("Failed to parse path: %v", parse_err)
-		return {}, parse_err
-	}
-	defer delete(indices)
-
-	// ASSERTION 2: Verify path parsed
-	if parse_err != .None {
-		return {}, parse_err
+		return {}, parse_err  // Arena reset in defer
 	}
 
 	// Step 2: Derive master key
-	derived_key, master_err := derive_master_key(seed, allocator)
+	derived_key, master_err := derive_master_key(seed)
 	if master_err != .None {
 		log.errorf("Failed to derive master key: %v", master_err)
-		return {}, master_err
+		return {}, master_err  // Arena reset in defer
 	}
 
 	// Step 3: Derive each child in path
 	for index, i in indices {
-		child, child_err := derive_child_key(derived_key, index, true, allocator)
+		child, child_err := derive_child_key(derived_key, index, true)
 		if child_err != .None {
 			log.errorf("Failed to derive child at index %d': %v", index, child_err)
-			return {}, child_err
+			return {}, child_err  // Arena reset in defer
 		}
 		derived_key = child
 		log.debugf("Derived child %d/%d at index %d'", i + 1, len(indices), index)

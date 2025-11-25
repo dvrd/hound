@@ -71,7 +71,6 @@ parse_wallet_flags :: proc(args: []string) -> (flags: WalletFlags, err: models.E
 			// Next arg is the wallet identifier
 			if i + 1 >= len(args) {
 				log.error("--wallet flag requires an address/label argument")
-				output.print_error("--wallet flag requires an address or label")
 				fmt.println("")
 				fmt.println("Usage: hound wallet --wallet <address|label>")
 				return {}, .MissingArgument
@@ -84,7 +83,6 @@ parse_wallet_flags :: proc(args: []string) -> (flags: WalletFlags, err: models.E
 			// Next arg is the sort field
 			if i + 1 >= len(args) {
 				log.error("--sort flag requires a field argument")
-				output.print_error("--sort flag requires a field (value, symbol, balance)")
 				fmt.println("")
 				fmt.println("Usage: hound wallet --sort <value|symbol|balance>")
 				return {}, .MissingArgument
@@ -95,7 +93,6 @@ parse_wallet_flags :: proc(args: []string) -> (flags: WalletFlags, err: models.E
 			// Validate sort field
 			if sort_field != "value" && sort_field != "symbol" && sort_field != "balance" {
 				log.errorf("Invalid sort field: %s", sort_field)
-				output.print_error(fmt.tprintf("Invalid sort field '%s'", sort_field))
 				fmt.println("Valid fields: value, symbol, balance")
 				return {}, .InvalidToken
 			}
@@ -176,7 +173,7 @@ resolve_target_wallet :: proc(
 		} else if len(matches) > 1 {
 			// Ambiguous - multiple matches
 			log.warnf("Partial address '%s' matches %d wallets (ambiguous)", partial, len(matches))
-			output.print_error(fmt.tprintf("Partial address '%s' matches multiple wallets:", partial))
+			fmt.printfln("Partial address '%s' matches multiple wallets:", partial)
 			for m in matches {
 				fmt.printfln("  - %s (%s)", m.label, m.address[:12])
 			}
@@ -197,7 +194,8 @@ resolve_target_wallet :: proc(
 
 	// No match found
 	log.warnf("No wallet found for identifier: %s", wallet_identifier)
-	output.print_error(fmt.tprintf("No wallet found for '%s'", wallet_identifier))
+	fmt.println("")
+	fmt.printfln("No wallet found for '%s'", wallet_identifier)
 	fmt.println("")
 	fmt.println("Available wallets:")
 	for w in all_wallets {
@@ -274,7 +272,6 @@ handle_wallet :: proc(flags: WalletFlags) -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -322,14 +319,14 @@ handle_wallet :: proc(flags: WalletFlags) -> models.ErrorType {
 		log.errorf("Failed to fetch portfolio: %v", portfolio_err)
 
 		// Try to show cached balances from database
-		output.print_warning("Failed to fetch fresh balances, trying cached data...")
+		log.warn("Failed to fetch fresh balances, trying cached data...")
 		cached_portfolio, cached_err := get_cached_portfolio(database, target_wallet.address)
 
 		if cached_err == .None && len(cached_portfolio.token_balances) > 0 {
 			portfolio = cached_portfolio
-			output.print_warning("Using cached balances (prices may be stale)")
+			log.warn("Using cached balances (prices may be stale)")
 		} else {
-			output.print_error("Could not fetch wallet balances")
+			log.error("Could not fetch wallet balances")
 			return portfolio_err
 		}
 	}
@@ -407,7 +404,6 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 
 	// Validate argument count
 	if len(args) < 3 {
-		output.print_error("Swap requires: <from_symbol> <to_symbol> <amount>")
 		fmt.println("")
 		fmt.println("Usage: hound wallet swap <from> <to> <amount> [flags]")
 		fmt.println("")
@@ -439,7 +435,6 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -447,7 +442,6 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	// Resolve target wallet (uses existing function!)
 	target_wallet, wallet_err := resolve_target_wallet(database, flags.wallet_addr)
 	if wallet_err != .None {
-		output.print_error("Could not resolve wallet")
 		return wallet_err
 	}
 
@@ -457,14 +451,12 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	config, config_err := token_cfg.load_token_config()
 	if config_err != .None {
 		log.errorf("Failed to load tokens: %v", config_err)
-		output.print_error("Could not load token configuration")
 		return config_err
 	}
 
 	// Resolve token symbols to mints
 	from_token, found_from := models.get_token_by_symbol(&config, from_symbol)
 	if !found_from {
-		output.print_error(fmt.tprintf("Token not found: %s", from_symbol))
 		fmt.println("")
 		fmt.println("Run 'hound list' to see available tokens.")
 		return .TokenNotFound
@@ -472,7 +464,6 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 
 	to_token, found_to := models.get_token_by_symbol(&config, to_symbol)
 	if !found_to {
-		output.print_error(fmt.tprintf("Token not found: %s", to_symbol))
 		fmt.println("")
 		fmt.println("Run 'hound list' to see available tokens.")
 		return .TokenNotFound
@@ -485,7 +476,6 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	// Parse amount (handle decimals)
 	amount_f64, amount_ok := strconv.parse_f64(amount_str)
 	if !amount_ok || amount_f64 <= 0 {
-		output.print_error("Invalid amount (must be positive number)")
 		return .InvalidToken
 	}
 
@@ -515,7 +505,6 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 		flags.slippage_bps,
 	)
 	if quote_err != .None {
-		output.print_error("Failed to fetch swap quote")
 		fmt.println("")
 		fmt.println("Possible reasons:")
 		fmt.println("  - No liquidity available")
@@ -575,12 +564,10 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	defer utils.zero_string(&password)
 
 	if !password_ok {
-		output.print_error("Failed to read password")
 		return .NetworkError
 	}
 
 	if len(password) == 0 {
-		output.print_error("Password cannot be empty")
 		return .InvalidToken
 	}
 
@@ -590,9 +577,7 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 
 	if decrypt_err != .None {
 		if decrypt_err == .KeypairNotFound {
-			output.print_error("No wallet keypair found. Import a wallet first with 'hound wallet import'")
 		} else {
-			output.print_error("Failed to decrypt keypair. Check your password.")
 		}
 		return decrypt_err
 	}
@@ -611,14 +596,12 @@ handle_wallet_swap :: proc(args: []string) -> models.ErrorType {
 	if exec_err != .None {
 		// Provide specific error messages for common issues
 		if exec_err == .InsufficientBalance {
-			output.print_error("Insufficient funds in wallet")
 			fmt.println("")
 			fmt.println("Your wallet doesn't have enough SOL to complete this swap.")
 			fmt.println("Please deposit SOL to your wallet and try again.")
 			fmt.println("")
 			fmt.printfln("Wallet address: %s", target_wallet.address)
 		} else {
-			output.print_error("Transaction execution failed")
 		}
 		return exec_err
 	}
@@ -790,7 +773,6 @@ handle_wallet_import :: proc() -> models.ErrorType {
 
 	if preview_err != .None {
 		log.errorf("Failed to derive preview address: %v", preview_err)
-		output.print_error("Could not derive wallet address")
 		return preview_err
 	}
 	defer keystore.zero_keypair(&preview_keypair)
@@ -800,7 +782,6 @@ handle_wallet_import :: proc() -> models.ErrorType {
 	// Step 5: Display address and confirm
 	confirmed := display_address_confirmation(preview_address, wallet_type)
 	if !confirmed {
-		output.print_warning("Address not confirmed. Import cancelled.")
 		fmt.println("If the address doesn't match, try selecting a different wallet type.")
 		return .None  // Not an error, user chose to cancel
 	}
@@ -826,7 +807,6 @@ handle_wallet_import :: proc() -> models.ErrorType {
 	n, read_err := os.read(os.stdin, label_buffer[:])
 	if read_err != nil {
 		log.errorf("Failed to read label: %v", read_err)
-		output.print_error("Could not read wallet label")
 		return .NetworkError
 	}
 	label := strings.trim_space(string(label_buffer[:n]))
@@ -840,7 +820,6 @@ handle_wallet_import :: proc() -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -918,7 +897,6 @@ handle_wallet_update_password :: proc() -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -931,12 +909,10 @@ handle_wallet_update_password :: proc() -> models.ErrorType {
 
 		// Provide helpful error messages
 		if update_err == .KeypairNotFound {
-			output.print_error("No wallet found matching this seed phrase")
 			fmt.println("")
 			fmt.println("The seed phrase you provided doesn't match any imported wallet.")
 			fmt.println("Please check your seed phrase and try again.")
 		} else {
-			output.print_error("Failed to update wallet password")
 		}
 		return update_err
 	}
@@ -965,7 +941,6 @@ prompt_seed_phrase :: proc() -> (words: []string, err: models.ErrorType) {
 	n, read_err := os.read(os.stdin, buffer[:])
 	if read_err != nil {
 		log.errorf("Failed to read seed phrase: %v", read_err)
-		output.print_error("Could not read seed phrase")
 		return nil, .NetworkError
 	}
 
@@ -988,7 +963,6 @@ prompt_seed_phrase :: proc() -> (words: []string, err: models.ErrorType) {
 	// Validate word count
 	if len(words) != 12 && len(words) != 24 {
 		log.errorf("Invalid seed phrase length: %d words", len(words))
-		output.print_error(fmt.tprintf("Seed phrase must be 12 or 24 words (got %d)", len(words)))
 		return nil, .InvalidSeedPhrase
 	}
 
@@ -1027,7 +1001,6 @@ prompt_wallet_type :: proc() -> (wallet_type: models.Wallet_Type, err: models.Er
 	n, read_err := os.read(os.stdin, buffer[:])
 	if read_err != nil {
 		log.error("Failed to read wallet type selection")
-		output.print_error("Could not read selection")
 		return .BIP44_Standard, .NetworkError  // Default to recommended
 	}
 
@@ -1043,7 +1016,6 @@ prompt_wallet_type :: proc() -> (wallet_type: models.Wallet_Type, err: models.Er
 	selection_int, parse_ok := strconv.parse_int(selection)
 	if !parse_ok || selection_int < 1 || selection_int > 4 {
 		log.errorf("Invalid wallet type selection: %s", selection)
-		output.print_error(fmt.tprintf("Invalid selection '%s'. Please enter 1-4.", selection))
 		return .BIP44_Standard, .InvalidToken
 	}
 
@@ -1071,7 +1043,6 @@ prompt_account_index :: proc() -> (account_index: int, err: models.ErrorType) {
 	n, read_err := os.read(os.stdin, buffer[:])
 	if read_err != nil {
 		log.error("Failed to read account index")
-		output.print_error("Could not read account index")
 		return 0, .NetworkError
 	}
 
@@ -1087,7 +1058,6 @@ prompt_account_index :: proc() -> (account_index: int, err: models.ErrorType) {
 	index, parse_ok := strconv.parse_int(input)
 	if !parse_ok || index < 0 {
 		log.errorf("Invalid account index: %s", input)
-		output.print_error(fmt.tprintf("Invalid account index '%s'. Must be non-negative integer.", input))
 		return 0, .InvalidToken
 	}
 
@@ -1146,7 +1116,6 @@ prompt_password_with_confirmation :: proc() -> (password: string, err: models.Er
 	n1, read_err1 := os.read(os.stdin, password1_buffer[:])
 	if read_err1 != nil {
 		log.errorf("Failed to read password: %v", read_err1)
-		output.print_error("Could not read password")
 		return "", .NetworkError
 	}
 	password1 := strings.trim_space(string(password1_buffer[:n1]))
@@ -1157,7 +1126,6 @@ prompt_password_with_confirmation :: proc() -> (password: string, err: models.Er
 	n2, read_err2 := os.read(os.stdin, password2_buffer[:])
 	if read_err2 != nil {
 		log.errorf("Failed to read password confirmation: %v", read_err2)
-		output.print_error("Could not read password confirmation")
 		// Zero first password before returning
 		for i := 0; i < len(password1); i += 1 {
 			password1_buffer[i] = 0
@@ -1169,7 +1137,6 @@ prompt_password_with_confirmation :: proc() -> (password: string, err: models.Er
 	// Compare passwords
 	if password1 != password2 {
 		log.error("Passwords do not match")
-		output.print_error("Passwords do not match")
 		// Zero both passwords
 		for i := 0; i < n1; i += 1 {
 			password1_buffer[i] = 0
@@ -1189,7 +1156,6 @@ prompt_password_with_confirmation :: proc() -> (password: string, err: models.Er
 	password_strength_err := keystore_svc.validate_password_strength(password1)
 	if password_strength_err != .None {
 		log.errorf("Password validation failed: %v", password_strength_err)
-		output.print_error("Password does not meet security requirements")
 		// Zero both password buffers
 		for i := 0; i < n1; i += 1 {
 			password1_buffer[i] = 0
@@ -1277,7 +1243,6 @@ handle_wallet_list :: proc(args: []string = nil) -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -1286,7 +1251,6 @@ handle_wallet_list :: proc(args: []string = nil) -> models.ErrorType {
 	wallets, wallets_err := db.get_all_wallets(database)
 	if wallets_err != .None {
 		log.errorf("Failed to get wallets: %v", wallets_err)
-		output.print_error("Could not retrieve wallets")
 		return wallets_err
 	}
 
@@ -1381,7 +1345,6 @@ handle_wallet_switch :: proc(identifier: string) -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -1396,7 +1359,6 @@ handle_wallet_switch :: proc(identifier: string) -> models.ErrorType {
 	switch_err := db.set_primary_wallet(database, target_wallet.address)
 	if switch_err != .None {
 		log.errorf("Failed to set primary wallet: %v", switch_err)
-		output.print_error("Could not switch wallet")
 		return switch_err
 	}
 
@@ -1429,7 +1391,6 @@ handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -1444,12 +1405,10 @@ handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
 	all_wallets, get_err := db.get_all_wallets(database)
 	if get_err != .None {
 		log.errorf("Failed to get wallets: %v", get_err)
-		output.print_error("Could not check wallet count")
 		return get_err
 	}
 
 	if len(all_wallets) == 1 {
-		output.print_error("Cannot delete the only wallet")
 		fmt.println("You must have at least one wallet configured.")
 		fmt.println("Import another wallet before deleting this one.")
 		return .InvalidToken
@@ -1481,7 +1440,6 @@ handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
 	n, read_err := os.read(os.stdin, buf[:])
 	if read_err != 0 {
 		log.errorf("Failed to read confirmation: %v", read_err)
-		output.print_error("Could not read confirmation")
 		return .InvalidToken
 	}
 
@@ -1489,7 +1447,6 @@ handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
 
 	// Check if confirmation matches address
 	if confirmation != target_wallet.address {
-		output.print_error("Confirmation does not match wallet address")
 		fmt.println("Deletion cancelled.")
 		return .InvalidToken
 	}
@@ -1514,7 +1471,6 @@ handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
 
 		if !found_replacement {
 			// This should not happen due to earlier check, but be safe
-			output.print_error("No replacement wallet found")
 			return .DatabaseError
 		}
 
@@ -1523,7 +1479,6 @@ handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
 		set_primary_err := db.set_primary_wallet(database, new_primary_wallet.address)
 		if set_primary_err != .None {
 			log.errorf("Failed to set new primary wallet: %v", set_primary_err)
-			output.print_error("Could not update primary wallet")
 			return set_primary_err
 		}
 
@@ -1535,7 +1490,6 @@ handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
 	delete_err := db.delete_wallet(database, target_wallet.address)
 	if delete_err != .None {
 		log.errorf("Failed to delete wallet: %v", delete_err)
-		output.print_error("Could not delete wallet")
 		return delete_err
 	}
 

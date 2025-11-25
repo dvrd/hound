@@ -45,7 +45,7 @@ handle_add :: proc(symbol: string, name: string, address: string) -> models.Erro
 	database, db_err := db.database_open(db_path)
 	if db_err != .None {
 		log.errorf("Failed to open database: %v", db_err)
-		output.print_error("Could not open database")
+		log.error("Could not open database")
 		return .DatabaseError
 	}
 	defer db.database_close(database)
@@ -56,7 +56,7 @@ handle_add :: proc(symbol: string, name: string, address: string) -> models.Erro
 		schema_err := db.create_schema(database)
 		if schema_err != .None {
 			log.errorf("Failed to create schema: %v", schema_err)
-			output.print_error("Could not create database schema")
+			log.error("Could not create database schema")
 			return .DatabaseError
 		}
 	}
@@ -65,7 +65,7 @@ handle_add :: proc(symbol: string, name: string, address: string) -> models.Erro
 	existing_token, found, lookup_err := db.get_token_by_symbol(database, symbol)
 	if lookup_err != .None {
 		log.errorf("Database lookup failed: %v", lookup_err)
-		output.print_error("Database operation failed")
+		log.error("Database operation failed")
 		return .DatabaseError
 	}
 
@@ -88,16 +88,14 @@ handle_add :: proc(symbol: string, name: string, address: string) -> models.Erro
 	}
 
 	// Insert token into database
-	fmt.eprintfln("Adding token: %s (%s)", name, symbol)
+	log.info("Adding token: %s (%s)", name, symbol)
 	insert_err := db.insert_token(database, token)
 	if insert_err != .None {
-		log.errorf("Failed to insert token: %v", insert_err)
-		output.print_error("Failed to add token to database")
+		log.errorf("Failed to add token to database: %v", insert_err)
 		return .DatabaseError
 	}
 
-	output.print_success("Token added successfully!")
-	fmt.eprintln("")
+	output.print_success("Token added successfully!\n")
 
 	// Ask if user wants to discover pools now
 	output.print_pool_discovery_prompt(symbol)
@@ -115,14 +113,12 @@ handle_add :: proc(symbol: string, name: string, address: string) -> models.Erro
 	response_lower := strings.to_lower(response)
 
 	if response_lower == "y" || response_lower == "yes" {
-		fmt.eprintln("")
-		output.print_progress("Discovering liquidity pools...")
+		output.print_progress("\nDiscovering liquidity pools...")
 
 		pool_info, discovery_err := token_cfg.discover_and_store_pools(token, false)
 		if discovery_err == .None {
 			output.format_pool_info(pool_info)
-			fmt.eprintln("")
-			fmt.eprintfln("Try it: hound fetch %s", symbol)
+			fmt.eprintfln("\nTry it: hound fetch %s", symbol)
 		} else {
 			output.print_pool_discovery_failed(symbol)
 		}

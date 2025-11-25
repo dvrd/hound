@@ -119,6 +119,14 @@ secure_allocator :: proc() -> mem.Allocator {
 	return vmem.arena_allocator(&g_secure_arena)
 }
 
+// Check if secure arena is currently the active allocator
+// Use for: Determining if a function should set up/tear down arena or inherit from caller
+is_secure_arena_active :: proc() -> bool {
+	secure_alloc := vmem.arena_allocator(&g_secure_arena)
+	return context.allocator.procedure == secure_alloc.procedure &&
+	       context.allocator.data == secure_alloc.data
+}
+
 // Reset command arena (call between commands)
 // PATTERN: Call at end of each command handler
 reset_command_arena :: proc() {
