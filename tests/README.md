@@ -243,11 +243,12 @@ Finished 42 tests in 66.326ms. All tests were successful.
 
 ### Test Statistics
 
-- **Total Tests**: 42
+- **Total Tests**: 51
 - **Decoder Tests**: 11
 - **Price Calculation Tests**: 9
 - **Config Tests**: 10
 - **Integration Tests**: 7
+- **Memory Management Tests**: 9
 - **HTTP Library Tests**: 5 (from odin-http vendor)
 
 ## Key Testing Insights
@@ -348,4 +349,48 @@ This test suite serves as:
 ✅ **Examples** - Demonstrates correct usage
 ✅ **Validation** - Proves correctness of reverse-engineered structures
 
-**All 42 tests pass** - System is working as documented! 🎉
+### 5. Memory Management Tests (`tests/memory/`)
+
+**What it tests**:
+- Arena initialization and cleanup lifecycle
+- Command/Request arena reset behavior
+- Secure arena memory zeroing (security-critical)
+- Memory statistics tracking
+- PBKDF2 loop allocation regression prevention
+
+**Why it matters**:
+These tests validate the arena allocator migration strategy and prevent regression. The secure arena zeroing tests are security-critical for protecting cryptographic data.
+
+**Test Categories**:
+1. **Lifecycle Tests** (`arena_lifecycle_test.odin`) - 5 tests
+   - Arena initialization
+   - Command arena reset
+   - Request arena reset
+   - Allocator access validation
+   - Memory stats tracking
+
+2. **Security Tests** (`secure_arena_test.odin`) - 4 tests
+   - Secure arena zeroing (prevents key leakage)
+   - Arena isolation
+   - PBKDF2 loop allocation regression
+   - Sensitive data cleanup
+
+**Running Memory Tests**:
+```bash
+# All memory tests
+task test:memory
+
+# Specific suites
+task test:memory:lifecycle
+task test:memory:security
+
+# All tests including memory tests
+task test:all
+```
+
+**Test Statistics**:
+- Lifecycle Tests: 5
+- Security Tests: 4
+- Total: 9 memory tests
+
+**All 51 tests available** - System functionality documented and tested!
