@@ -181,6 +181,37 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 		fmt.eprintln("Error: Wallet already exists")
 		fmt.eprintln("This seed phrase has already been imported.")
 		fmt.eprintln("Each wallet can only be imported once.")
+
+	// Swap errors
+	case .QuoteExpired:
+		fmt.eprintln("Error: Quote expired")
+		fmt.eprintln("The swap quote is older than 90 seconds and can no longer be executed.")
+		fmt.eprintln("Please fetch a new quote and try again.")
+
+	case .HighPriceImpact:
+		fmt.eprintln("Error: Price impact too high")
+		fmt.eprintln("The swap would significantly move the market price (>5% impact).")
+		fmt.eprintln("Consider splitting into smaller trades or waiting for better liquidity.")
+
+	case .InsufficientBalance:
+		fmt.eprintln("Error: Insufficient balance")
+		fmt.eprintln("Your wallet doesn't have enough tokens to complete this swap.")
+		fmt.eprintln("Please deposit more tokens and try again.")
+
+	case .SlippageExceeded:
+		fmt.eprintln("Error: Slippage exceeded")
+		fmt.eprintln("The price moved beyond your slippage tolerance during execution.")
+		fmt.eprintln("Try increasing slippage with --slippage <bps> or wait for price to stabilize.")
+
+	case .InvalidTransaction:
+		fmt.eprintln("Error: Transaction validation failed")
+		fmt.eprintln("The transaction could not be executed. Common causes:")
+		fmt.eprintln("  - Quote expired (>90 seconds old)")
+		fmt.eprintln("  - Transaction signature invalid")
+		fmt.eprintln("  - Insufficient SOL for network fees")
+		fmt.eprintln("  - Route no longer available")
+		fmt.eprintln("")
+		fmt.eprintln("Please fetch a new quote and try again.")
 	}
 }
 
@@ -283,6 +314,22 @@ map_error_to_exit_code :: proc(err: models.ErrorType) -> int {
 		return 1  // General error
 
 	case .WalletAlreadyExists:
+		return 1  // General error
+
+	// Swap errors
+	case .QuoteExpired:
+		return 1  // General error
+
+	case .HighPriceImpact:
+		return 1  // General error
+
+	case .InsufficientBalance:
+		return 1  // General error
+
+	case .SlippageExceeded:
+		return 1  // General error
+
+	case .InvalidTransaction:
 		return 1  // General error
 
 	case:

@@ -62,6 +62,7 @@ ErrorType :: enum {
 	HighPriceImpact,        // Price impact > 5%
 	InsufficientBalance,    // Wallet balance too low
 	SlippageExceeded,       // Actual output < minimum (Phase 3)
+	InvalidTransaction,     // Transaction failed validation (bad signature, expired, etc.)
 }
 
 // API response structures matching DexScreener API

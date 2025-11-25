@@ -7,6 +7,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:log"
 import "core:net"
+import "core:strings"
 import "../models"
 import client "../../http/client"
 import http "../../http"
@@ -328,8 +329,26 @@ submit_to_ultra_execute :: proc(
 	case .OK:
 		log.debug("Execute request successful (200 OK)")
 	case .Bad_Request:
+		// Try to extract error message from response body
+		error_body, error_alloc, error_body_err := client.response_body(&res)
+		if error_body_err == nil {
+			defer client.body_destroy(error_body, error_alloc)
+			if error_str, is_str := error_body.(string); is_str {
+				log.errorf("Jupiter Ultra execute API returned 400: %s", error_str)
+
+				// Check for common error patterns
+				if strings.contains(error_str, "expired") {
+					log.error("Quote or transaction has expired")
+					return {}, models.ErrorType.QuoteExpired
+				}
+				if strings.contains(error_str, "balance") || strings.contains(error_str, "insufficient") {
+					log.error("Insufficient balance for swap")
+					return {}, models.ErrorType.InsufficientBalance
+				}
+			}
+		}
 		log.error("Bad request (400) - invalid transaction or requestId")
-		return {}, models.ErrorType.InvalidResponse
+		return {}, models.ErrorType.InvalidTransaction
 	case .Too_Many_Requests:
 		log.warn("Rate limited (429)")
 		return {}, models.ErrorType.RateLimited
