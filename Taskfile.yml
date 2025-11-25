@@ -57,25 +57,15 @@ tasks:
       - odin test tests -file:tests/integration_test.odin
 
   test:memory:
-    desc: Run memory management tests
+    desc: Run memory management tests (single-threaded to avoid race conditions)
     cmds:
-      - odin test tests/memory
-
-  test:memory:lifecycle:
-    desc: Run arena lifecycle tests only
-    cmds:
-      - odin test tests/memory -file:tests/memory/arena_lifecycle_test.odin
-
-  test:memory:security:
-    desc: Run secure arena security tests only
-    cmds:
-      - odin test tests/memory -file:tests/memory/secure_arena_test.odin
+      - odin test tests/memory -define:ODIN_TEST_THREADS=1
 
   test:all:
     desc: Run all tests including memory tests
     cmds:
       - odin test tests
-      - odin test tests/memory
+      - odin test tests/memory -define:ODIN_TEST_THREADS=1
 
   test:watch:
     desc: Run tests in watch mode (requires entr)

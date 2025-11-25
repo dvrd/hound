@@ -377,12 +377,8 @@ These tests validate the arena allocator migration strategy and prevent regressi
 
 **Running Memory Tests**:
 ```bash
-# All memory tests
+# All memory tests (runs single-threaded to avoid race conditions)
 task test:memory
-
-# Specific suites
-task test:memory:lifecycle
-task test:memory:security
 
 # All tests including memory tests
 task test:all

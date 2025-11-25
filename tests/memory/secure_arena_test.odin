@@ -133,6 +133,10 @@ test_secure_arena_isolation :: proc(t: ^testing.T) {
 	stats_secure := memory.memory_stats()
 	testing.expect(t, stats_secure.secure_used > 0, "Secure arena should have allocation")
 
+	// Reset command arena again to ensure clean state before allocation test
+	// (other tests might have used command arena before this test runs)
+	memory.reset_command_arena()
+
 	// Allocate in command arena (different arena)
 	context.allocator = memory.command_allocator()
 	command_data := make([]byte, 256)
