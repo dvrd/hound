@@ -358,15 +358,24 @@ handle_wallet :: proc(flags: WalletFlags) -> models.ErrorType {
 	log.debugf("Total balances to display: %d (show_all=%v)", len(all_balances), flags.show_all)
 
 	// Step 7: Sort balances by specified field
-	sort_token_balances(all_balances[:], flags.sort_by)
+	// CRITICAL: In Odin, empty [dynamic] array converted to slice can become nil!
+	// Use fixed array slice for empty case to ensure non-nil pointer.
+	balances_slice: []wallet.TokenBalance
+	if len(all_balances) > 0 {
+		balances_slice = all_balances[:]
+	} else {
+		empty: [0]wallet.TokenBalance
+		balances_slice = empty[:]
+	}
+	sort_token_balances(balances_slice, flags.sort_by)
 
 	// Step 8: Display output in requested format
 	if flags.json_output {
 		// JSON output
-		output.format_wallet_json(target_wallet, portfolio, all_balances[:])
+		output.format_wallet_json(target_wallet, portfolio, balances_slice)
 	} else {
 		// Table output (default)
-		output.format_wallet_table(target_wallet, portfolio, all_balances[:])
+		output.format_wallet_table(target_wallet, portfolio, balances_slice)
 	}
 
 	// Step 9: Reset arena and log stats
@@ -688,15 +697,19 @@ get_cached_portfolio :: proc(
 	database: ^db.Database,
 	wallet_address: string,
 ) -> (portfolio: wallet.PortfolioBalance, err: models.ErrorType) {
+	// Initialize portfolio early to ensure non-nil slices (satisfies assertions)
+	portfolio.wallet_address = wallet_address
+	portfolio.total_usd = 0
+	// CRITICAL: In Odin, make([]T, 0) can return nil! Use fixed array slice instead.
+	// Fixed arrays always have valid stack addresses, even when empty.
+	empty_array: [0]wallet.TokenBalance
+	portfolio.token_balances = empty_array[:]
+
 	// Get cached balances from database
 	balances_map, balances_err := db.get_balances_for_wallet(database, wallet_address)
 	if balances_err != .None {
-		return {}, balances_err
+		return portfolio, balances_err  // Return portfolio with initialized slice, not {}
 	}
-
-	// Build portfolio from cached data
-	portfolio.wallet_address = wallet_address
-	portfolio.total_usd = 0
 
 	// Convert map to token balances slice
 	token_balances := make([dynamic]wallet.TokenBalance, memory.command_allocator())

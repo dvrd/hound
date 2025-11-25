@@ -93,13 +93,18 @@ fetch_portfolio_balance :: proc(
 	log.infof("Fetching portfolio balance for address: %s", address)
 
 	portfolio.wallet_address = address
+	// Initialize token_balances as empty but non-nil slice to satisfy assertions
+	// CRITICAL: In Odin, make([]T, 0) can return nil! Use fixed array slice instead.
+	// Fixed arrays always have valid stack addresses, even when empty.
+	empty_array: [0]TokenBalance
+	portfolio.token_balances = empty_array[:]
 
 	// Step 1: Fetch SOL balance
 	log.debug("Step 1: Fetching SOL balance")
 	sol_lamports, sol_err := get_balance(fetcher.rpc_client, address)
 	if sol_err != .None {
 		log.errorf("Failed to fetch SOL balance: %v", sol_err)
-		return {}, sol_err
+		return portfolio, sol_err  // Return portfolio with initialized token_balances
 	}
 
 	// Convert lamports to SOL (1 SOL = 10^9 lamports)
@@ -134,7 +139,7 @@ fetch_portfolio_balance :: proc(
 	token_accounts, token_err := get_token_accounts_by_owner(fetcher.rpc_client, address)
 	if token_err != .None {
 		log.errorf("Failed to fetch token accounts: %v", token_err)
-		return {}, token_err
+		return portfolio, token_err  // Return portfolio with initialized token_balances
 	}
 	defer delete(token_accounts)
 
@@ -142,7 +147,7 @@ fetch_portfolio_balance :: proc(
 
 	// Step 4: Fetch prices and build token balances
 	log.debug("Step 4: Fetching token prices")
-	token_balance_list := make([dynamic]TokenBalance, 0, len(token_accounts))
+	token_balance_list := make([dynamic]TokenBalance, 0, len(token_accounts), context.allocator)
 
 	for account in token_accounts {
 		// Skip zero balances
@@ -252,7 +257,12 @@ fetch_portfolio_balance :: proc(
 		portfolio.total_usd += usd_value
 	}
 
-	portfolio.token_balances = token_balance_list[:]
+	// CRITICAL: Only overwrite portfolio.token_balances if we have tokens
+	// Otherwise keep the initialized empty slice from lines 99-100
+	// In Odin, empty [dynamic] array converted to slice can become nil!
+	if len(token_balance_list) > 0 {
+		portfolio.token_balances = token_balance_list[:]
+	}
 
 	log.infof("Portfolio fetch complete: %d token(s), total value: $%.2f",
 		len(portfolio.token_balances), portfolio.total_usd)
