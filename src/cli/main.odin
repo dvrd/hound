@@ -152,23 +152,30 @@ run :: proc() -> models.ErrorType {
 			return commands.handle_wallet_swap(swap_args)
 
 		case "list":
-			return commands.handle_wallet_list()
+			// Pass remaining args for flag parsing (e.g., --compact)
+			list_args: []string
+			if len(os.args) > 3 {
+				list_args = os.args[3:]
+			} else {
+				list_args = []string{}
+			}
+			return commands.handle_wallet_list(list_args)
 
 		case "status":
 			return commands.handle_wallet_status()
 
 		case "switch":
 			if len(os.args) < 4 {
-				output.print_error("Missing wallet address/label argument")
-				fmt.println("Usage: hound wallet switch <address|label>")
+				log.error("Missing wallet address/label argument")
+				fmt.println("\nUsage: hound wallet switch <address|label>")
 				return .MissingArgument
 			}
 			return commands.handle_wallet_switch(os.args[3])
 
 		case "delete", "remove":
 			if len(os.args) < 4 {
-				output.print_error("Missing wallet address/label argument")
-				fmt.println("Usage: hound wallet delete <address|label>")
+				log.error("Missing wallet address/label argument")
+				fmt.println("\nUsage: hound wallet delete <address|label>")
 				return .MissingArgument
 			}
 			return commands.handle_wallet_delete(os.args[3])

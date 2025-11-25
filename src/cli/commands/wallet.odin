@@ -1234,6 +1234,7 @@ print_wallet_help :: proc() {
 	fmt.println("  help            Show this help message")
 	fmt.println("")
 	fmt.println("FLAGS:")
+	fmt.println("  --compact              Output in compact format (for list command)")
 	fmt.println("  --wallet <addr|label>  Use specific wallet (for status command)")
 	fmt.println("  --all                  Show zero-balance tokens (for status command)")
 	fmt.println("  --json                 Output in JSON format (for status command)")
@@ -1241,7 +1242,8 @@ print_wallet_help :: proc() {
 	fmt.println("  --refresh              Force price refresh (for status command)")
 	fmt.println("")
 	fmt.println("EXAMPLES:")
-	fmt.println("  hound wallet list                # List all wallets")
+	fmt.println("  hound wallet list                # List all wallets in table format")
+	fmt.println("  hound wallet list --compact      # List wallets in parseable format")
 	fmt.println("  hound wallet status              # Show primary wallet balances")
 	fmt.println("  hound wallet status --wallet main  # Show specific wallet")
 	fmt.println("  hound wallet switch main         # Switch to 'main' wallet")
@@ -1252,9 +1254,23 @@ print_wallet_help :: proc() {
 
 // handle_wallet_list lists all configured wallets
 //
+// Params:
+//   args: Command line arguments (checks for --compact flag)
+//
 // Returns: ErrorType for error handling
-handle_wallet_list :: proc() -> models.ErrorType {
+handle_wallet_list :: proc(args: []string = nil) -> models.ErrorType {
 	log.info("Listing all wallets")
+
+	// Check for --compact flag
+	compact := false
+	if args != nil {
+		for arg in args {
+			if arg == "--compact" {
+				compact = true
+				break
+			}
+		}
+	}
 
 	// Open database
 	db_path := token_cfg.get_database_path()
@@ -1275,45 +1291,60 @@ handle_wallet_list :: proc() -> models.ErrorType {
 	}
 
 	if len(wallets) == 0 {
+		if compact {
+			// In compact mode, just output nothing for empty list
+			return .None
+		}
 		fmt.println("No wallets configured.")
 		fmt.println("")
 		fmt.println("Import a wallet with: hound wallet import")
 		return .None
 	}
 
-	// Display wallets
-	fmt.println("Configured Wallets:")
-	fmt.println("")
-	fmt.println("┌────────────────────────┬──────────────────────────────────────────────┬───────────────────────┐")
-	fmt.println("│ Label                  │ Address                                      │ Status                │")
-	fmt.println("├────────────────────────┼──────────────────────────────────────────────┼───────────────────────┤")
+	// Display wallets in compact or table format
+	if compact {
+		// Compact format: space-separated columns
+		// Format: LABEL ADDRESS IS_PRIMARY WALLET_TYPE
+		for wallet in wallets {
+			primary_flag := wallet.is_primary ? "primary" : "secondary"
+			type_name := fmt.tprintf("%v", wallet.wallet_type)
+			fmt.printfln("%s %s %s %s", wallet.label, wallet.address, primary_flag, type_name)
+		}
+	} else {
+		// Table format (original)
+		fmt.println("Configured Wallets:")
+		fmt.println("")
+		fmt.println("┌────────────────────────┬──────────────────────────────────────────────┬───────────────────────┐")
+		fmt.println("│ Label                  │ Address                                      │ Status                │")
+		fmt.println("├────────────────────────┼──────────────────────────────────────────────┼───────────────────────┤")
 
-	for wallet in wallets {
-		label_padded := fmt.tprintf("%-22s", wallet.label)
-		address_short := fmt.tprintf("%-44s", wallet.address)
+		for wallet in wallets {
+			label_padded := fmt.tprintf("%-22s", wallet.label)
+			address_short := fmt.tprintf("%-44s", wallet.address)
 
-		// Build status with badges
-		status_builder := strings.builder_make(memory.command_allocator())
-		if wallet.is_primary {
-			strings.write_string(&status_builder, "PRIMARY ")
+			// Build status with badges
+			status_builder := strings.builder_make(memory.command_allocator())
+			if wallet.is_primary {
+				strings.write_string(&status_builder, "PRIMARY ")
+			}
+
+			// Add wallet type badge
+			type_name := fmt.tprintf("%v", wallet.wallet_type)
+			strings.write_string(&status_builder, "[")
+			strings.write_string(&status_builder, type_name)
+			strings.write_string(&status_builder, "]")
+
+			status := strings.to_string(status_builder)
+			status_padded := fmt.tprintf("%-21s", status)
+
+			fmt.printfln("│ %s │ %s │ %s │", label_padded, address_short, status_padded)
 		}
 
-		// Add wallet type badge
-		type_name := fmt.tprintf("%v", wallet.wallet_type)
-		strings.write_string(&status_builder, "[")
-		strings.write_string(&status_builder, type_name)
-		strings.write_string(&status_builder, "]")
-
-		status := strings.to_string(status_builder)
-		status_padded := fmt.tprintf("%-21s", status)
-
-		fmt.printfln("│ %s │ %s │ %s │", label_padded, address_short, status_padded)
+		fmt.println("└────────────────────────┴──────────────────────────────────────────────┴───────────────────────┘")
+		fmt.println("")
+		fmt.printfln("Total: %d wallet(s)", len(wallets))
+		fmt.println("")
 	}
-
-	fmt.println("└────────────────────────┴──────────────────────────────────────────────┴───────────────────────┘")
-	fmt.println("")
-	fmt.printfln("Total: %d wallet(s)", len(wallets))
-	fmt.println("")
 
 	return .None
 }
