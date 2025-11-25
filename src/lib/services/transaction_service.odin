@@ -44,8 +44,30 @@ execute_swap_transaction :: proc(
 		return {}, models.ErrorType.QuoteExpired
 	}
 
-	// Debug: Log the Jupiter response to see what fields are present
-	log.debugf("Jupiter response JSON (first 500 chars): %s", quote.jupiter_response[:min(len(quote.jupiter_response), 500)])
+	// Debug: Log the full Jupiter response with pretty formatting
+	if len(quote.jupiter_response) > 0 {
+		// Parse and re-format JSON for readability
+		json_val: json.Value
+		spec := json.DEFAULT_SPECIFICATION
+		if unmarshal_err := json.unmarshal_string(quote.jupiter_response, &json_val, spec); unmarshal_err == nil {
+			// Marshal with indentation (use default options with pretty print)
+			opt := json.Marshal_Options{
+				pretty = true,
+				use_spaces = true,
+				spaces = 2,
+			}
+			pretty_json, marshal_err := json.marshal(json_val, opt, context.temp_allocator)
+			if marshal_err == nil {
+				log.debugf("Jupiter Ultra Quote Response (formatted):\n%s", string(pretty_json))
+			} else {
+				// Fallback to raw if pretty-print fails
+				log.debugf("Jupiter Ultra Quote Response (raw): %s", quote.jupiter_response)
+			}
+		} else {
+			// Fallback to raw if parsing fails
+			log.debugf("Jupiter Ultra Quote Response (raw - parse failed): %s", quote.jupiter_response)
+		}
+	}
 
 	// Extract transaction and requestId from quote JSON
 	transaction_b64, request_id, extract_err := extract_transaction_and_request_id(quote.jupiter_response)
