@@ -334,7 +334,9 @@ submit_to_ultra_execute :: proc(
 		if error_body_err == nil {
 			defer client.body_destroy(error_body, error_alloc)
 			if error_str, is_str := error_body.(string); is_str {
+				// Log and print the actual Jupiter error for the user
 				log.errorf("Jupiter Ultra execute API returned 400: %s", error_str)
+				fmt.eprintfln("\nJupiter API Error: %s\n", error_str)
 
 				// Check for common error patterns
 				if strings.contains(error_str, "expired") {
