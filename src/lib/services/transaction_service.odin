@@ -373,6 +373,7 @@ submit_to_ultra_execute :: proc(
 		return {}, models.ErrorType.InvalidResponse
 	}
 
+	log.debugf("Jupiter Ultra execute response (first 500 chars): %s", body_str[:min(len(body_str), 500)])
 	log.debug("Parsing execute response")
 
 	// Parse JSON response
@@ -420,13 +421,14 @@ parse_execute_response :: proc(
 	// Extract signature (required)
 	sig_val, has_sig := obj["signature"]
 	if !has_sig {
-		log.error("Missing 'signature' field")
+		log.error("Missing 'signature' field in Jupiter execute response")
+		log.errorf("Available fields: %v", obj)
 		return {}, models.ErrorType.InvalidResponse
 	}
 
 	signature, is_str := sig_val.(json.String)
 	if !is_str {
-		log.error("'signature' field is not a string")
+		log.errorf("'signature' field is not a string, got type: %T", sig_val)
 		return {}, models.ErrorType.InvalidResponse
 	}
 

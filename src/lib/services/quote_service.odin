@@ -6,6 +6,7 @@ import "core:fmt"
 import "core:log"
 import "core:net"
 import "core:strconv"
+import "core:strings"
 import "core:time"
 import "../models"
 import client "../../http/client"
@@ -266,7 +267,10 @@ parse_quote_response :: proc(
 	quote.network_fee_sol = 0.00001  // 10,000 lamports = 0.00001 SOL
 
 	// Store raw JSON for Phase 3
-	quote.jupiter_response = raw_json
+	// CRITICAL: Copy string to command arena because request arena will be reset
+	// after this function returns, invalidating the pointer
+	command_alloc := memory.command_allocator()
+	quote.jupiter_response = strings.clone(raw_json, command_alloc)
 
 	return quote, .None
 }
