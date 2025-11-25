@@ -54,7 +54,6 @@ format_wallet_json :: proc(
 
 	// Build assets array
 	assets := make([dynamic]JsonAsset)
-	defer delete(assets)
 
 	for balance in balances {
 		asset := JsonAsset{
@@ -195,7 +194,6 @@ calculate_column_widths :: proc(balances: []wallet.TokenBalance) -> ColumnWidths
 		// Balance width (formatted)
 		balance_str := format_balance(balance.amount, balance.decimals)
 		balance_width := len(balance_str)
-		delete(balance_str)
 		if balance_width > widths.balance {
 			widths.balance = balance_width
 		}
@@ -203,7 +201,6 @@ calculate_column_widths :: proc(balances: []wallet.TokenBalance) -> ColumnWidths
 		// Price width
 		price_str := format_price_value(balance.usd_price)
 		price_width := len(price_str)
-		delete(price_str)
 		if price_width > widths.price {
 			widths.price = price_width
 		}
@@ -267,10 +264,6 @@ format_table_row :: proc(balance: wallet.TokenBalance, widths: ColumnWidths) {
 		widths.price, price_str,
 		widths.value, value_str,
 		widths.change, change_str)
-
-	// Clean up allocated strings
-	delete(balance_str)
-	delete(price_str)
 }
 
 // format_total_row prints the total portfolio value

@@ -78,8 +78,7 @@ show_token_selection_dialog :: proc(
 
 	// Get user input
 	symbol_input_ns := appkit.NSTextField_stringValue(token_field)
-	symbol_input := strings.to_upper(appkit.NSString_toString(symbol_input_ns))
-	defer delete(symbol_input)
+	symbol_input := strings.to_upper(appkit.NSString_toString(symbol_input_ns), context.temp_allocator)
 
 	log.debugf("[swap_view] User selected token: %s", symbol_input)
 
@@ -242,8 +241,7 @@ show_destination_token_dialog :: proc() -> (mint: string, symbol: string, ok: bo
 
 	// Get symbol
 	symbol_ns := appkit.NSTextField_stringValue(token_field)
-	symbol_input := strings.to_upper(appkit.NSString_toString(symbol_ns))
-	defer delete(symbol_input)
+	symbol_input := strings.to_upper(appkit.NSString_toString(symbol_ns), context.temp_allocator)
 
 	if len(symbol_input) == 0 {
 		show_error_alert("Please enter a token symbol")

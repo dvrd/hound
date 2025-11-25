@@ -141,7 +141,6 @@ fetch_portfolio_balance :: proc(
 		log.errorf("Failed to fetch token accounts: %v", token_err)
 		return portfolio, token_err  // Return portfolio with initialized token_balances
 	}
-	defer delete(token_accounts)
 
 	log.infof("Found %d token account(s)", len(token_accounts))
 

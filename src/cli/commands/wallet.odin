@@ -1083,8 +1083,7 @@ display_address_confirmation :: proc(address: string, wallet_type: models.Wallet
 	}
 
 	response := strings.trim_space(string(buffer[:n]))
-	response_lower := strings.to_lower(response)
-	defer delete(response_lower)
+	response_lower := strings.to_lower(response, context.temp_allocator)
 
 	confirmed := response_lower == "y" || response_lower == "yes"
 

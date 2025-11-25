@@ -11,6 +11,7 @@ import models "../../lib/models"
 import db "../../lib/database"
 import token_cfg "../../lib/config"
 import output "../output"
+import memory "../../lib/memory"
 
 // ============================================================================
 // History Command
@@ -26,6 +27,10 @@ import output "../output"
 //
 // Returns: ErrorType for consistent error handling
 handle_history :: proc(args: []string) -> models.ErrorType {
+	context.allocator = memory.command_allocator()
+	defer memory.reset_command_arena()
+	defer free_all(context.temp_allocator)
+
 	log.debug("History command invoked")
 
 	// Parse flags
@@ -90,7 +95,6 @@ handle_history :: proc(args: []string) -> models.ErrorType {
 		log.errorf("Failed to query swap history: %v", query_err)
 		return .DatabaseError
 	}
-	defer delete(entries)
 
 	// Display results
 	if len(entries) == 0 {
