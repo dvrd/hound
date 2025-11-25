@@ -5,6 +5,7 @@ package keystore
 import "core:crypto/ed25519"
 import "core:crypto/sha2"
 import "core:strings"
+import "core:fmt"
 import "core:log"
 import models "../models"
 
@@ -73,7 +74,10 @@ derive_entropy_from_seed :: proc(words: []string) -> (entropy: [32]byte, err: mo
 	return entropy, .None
 }
 
-// Derive Ed25519 keypair from seed phrase
+// Derive Ed25519 keypair from seed phrase (Legacy SHA-256 derivation)
+//
+// NOTE: This is the Phase 1 legacy implementation for backward compatibility.
+// For new wallets, use derive_keypair_from_seed_bip44() instead.
 //
 // ASSERTION 1: Seed phrase must be valid (12/24 words)
 // ASSERTION 2: Derived keypair must have valid public key
@@ -117,6 +121,84 @@ derive_keypair_from_seed :: proc(seed_phrase: []string) -> (keypair: Keypair, er
 
 	log.info("Successfully derived Ed25519 keypair from seed phrase")
 	return keypair, .None
+}
+
+// Derive Ed25519 keypair from seed phrase using BIP39/BIP32/BIP44 standards
+//
+// This is the standard-compliant implementation that matches Phantom wallet:
+// 1. BIP39: Convert mnemonic → 64-byte seed (PBKDF2-HMAC-SHA512)
+// 2. BIP32: Derive master key from seed (SLIP-0010 Ed25519)
+// 3. BIP44: Derive at path m/44'/501'/account'/change' (Solana derivation path)
+//
+// Default derivation path: m/44'/501'/0'/0' (first Solana account)
+//
+// ASSERTION 1: Seed phrase must be valid (12/24 words)
+// ASSERTION 2: Derived keypair must have valid public key
+//
+// Parameters:
+//   - seed_phrase: Array of 12 or 24 BIP39 mnemonic words
+//   - passphrase: Optional BIP39 passphrase (empty string for no passphrase)
+//   - account_index: BIP44 account index (default: 0)
+//   - change_index: BIP44 change index (default: 0)
+//
+// Returns: Ed25519 keypair, error status
+derive_keypair_from_seed_bip44 :: proc(
+	seed_phrase: []string,
+	passphrase: string = "",
+	account_index: u32 = 0,
+	change_index: u32 = 0,
+	allocator := context.allocator,
+) -> (keypair: Keypair, err: models.ErrorType) {
+	assert(len(seed_phrase) == 12 || len(seed_phrase) == 24, "Invalid seed phrase length")
+
+	log.infof(
+		"Deriving keypair from seed using BIP44 path: m/44'/501'/%d'/%d'",
+		account_index,
+		change_index,
+	)
+
+	// Step 1: Validate seed phrase format
+	validate_err := validate_seed_phrase_format(seed_phrase)
+	if validate_err != .None {
+		return {}, validate_err
+	}
+
+	// Step 2: BIP39 - Convert mnemonic to 64-byte seed
+	bip39_seed, bip39_err := mnemonic_to_seed(seed_phrase, passphrase, allocator)
+	if bip39_err != .None {
+		log.errorf("BIP39 mnemonic-to-seed failed: %v", bip39_err)
+		return {}, bip39_err
+	}
+
+	// Step 3: BIP32/BIP44 - Derive key at Solana path
+	// Path: m/44'/501'/account'/change'
+	// 44' = BIP44 purpose
+	// 501' = Solana coin type
+	// account' = account index (hardened)
+	// change' = change index (hardened, 0 for external chain)
+	derivation_path := fmt.aprintf("m/44'/501'/%d'/%d'", account_index, change_index, allocator = allocator)
+	defer delete(derivation_path)
+
+	log.debugf("Using derivation path: %s", derivation_path)
+
+	hd_key, derive_err := derive_from_path(bip39_seed, derivation_path, allocator)
+	if derive_err != .None {
+		log.errorf("BIP32 derivation failed: %v", derive_err)
+		return {}, derive_err
+	}
+
+	// Step 4: Convert HDKey to Ed25519 keypair
+	derived_keypair, keypair_err := hd_key_to_keypair(hd_key)
+	if keypair_err != .None {
+		log.errorf("HDKey to keypair conversion failed: %v", keypair_err)
+		return {}, keypair_err
+	}
+
+	// ASSERTION 2: Verify public key derived
+	assert(derived_keypair.public_key._is_initialized, "Public key must be initialized")
+
+	log.info("Successfully derived Ed25519 keypair using BIP44")
+	return derived_keypair, .None
 }
 
 // Base58 alphabet for Solana addresses (must be variable for indexing)
