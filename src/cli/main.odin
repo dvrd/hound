@@ -165,6 +165,14 @@ run :: proc() -> models.ErrorType {
 			}
 			return commands.handle_wallet_switch(os.args[3])
 
+		case "delete", "remove":
+			if len(os.args) < 4 {
+				output.print_error("Missing wallet address/label argument")
+				fmt.println("Usage: hound wallet delete <address|label>")
+				return .MissingArgument
+			}
+			return commands.handle_wallet_delete(os.args[3])
+
 		case:
 			// Unknown subcommand - show help
 			output.print_error(fmt.tprintf("Unknown wallet subcommand: %s", subcommand))

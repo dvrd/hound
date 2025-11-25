@@ -131,6 +131,11 @@ format_wallet_table :: proc(
 
 	// Header
 	fmt.printfln("Wallet: %s (%s)", wallet_info.label, wallet_info.address)
+	fmt.printfln("Type: %v", wallet_info.wallet_type)
+	if len(wallet_info.derivation_path) > 0 {
+		fmt.printfln("Derivation Path: %s", wallet_info.derivation_path)
+		fmt.printfln("Account Index: %d", wallet_info.account_index)
+	}
 	fmt.println("")
 
 	if len(balances) == 0 {

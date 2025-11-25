@@ -17,6 +17,7 @@ import memory "../../lib/memory"
 import token_cfg "../../lib/config"
 import keystore_svc "../../lib/services"
 import services "../../lib/services"
+import keystore "../../lib/keystore"
 import output "../output"
 import utils "../../lib/utils"
 
@@ -762,7 +763,49 @@ handle_wallet_import :: proc() -> models.ErrorType {
 		}
 	}
 
-	// Step 2: Prompt for password (with confirmation)
+	// Step 2: Prompt for wallet type selection
+	wallet_type, type_err := prompt_wallet_type()
+	if type_err != .None {
+		return type_err
+	}
+
+	// Step 3: Prompt for account index (for multi-account wallets)
+	account_index, index_err := prompt_account_index()
+	if index_err != .None {
+		return index_err
+	}
+
+	// Step 4: Derive address for preview (before password entry)
+	derivation_path := models.get_derivation_path(wallet_type, account_index)
+
+	// Temporarily derive keypair to show address
+	preview_keypair: keystore.Keypair
+	preview_err: models.ErrorType
+
+	if wallet_type == .Legacy {
+		preview_keypair, preview_err = keystore.derive_keypair_from_seed(seed_phrase)
+	} else {
+		preview_keypair, preview_err = keystore.derive_keypair_from_seed_bip44(seed_phrase, "", u32(account_index), 0)
+	}
+
+	if preview_err != .None {
+		log.errorf("Failed to derive preview address: %v", preview_err)
+		output.print_error("Could not derive wallet address")
+		return preview_err
+	}
+	defer keystore.zero_keypair(&preview_keypair)
+
+	preview_address := keystore.keypair_to_address(&preview_keypair)
+
+	// Step 5: Display address and confirm
+	confirmed := display_address_confirmation(preview_address, wallet_type)
+	if !confirmed {
+		output.print_warning("Address not confirmed. Import cancelled.")
+		fmt.println("If the address doesn't match, try selecting a different wallet type.")
+		return .None  // Not an error, user chose to cancel
+	}
+
+	// Step 6: Prompt for password (with confirmation)
 	password, password_err := prompt_password_with_confirmation()
 	if password_err != .None {
 		return password_err
@@ -802,19 +845,23 @@ handle_wallet_import :: proc() -> models.ErrorType {
 	}
 	defer db.database_close(database)
 
-	// Step 5: Import keypair (encrypts and stores)
-	output.print_progress("Deriving keypair from seed phrase...")
-	address, import_err := keystore_svc.import_keypair(database, seed_phrase, password, label, true)
+	// Step 9: Import keypair (encrypts and stores)
+	output.print_progress("Encrypting and storing wallet...")
+	address, import_err := keystore_svc.import_keypair(database, seed_phrase, password, label, true, wallet_type, account_index)
 	if import_err != .None {
 		log.errorf("Failed to import keypair: %v", import_err)
 		return import_err
 	}
 
-	// Step 6: Display success
+	// Step 10: Display success with wallet type information
 	output.print_success(fmt.tprintf("Wallet imported successfully!"))
 	fmt.println("")
 	fmt.printfln("Label:   %s", label)
 	fmt.printfln("Address: %s", address)
+	fmt.printfln("Type:    %v", wallet_type)
+	if len(derivation_path) > 0 {
+		fmt.printfln("Path:    %s", derivation_path)
+	}
 	fmt.println("")
 	fmt.println("Your wallet is now encrypted and stored securely.")
 	fmt.println("Use the password to unlock your wallet for transactions.")
@@ -949,6 +996,137 @@ prompt_seed_phrase :: proc() -> (words: []string, err: models.ErrorType) {
 	return words, .None
 }
 
+// prompt_wallet_type displays interactive wallet type selection menu
+//
+// Returns: Selected Wallet_Type and error status
+prompt_wallet_type :: proc() -> (wallet_type: models.Wallet_Type, err: models.ErrorType) {
+	// Display menu
+	fmt.println("")
+	fmt.println("Select wallet derivation standard:")
+	fmt.println("")
+	fmt.println("  1. BIP44 Standard (Phantom/Solflare/Ledger) [Recommended]")
+	fmt.println("     Derivation: m/44'/501'/0'/0'")
+	fmt.println("     Use this for wallets from Phantom, Solflare, or Ledger")
+	fmt.println("")
+	fmt.println("  2. BIP44-Change (Alternative standard)")
+	fmt.println("     Derivation: m/44'/501'/0'")
+	fmt.println("     Use if your wallet uses this alternative path")
+	fmt.println("")
+	fmt.println("  3. Solana CLI (solana-keygen)")
+	fmt.println("     Derivation: m/44'/501'")
+	fmt.println("     Use if wallet was created with solana-keygen tool")
+	fmt.println("")
+	fmt.println("  4. Legacy (Hound original method)")
+	fmt.println("     Derivation: SHA-256 seed → Ed25519")
+	fmt.println("     Only for wallets previously imported in old Hound versions")
+	fmt.println("")
+	fmt.print("Enter selection (1-4) [1]: ")
+
+	// Read input
+	buffer: [256]byte
+	n, read_err := os.read(os.stdin, buffer[:])
+	if read_err != nil {
+		log.error("Failed to read wallet type selection")
+		output.print_error("Could not read selection")
+		return .BIP44_Standard, .NetworkError  // Default to recommended
+	}
+
+	selection := strings.trim_space(string(buffer[:n]))
+
+	// Handle default (empty input)
+	if len(selection) == 0 {
+		log.info("Using default wallet type: BIP44_Standard")
+		return .BIP44_Standard, .None
+	}
+
+	// Parse selection
+	selection_int, parse_ok := strconv.parse_int(selection)
+	if !parse_ok || selection_int < 1 || selection_int > 4 {
+		log.errorf("Invalid wallet type selection: %s", selection)
+		output.print_error(fmt.tprintf("Invalid selection '%s'. Please enter 1-4.", selection))
+		return .BIP44_Standard, .InvalidToken
+	}
+
+	// Map to enum
+	wallet_types := [4]models.Wallet_Type{
+		.BIP44_Standard,  // 1
+		.BIP44_Change,    // 2
+		.Solana_CLI,      // 3
+		.Legacy,          // 4
+	}
+
+	wallet_type = wallet_types[selection_int - 1]
+	log.infof("Selected wallet type: %v", wallet_type)
+	return wallet_type, .None
+}
+
+// prompt_account_index prompts for optional account index input
+//
+// Returns: Account index and error status
+prompt_account_index :: proc() -> (account_index: int, err: models.ErrorType) {
+	fmt.println("")
+	fmt.print("Account index (for multi-account wallets) [0]: ")
+
+	buffer: [256]byte
+	n, read_err := os.read(os.stdin, buffer[:])
+	if read_err != nil {
+		log.error("Failed to read account index")
+		output.print_error("Could not read account index")
+		return 0, .NetworkError
+	}
+
+	input := strings.trim_space(string(buffer[:n]))
+
+	// Default to 0 if empty
+	if len(input) == 0 {
+		log.info("Using default account index: 0")
+		return 0, .None
+	}
+
+	// Parse index
+	index, parse_ok := strconv.parse_int(input)
+	if !parse_ok || index < 0 {
+		log.errorf("Invalid account index: %s", input)
+		output.print_error(fmt.tprintf("Invalid account index '%s'. Must be non-negative integer.", input))
+		return 0, .InvalidToken
+	}
+
+	log.infof("Selected account index: %d", index)
+	return index, .None
+}
+
+// display_address_confirmation shows derived address and prompts for confirmation
+//
+// Returns: True if user confirms address match
+display_address_confirmation :: proc(address: string, wallet_type: models.Wallet_Type) -> bool {
+	fmt.println("")
+	output.print_progress(fmt.tprintf("Deriving keypair with %v...", wallet_type))
+	fmt.printfln("Derived address: %s", address)
+	fmt.println("")
+	fmt.print("Does this address match your wallet? [y/N]: ")
+
+	buffer: [256]byte
+	n, err := os.read(os.stdin, buffer[:])
+	if err != nil {
+		log.error("Failed to read confirmation")
+		return false
+	}
+
+	response := strings.trim_space(string(buffer[:n]))
+	response_lower := strings.to_lower(response)
+	defer delete(response_lower)
+
+	confirmed := response_lower == "y" || response_lower == "yes"
+
+	if confirmed {
+		log.info("User confirmed address match")
+	} else {
+		log.info("User rejected address match")
+	}
+
+	return confirmed
+}
+
 // prompt_password_with_confirmation prompts for password twice and validates match
 //
 // Returns: Password string and error status
@@ -1051,6 +1229,7 @@ print_wallet_help :: proc() {
 	fmt.println("  switch          Switch active wallet")
 	fmt.println("  import          Import a wallet from seed phrase")
 	fmt.println("  update-password Update wallet password (requires seed phrase)")
+	fmt.println("  delete          Delete a wallet (requires confirmation)")
 	fmt.println("  swap            Swap tokens between pairs")
 	fmt.println("  help            Show this help message")
 	fmt.println("")
@@ -1105,19 +1284,33 @@ handle_wallet_list :: proc() -> models.ErrorType {
 	// Display wallets
 	fmt.println("Configured Wallets:")
 	fmt.println("")
-	fmt.println("┌────────────────────────┬──────────────────────────────────────────────┬─────────┐")
-	fmt.println("│ Label                  │ Address                                      │ Status  │")
-	fmt.println("├────────────────────────┼──────────────────────────────────────────────┼─────────┤")
+	fmt.println("┌────────────────────────┬──────────────────────────────────────────────┬───────────────────────┐")
+	fmt.println("│ Label                  │ Address                                      │ Status                │")
+	fmt.println("├────────────────────────┼──────────────────────────────────────────────┼───────────────────────┤")
 
 	for wallet in wallets {
 		label_padded := fmt.tprintf("%-22s", wallet.label)
 		address_short := fmt.tprintf("%-44s", wallet.address)
-		status := wallet.is_primary ? "PRIMARY" : "       "
 
-		fmt.printfln("│ %s │ %s │ %s │", label_padded, address_short, status)
+		// Build status with badges
+		status_builder := strings.builder_make(memory.command_allocator())
+		if wallet.is_primary {
+			strings.write_string(&status_builder, "PRIMARY ")
+		}
+
+		// Add wallet type badge
+		type_name := fmt.tprintf("%v", wallet.wallet_type)
+		strings.write_string(&status_builder, "[")
+		strings.write_string(&status_builder, type_name)
+		strings.write_string(&status_builder, "]")
+
+		status := strings.to_string(status_builder)
+		status_padded := fmt.tprintf("%-21s", status)
+
+		fmt.printfln("│ %s │ %s │ %s │", label_padded, address_short, status_padded)
 	}
 
-	fmt.println("└────────────────────────┴──────────────────────────────────────────────┴─────────┘")
+	fmt.println("└────────────────────────┴──────────────────────────────────────────────┴───────────────────────┘")
 	fmt.println("")
 	fmt.printfln("Total: %d wallet(s)", len(wallets))
 	fmt.println("")
@@ -1179,6 +1372,152 @@ handle_wallet_switch :: proc(identifier: string) -> models.ErrorType {
 	// Display success
 	output.print_success(fmt.tprintf("Switched to wallet: %s", target_wallet.label))
 	fmt.printfln("Address: %s", target_wallet.address)
+	fmt.println("")
+
+	return .None
+}
+
+// handle_wallet_delete removes a wallet from the database after confirmation
+//
+// Safety features:
+// 1. Requires user confirmation (typing wallet address)
+// 2. Shows wallet details before deletion
+// 3. Warns about irreversibility
+// 4. Recommends keeping seed phrase backup
+// 5. Cannot delete if it's the only wallet (must have at least one wallet)
+//
+// Params:
+//   identifier: Wallet address (full/partial) or label to delete
+//
+// Returns: ErrorType for error handling
+handle_wallet_delete :: proc(identifier: string) -> models.ErrorType {
+	log.infof("Delete wallet requested: %s", identifier)
+
+	// Open database
+	db_path := token_cfg.get_database_path()
+	database, db_err := db.database_open(db_path)
+	if db_err != .None {
+		log.errorf("Failed to open database: %v", db_err)
+		output.print_error("Could not open database")
+		return .DatabaseError
+	}
+	defer db.database_close(database)
+
+	// Resolve target wallet
+	target_wallet, wallet_err := resolve_target_wallet(database, identifier)
+	if wallet_err != .None {
+		return wallet_err
+	}
+
+	// Check if this is the only wallet (prevent deletion of last wallet)
+	all_wallets, get_err := db.get_all_wallets(database)
+	if get_err != .None {
+		log.errorf("Failed to get wallets: %v", get_err)
+		output.print_error("Could not check wallet count")
+		return get_err
+	}
+
+	if len(all_wallets) == 1 {
+		output.print_error("Cannot delete the only wallet")
+		fmt.println("You must have at least one wallet configured.")
+		fmt.println("Import another wallet before deleting this one.")
+		return .InvalidToken
+	}
+
+	// Display wallet details
+	fmt.println("")
+	fmt.println("⚠️  WARNING: You are about to delete this wallet:")
+	fmt.println("")
+	fmt.printfln("  Label:   %s", target_wallet.label)
+	fmt.printfln("  Address: %s", target_wallet.address)
+	fmt.printfln("  Type:    %v", target_wallet.wallet_type)
+	if target_wallet.is_primary {
+		fmt.println("  Status:  PRIMARY WALLET")
+	}
+	fmt.println("")
+	fmt.println("⚠️  This operation is IRREVERSIBLE!")
+	fmt.println("")
+	fmt.println("Make sure you have your seed phrase backed up securely.")
+	fmt.println("Without the seed phrase, you will lose access to your funds forever.")
+	fmt.println("")
+
+	// Require confirmation by typing the address
+	fmt.println("To confirm deletion, type the wallet address and press Enter:")
+	fmt.printf("> ")
+
+	// Read user input
+	buf: [1024]byte
+	n, read_err := os.read(os.stdin, buf[:])
+	if read_err != 0 {
+		log.errorf("Failed to read confirmation: %v", read_err)
+		output.print_error("Could not read confirmation")
+		return .InvalidToken
+	}
+
+	confirmation := strings.trim_space(string(buf[:n]))
+
+	// Check if confirmation matches address
+	if confirmation != target_wallet.address {
+		output.print_error("Confirmation does not match wallet address")
+		fmt.println("Deletion cancelled.")
+		return .InvalidToken
+	}
+
+	log.info("Confirmation received, proceeding with deletion")
+
+	// If deleting primary wallet, we need to set another wallet as primary first
+	if target_wallet.is_primary {
+		log.info("Deleting primary wallet, finding replacement")
+
+		// Find another wallet to set as primary
+		new_primary_wallet: models.Wallet
+		found_replacement := false
+
+		for w in all_wallets {
+			if w.address != target_wallet.address {
+				new_primary_wallet = w
+				found_replacement = true
+				break
+			}
+		}
+
+		if !found_replacement {
+			// This should not happen due to earlier check, but be safe
+			output.print_error("No replacement wallet found")
+			return .DatabaseError
+		}
+
+		// Set new primary wallet before deleting
+		log.infof("Setting new primary wallet: %s", new_primary_wallet.label)
+		set_primary_err := db.set_primary_wallet(database, new_primary_wallet.address)
+		if set_primary_err != .None {
+			log.errorf("Failed to set new primary wallet: %v", set_primary_err)
+			output.print_error("Could not update primary wallet")
+			return set_primary_err
+		}
+
+		fmt.println("")
+		fmt.printfln("Set %s as new primary wallet", new_primary_wallet.label)
+	}
+
+	// Delete the wallet
+	delete_err := db.delete_wallet(database, target_wallet.address)
+	if delete_err != .None {
+		log.errorf("Failed to delete wallet: %v", delete_err)
+		output.print_error("Could not delete wallet")
+		return delete_err
+	}
+
+	// Display success
+	fmt.println("")
+	output.print_success(fmt.tprintf("Deleted wallet: %s", target_wallet.label))
+	fmt.printfln("Address: %s", target_wallet.address)
+	fmt.println("")
+	fmt.println("✓ Wallet removed from Hound")
+	fmt.println("✓ Encrypted keys deleted")
+	fmt.println("")
+	fmt.println("Remember: Your seed phrase controls your funds.")
+	fmt.println("You can re-import this wallet anytime using the seed phrase.")
 	fmt.println("")
 
 	return .None

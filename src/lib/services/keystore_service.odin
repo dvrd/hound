@@ -86,13 +86,17 @@ import_keypair :: proc(
 	password: string,
 	label: string,
 	is_primary: bool,
+	wallet_type: models.Wallet_Type,    // NEW: Wallet type selection
+	account_index: int = 0,             // NEW: Account index (default 0)
 ) -> (address: string, err: models.ErrorType) {
 	assert(db != nil, "Database handle cannot be nil")
 	assert(len(seed_phrase) == 12 || len(seed_phrase) == 24, "Seed phrase must be 12 or 24 words")
 	assert(len(password) > 0, "Password cannot be empty")
 	assert(len(label) > 0, "Label cannot be empty")
+	assert(account_index >= 0, "Account index must be non-negative")
 
-	log.infof("Importing keypair from %d-word seed phrase", len(seed_phrase))
+	log.infof("Importing keypair from %d-word seed phrase (Type: %v, Account: %d)",
+		len(seed_phrase), wallet_type, account_index)
 
 	// ASSERTION 2: Validate password strength
 	password_err := validate_password_strength(password)
@@ -100,11 +104,50 @@ import_keypair :: proc(
 		return "", password_err
 	}
 
-	// Derive keypair from seed phrase
-	keypair, keypair_err := keystore.derive_keypair_from_seed(seed_phrase)
-	if keypair_err != .None {
-		log.error("Failed to derive keypair from seed phrase")
-		return "", keypair_err
+	// NEW: Derive keypair based on wallet type
+	keypair: keystore.Keypair
+	derivation_path: string
+	keypair_err: models.ErrorType
+
+	switch wallet_type {
+	case .BIP44_Standard, .BIP44_Change, .Solana_CLI:
+		// BIP39/BIP32/BIP44 derivation path
+		derivation_path = models.get_derivation_path(wallet_type, account_index)
+		log.debugf("Using BIP44 derivation path: %s", derivation_path)
+
+		// Step 1: BIP39 - Convert mnemonic to 64-byte seed
+		seed, seed_err := keystore.mnemonic_to_seed(seed_phrase)
+		if seed_err != .None {
+			log.error("Failed to convert mnemonic to BIP39 seed")
+			return "", seed_err
+		}
+		defer keystore.secure_zero_memory(&seed, size_of(seed))
+
+		// Step 2: BIP32 - Derive key from path
+		hd_key, derive_err := keystore.derive_from_path(seed, derivation_path)
+		if derive_err != .None {
+			log.errorf("Failed to derive key from path: %s", derivation_path)
+			return "", derive_err
+		}
+		defer keystore.secure_zero_memory(&hd_key.key, size_of(hd_key.key))
+
+		// Step 3: Convert HDKey to Ed25519 keypair
+		keypair, keypair_err = keystore.hd_key_to_keypair(hd_key)
+		if keypair_err != .None {
+			log.error("Failed to convert HDKey to keypair")
+			return "", keypair_err
+		}
+
+	case .Legacy:
+		// Original Hound SHA-256 derivation
+		derivation_path = "legacy-sha256"
+		log.debug("Using Legacy derivation (SHA-256)")
+
+		keypair, keypair_err = keystore.derive_keypair_from_seed(seed_phrase)
+		if keypair_err != .None {
+			log.error("Failed to derive keypair from seed phrase (Legacy)")
+			return "", keypair_err
+		}
 	}
 	defer keystore.zero_keypair(&keypair)
 
@@ -179,9 +222,12 @@ import_keypair :: proc(
 	// Also create wallet entry so it appears in wallet list
 	// NOTE: This creates the link between encrypted_keypairs and wallets tables
 	wallet := models.Wallet{
-		address    = address,
-		label      = label,
-		is_primary = is_primary,
+		address         = address,
+		label           = label,
+		is_primary      = is_primary,
+		wallet_type     = wallet_type,      // NEW: Track wallet type
+		derivation_path = derivation_path,  // NEW: Track derivation path
+		account_index   = account_index,    // NEW: Track account index
 	}
 	wallet_insert_err := database.insert_wallet(db, wallet)
 	if wallet_insert_err != .None {

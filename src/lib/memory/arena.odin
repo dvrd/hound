@@ -11,6 +11,7 @@ import "../models"
 g_persistent_arena: vmem.Arena
 g_command_arena: vmem.Arena
 g_request_arena: vmem.Arena
+g_secure_arena: vmem.Arena  // For cryptographic operations requiring memory zeroing
 g_memory_stats_enabled: bool
 
 // Memory statistics structure
@@ -18,6 +19,7 @@ MemoryStats :: struct {
 	persistent_used: uint,
 	command_used:    uint,
 	request_used:    uint,
+	secure_used:     uint,
 }
 
 // Initialize all memory arenas
@@ -55,6 +57,18 @@ memory_init :: proc() -> models.ErrorType {
 	}
 	log.debug("Request arena initialized (5 MB)")
 
+	// 4. Secure Arena (2 MB static, for cryptographic operations)
+	// SECURITY: This arena is explicitly zeroed before reset to protect sensitive data
+	secure_err := vmem.arena_init_static(&g_secure_arena, 2 * mem.Megabyte)
+	if secure_err != nil {
+		log.errorf("Failed to initialize secure arena: %v", secure_err)
+		vmem.arena_destroy(&g_persistent_arena)
+		vmem.arena_destroy(&g_command_arena)
+		vmem.arena_destroy(&g_request_arena)
+		return .DatabaseError
+	}
+	log.debug("Secure arena initialized (2 MB)")
+
 	log.debug("Memory arena system initialized successfully")
 	return .None
 }
@@ -63,6 +77,17 @@ memory_init :: proc() -> models.ErrorType {
 // MUST be called with defer after memory_init()
 memory_shutdown :: proc() {
 	log.debug("Shutting down memory arenas")
+
+	// Zero secure arena before destruction
+	if g_secure_arena.curr_block != nil {
+		used := g_secure_arena.curr_block.used
+		if used > 0 {
+			mem.zero(rawptr(g_secure_arena.curr_block.base), int(used))
+			log.debugf("[SECURITY] Zeroed %d bytes in secure arena before shutdown", used)
+		}
+	}
+
+	vmem.arena_destroy(&g_secure_arena)
 	vmem.arena_destroy(&g_request_arena)
 	vmem.arena_destroy(&g_command_arena)
 	vmem.arena_destroy(&g_persistent_arena)
@@ -87,6 +112,13 @@ request_allocator :: proc() -> mem.Allocator {
 	return vmem.arena_allocator(&g_request_arena)
 }
 
+// Get secure arena allocator
+// Use for: Cryptographic operations (BIP32, BIP39, PBKDF2, encryption)
+// SECURITY: Memory is explicitly zeroed before reset
+secure_allocator :: proc() -> mem.Allocator {
+	return vmem.arena_allocator(&g_secure_arena)
+}
+
 // Reset command arena (call between commands)
 // PATTERN: Call at end of each command handler
 reset_command_arena :: proc() {
@@ -106,12 +138,31 @@ reset_request_arena :: proc() {
 	log.debug("Request arena reset")
 }
 
+// Reset secure arena (call after cryptographic operations)
+// SECURITY: Explicitly zeros all used memory before freeing
+// PATTERN: Call after BIP32/BIP39/PBKDF2/encryption operations complete
+reset_secure_arena :: proc() {
+	// Zero all used memory in secure arena
+	if g_secure_arena.curr_block != nil {
+		used := g_secure_arena.curr_block.used
+		if used > 0 {
+			mem.zero(rawptr(g_secure_arena.curr_block.base), int(used))
+			log.debugf("[SECURITY] Zeroed %d bytes in secure arena", used)
+		}
+	}
+
+	// Free arena (keeps first block, deallocates rest)
+	vmem.arena_free_all(&g_secure_arena)
+	log.debug("Secure arena reset (memory zeroed)")
+}
+
 // Get current memory statistics
 memory_stats :: proc() -> MemoryStats {
 	stats := MemoryStats{
 		persistent_used = g_persistent_arena.curr_block != nil ? g_persistent_arena.curr_block.used : 0,
 		command_used    = g_command_arena.curr_block != nil ? g_command_arena.curr_block.used : 0,
 		request_used    = g_request_arena.curr_block != nil ? g_request_arena.curr_block.used : 0,
+		secure_used     = g_secure_arena.curr_block != nil ? g_secure_arena.curr_block.used : 0,
 	}
 	return stats
 }
@@ -124,10 +175,11 @@ log_memory_stats :: proc() {
 
 	stats := memory_stats()
 	log.debugf(
-		"[MEMORY] Arena usage: persistent=%d KB, command=%d KB, request=%d KB",
+		"[MEMORY] Arena usage: persistent=%d KB, command=%d KB, request=%d KB, secure=%d KB",
 		stats.persistent_used / 1024,
 		stats.command_used / 1024,
 		stats.request_used / 1024,
+		stats.secure_used / 1024,
 	)
 }
 

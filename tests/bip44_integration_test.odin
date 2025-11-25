@@ -1,6 +1,7 @@
 // Integration tests for BIP39/BIP32/BIP44 implementation
 // Tests the complete flow from mnemonic to Solana keypair
-package test_bip44
+#+feature global-context
+package tests
 
 import "core:fmt"
 import "core:testing"

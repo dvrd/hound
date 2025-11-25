@@ -205,6 +205,24 @@ create_schema :: proc(db: ^Database) -> models.ErrorType {
 		return .DatabaseError
 	}
 
+	// Migration: Add wallet type and derivation tracking (Phase 2)
+	// Safe for existing databases - uses ALTER TABLE with defaults
+	migration_sql := `
+		-- Add wallet type tracking columns
+		-- These may already exist if migration was run before
+		ALTER TABLE wallets ADD COLUMN wallet_type TEXT DEFAULT 'Legacy';
+		ALTER TABLE wallets ADD COLUMN derivation_path TEXT DEFAULT 'legacy-sha256';
+		ALTER TABLE wallets ADD COLUMN account_index INTEGER DEFAULT 0;
+	`
+
+	migration_result := sqlite3.exec(db.handle, cstring(raw_data(migration_sql)), nil, nil, &errmsg)
+	if migration_result != .Ok {
+		// Non-fatal: columns may already exist from previous migration
+		log.debugf("Migration note: %s (columns may already exist)", errmsg)
+		sqlite3.free(cast(rawptr)errmsg)
+		// Continue - this is expected if migration already ran
+	}
+
 	log.info("Database schema created/verified")
 	return .None
 }
@@ -808,10 +826,14 @@ insert_wallet :: proc(db: ^Database, wallet: models.Wallet) -> models.ErrorType 
 	assert(len(wallet.address) > 0, "Wallet address cannot be empty")
 	assert(len(wallet.label) > 0, "Wallet label cannot be empty")
 
-	log.debugf("Inserting wallet: %s (%s)", wallet.label, wallet.address)
+	log.debugf("Inserting wallet: %s (%s) - Type: %v", wallet.label, wallet.address, wallet.wallet_type)
 
-	sql := `INSERT INTO wallets (address, label, is_primary, added_at)
-	        VALUES (?1, ?2, ?3, ?4)`
+	// Convert wallet_type enum to string for database storage
+	wallet_type_str := fmt.tprintf("%v", wallet.wallet_type)
+	defer delete(wallet_type_str)
+
+	sql := `INSERT INTO wallets (address, label, is_primary, added_at, wallet_type, derivation_path, account_index)
+	        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
 
 	stmt: ^sqlite3.Statement
 	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
@@ -824,10 +846,22 @@ insert_wallet :: proc(db: ^Database, wallet: models.Wallet) -> models.ErrorType 
 	now := time.now()
 	unix_timestamp := i64(now._nsec / 1_000_000_000)
 
+	// Bind existing fields (1-4)
 	sqlite3.bind_text(stmt, 1, cstring(raw_data(wallet.address)), i32(len(wallet.address)), nil)
 	sqlite3.bind_text(stmt, 2, cstring(raw_data(wallet.label)), i32(len(wallet.label)), nil)
 	sqlite3.bind_int(stmt, 3, wallet.is_primary ? 1 : 0)
 	sqlite3.bind_int64(stmt, 4, unix_timestamp)
+
+	// Bind new fields (5-7)
+	sqlite3.bind_text(stmt, 5, cstring(raw_data(wallet_type_str)), i32(len(wallet_type_str)), nil)
+
+	if len(wallet.derivation_path) > 0 {
+		sqlite3.bind_text(stmt, 6, cstring(raw_data(wallet.derivation_path)), i32(len(wallet.derivation_path)), nil)
+	} else {
+		sqlite3.bind_null(stmt, 6)
+	}
+
+	sqlite3.bind_int(stmt, 7, i32(wallet.account_index))
 
 	step_result := sqlite3.step(stmt)
 	if step_result != .Done {
@@ -855,7 +889,9 @@ get_all_wallets :: proc(db: ^Database) -> (wallets: []models.Wallet, err: models
 
 	log.debug("Fetching all wallets")
 
-	sql := `SELECT address, label, is_primary FROM wallets ORDER BY is_primary DESC, added_at ASC`
+	sql := `SELECT address, label, is_primary, wallet_type, derivation_path, account_index
+	        FROM wallets
+	        ORDER BY is_primary DESC, added_at ASC`
 
 	stmt: ^sqlite3.Statement
 	prep_result := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql)), i32(len(sql)), &stmt, nil)
@@ -870,10 +906,27 @@ get_all_wallets :: proc(db: ^Database) -> (wallets: []models.Wallet, err: models
 	for {
 		step_result := sqlite3.step(stmt)
 		if step_result == .Row {
+			// Parse wallet_type string to enum (column 3)
+			wallet_type_str := string(sqlite3.column_text(stmt, 3))
+			wallet_type, _ := models.parse_wallet_type(wallet_type_str)
+
+			// Retrieve derivation_path (column 4, nullable)
+			derivation_path_ptr := sqlite3.column_text(stmt, 4)
+			derivation_path := ""
+			if derivation_path_ptr != nil {
+				derivation_path = strings.clone(string(derivation_path_ptr))
+			}
+
+			// Retrieve account_index (column 5)
+			account_index := int(sqlite3.column_int(stmt, 5))
+
 			wallet := models.Wallet{
-				address    = strings.clone(string(sqlite3.column_text(stmt, 0))),
-				label      = strings.clone(string(sqlite3.column_text(stmt, 1))),
-				is_primary = sqlite3.column_int(stmt, 2) == 1,
+				address         = strings.clone(string(sqlite3.column_text(stmt, 0))),
+				label           = strings.clone(string(sqlite3.column_text(stmt, 1))),
+				is_primary      = sqlite3.column_int(stmt, 2) == 1,
+				wallet_type     = wallet_type,
+				derivation_path = derivation_path,
+				account_index   = account_index,
 			}
 			append(&wallet_list, wallet)
 		} else if step_result == .Done {
@@ -1576,5 +1629,88 @@ set_primary_wallet :: proc(db: ^Database, address: string) -> models.ErrorType {
 	}
 
 	log.infof("Successfully set primary wallet: %s", address)
+	return .None
+}
+
+// delete_wallet removes a wallet and its associated encrypted keypair from the database
+//
+// This is a destructive operation that:
+// 1. Deletes the encrypted keypair entry
+// 2. Deletes the wallet entry
+// 3. Uses a transaction to ensure atomicity
+//
+// WARNING: This operation is irreversible! User must have seed phrase backup.
+//
+// Params:
+//   db: Database handle
+//   address: Wallet address to delete (must match exactly)
+//
+// Returns: ErrorType
+delete_wallet :: proc(db: ^Database, address: string) -> models.ErrorType {
+	assert(db != nil, "Database cannot be nil")
+	assert(len(address) > 0, "Address cannot be empty")
+
+	log.infof("Deleting wallet: %s", address)
+
+	// Step 1: Begin transaction
+	begin_result := sqlite3.exec(db.handle, "BEGIN TRANSACTION", nil, nil, nil)
+	if begin_result != .Ok {
+		log.errorf("Failed to begin transaction: %v", begin_result)
+		return .DatabaseError
+	}
+
+	// Step 2: Delete encrypted keypair
+	sql_delete_keypair := `DELETE FROM encrypted_keypairs WHERE address = ?1`
+	stmt_keypair: ^sqlite3.Statement
+	prep_result_keypair := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql_delete_keypair)), i32(len(sql_delete_keypair)), &stmt_keypair, nil)
+	if prep_result_keypair != .Ok {
+		log.errorf("Failed to prepare delete keypair statement: %v", prep_result_keypair)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt_keypair)
+
+	sqlite3.bind_text(stmt_keypair, 1, cstring(raw_data(address)), i32(len(address)), nil)
+
+	step_result_keypair := sqlite3.step(stmt_keypair)
+	if step_result_keypair != .Done {
+		log.errorf("Failed to delete encrypted keypair: %v", step_result_keypair)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+
+	log.debug("Deleted encrypted keypair")
+
+	// Step 3: Delete wallet
+	sql_delete_wallet := `DELETE FROM wallets WHERE address = ?1`
+	stmt_wallet: ^sqlite3.Statement
+	prep_result_wallet := sqlite3.prepare_v2(db.handle, cstring(raw_data(sql_delete_wallet)), i32(len(sql_delete_wallet)), &stmt_wallet, nil)
+	if prep_result_wallet != .Ok {
+		log.errorf("Failed to prepare delete wallet statement: %v", prep_result_wallet)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+	defer sqlite3.finalize(stmt_wallet)
+
+	sqlite3.bind_text(stmt_wallet, 1, cstring(raw_data(address)), i32(len(address)), nil)
+
+	step_result_wallet := sqlite3.step(stmt_wallet)
+	if step_result_wallet != .Done {
+		log.errorf("Failed to delete wallet: %v", step_result_wallet)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+
+	log.debug("Deleted wallet entry")
+
+	// Step 4: Commit transaction
+	commit_result := sqlite3.exec(db.handle, "COMMIT", nil, nil, nil)
+	if commit_result != .Ok {
+		log.errorf("Failed to commit transaction: %v", commit_result)
+		sqlite3.exec(db.handle, "ROLLBACK", nil, nil, nil)
+		return .DatabaseError
+	}
+
+	log.infof("Successfully deleted wallet: %s", address)
 	return .None
 }

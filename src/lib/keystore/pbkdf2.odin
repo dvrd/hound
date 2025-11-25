@@ -89,9 +89,11 @@ pbkdf2_derive_block :: proc(
 	copy(block, u)
 
 	// Remaining iterations: Ui = HMAC(password, U{i-1})
+	// PERFORMANCE: Pre-allocate temp buffer ONCE instead of 2048 times
+	temp := make([]byte, hash_len, allocator)
+	defer delete(temp)
+
 	for j := 2; j <= iterations; j += 1 {
-		temp := make([]byte, hash_len, allocator)
-		defer delete(temp)
 		copy(temp, u)
 		hmac.sum(hash.Algorithm.SHA512, u, temp, password)
 
