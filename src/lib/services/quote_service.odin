@@ -9,6 +9,7 @@ import "core:strconv"
 import "core:time"
 import "../models"
 import client "../../http/client"
+import memory "../memory"
 
 // Jupiter Ultra API (free tier)
 JUPITER_QUOTE_URL :: "https://lite-api.jup.ag/ultra/v1/order"
@@ -132,9 +133,11 @@ fetch_swap_quote :: proc(
 
 	log.debug("Parsing quote JSON")
 
-	// Parse JSON response
+	// Parse JSON response with request arena
+	arena_alloc := memory.request_allocator()
 	response_json: json.Value
-	if unmarshal_err := json.unmarshal_string(body_str, &response_json); unmarshal_err != nil {
+	spec := json.DEFAULT_SPECIFICATION
+	if unmarshal_err := json.unmarshal_string(body_str, &response_json, spec, arena_alloc); unmarshal_err != nil {
 		log.errorf("JSON unmarshal failed: %v", unmarshal_err)
 		return {}, models.ErrorType.InvalidResponse
 	}
@@ -269,13 +272,15 @@ parse_quote_response :: proc(
 }
 
 // parse_route_plan extracts routing steps from Jupiter response
-parse_route_plan :: proc(route_val: json.Value) -> ([]models.RouteStep, models.ErrorType) {
+//
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+parse_route_plan :: proc(route_val: json.Value, arena_alloc := context.allocator) -> ([]models.RouteStep, models.ErrorType) {
 	route_arr, is_arr := route_val.(json.Array)
 	if !is_arr {
 		return nil, .InvalidResponse
 	}
 
-	steps := make([dynamic]models.RouteStep)
+	steps := make([dynamic]models.RouteStep, 0, 10, arena_alloc)
 
 	for step_val in route_arr {
 		step_obj, is_obj := step_val.(json.Object)

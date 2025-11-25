@@ -12,6 +12,7 @@ import client "../../http/client"
 import http "../../http"
 import keystore "../keystore"
 import "core:crypto/ed25519"
+import memory "../memory"
 
 // Jupiter Ultra Execute API endpoint
 JUPITER_EXECUTE_URL :: "https://lite-api.jup.ag/ultra/v1/execute"
@@ -80,12 +81,17 @@ execute_swap_transaction :: proc(
 
 	log.debugf("Extracted transaction (length: %d bytes) and requestId: %s", len(transaction_b64), request_id)
 
+	// Set up request arena for this function
+	old_allocator := context.allocator
+	context.allocator = memory.request_allocator()
+	defer context.allocator = old_allocator
+	defer memory.reset_request_arena()
+
 	// Sign transaction
 	signed_tx, sign_err := sign_transaction(transaction_b64, keypair.private_key_struct)
 	if sign_err != .None {
 		return {}, sign_err
 	}
-	defer delete(signed_tx)
 
 	log.debug("Transaction signed successfully")
 
@@ -110,11 +116,14 @@ execute_swap_transaction :: proc(
 //   ...
 // }
 //
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+//
 // Returns: transaction (base64 string), requestId, ErrorType
-extract_transaction_and_request_id :: proc(raw_json: string) -> (transaction: string, request_id: string, err: models.ErrorType) {
-	// Parse JSON
+extract_transaction_and_request_id :: proc(raw_json: string, arena_alloc := context.allocator) -> (transaction: string, request_id: string, err: models.ErrorType) {
+	// Parse JSON with arena allocator
 	json_val: json.Value
-	if unmarshal_err := json.unmarshal_string(raw_json, &json_val); unmarshal_err != nil {
+	spec := json.DEFAULT_SPECIFICATION
+	if unmarshal_err := json.unmarshal_string(raw_json, &json_val, spec, arena_alloc); unmarshal_err != nil {
 		log.errorf("Failed to parse quote JSON: %v", unmarshal_err)
 		return "", "", .InvalidResponse
 	}
@@ -156,11 +165,14 @@ extract_transaction_and_request_id :: proc(raw_json: string) -> (transaction: st
 
 // extract_error_message parses Jupiter error message from response
 //
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+//
 // Returns: error message string (empty if no error)
-extract_error_message :: proc(raw_json: string) -> string {
-	// Parse JSON
+extract_error_message :: proc(raw_json: string, arena_alloc := context.allocator) -> string {
+	// Parse JSON with arena allocator
 	json_val: json.Value
-	if unmarshal_err := json.unmarshal_string(raw_json, &json_val); unmarshal_err != nil {
+	spec := json.DEFAULT_SPECIFICATION
+	if unmarshal_err := json.unmarshal_string(raw_json, &json_val, spec, arena_alloc); unmarshal_err != nil {
 		return ""
 	}
 
@@ -195,15 +207,16 @@ extract_error_message :: proc(raw_json: string) -> string {
 // 4. Replace signature bytes in transaction
 // 5. Re-encode to base64
 //
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+//
 // Returns: Signed transaction (base64), ErrorType
-sign_transaction :: proc(transaction_b64: string, private_key: ed25519.Private_Key) -> (string, models.ErrorType) {
-	// Decode base64 transaction
-	tx_bytes, decode_err := base64.decode(transaction_b64)
+sign_transaction :: proc(transaction_b64: string, private_key: ed25519.Private_Key, arena_alloc := context.allocator) -> (string, models.ErrorType) {
+	// Decode base64 transaction with arena allocator
+	tx_bytes, decode_err := base64.decode(transaction_b64, base64.DEC_TABLE, arena_alloc)
 	if decode_err != nil {
 		log.errorf("Failed to decode base64 transaction: %v", decode_err)
 		return "", models.ErrorType.InvalidResponse
 	}
-	defer delete(tx_bytes)
 
 	// Solana transaction structure (simplified):
 	// [0]: Number of signatures (1 byte)
@@ -236,8 +249,8 @@ sign_transaction :: proc(transaction_b64: string, private_key: ed25519.Private_K
 	// Replace signature bytes in transaction
 	copy(tx_bytes[1:65], signature[:])
 
-	// Re-encode to base64
-	signed_b64, encode_err := base64.encode(tx_bytes)
+	// Re-encode to base64 with arena allocator
+	signed_b64, encode_err := base64.encode(tx_bytes, base64.ENC_TABLE, arena_alloc)
 	if encode_err != nil {
 		log.errorf("Failed to encode signed transaction: %v", encode_err)
 		return "", models.ErrorType.InvalidResponse
@@ -261,6 +274,8 @@ sign_transaction :: proc(transaction_b64: string, private_key: ed25519.Private_K
 //   ...
 // }
 //
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+//
 // Returns: SwapTransactionResult, ErrorType
 submit_to_ultra_execute :: proc(
 	signed_transaction: string,
@@ -268,20 +283,21 @@ submit_to_ultra_execute :: proc(
 	quote: models.SwapQuote,
 	input_symbol: string,
 	output_symbol: string,
+	arena_alloc := context.allocator,
 ) -> (models.SwapTransactionResult, models.ErrorType) {
 	log.debug("Submitting transaction to Ultra execute endpoint")
 
-	// Build request body
-	request_body := fmt.tprintf(
+	// Build request body with arena allocator
+	request_body := fmt.aprintf(
 		`{"transaction":"%s","requestId":"%s"}`,
 		signed_transaction,
 		request_id,
+		allocator = arena_alloc,
 	)
-	defer delete(request_body)
 
-	// Create POST request
+	// Create POST request with arena allocator
 	req: client.Request
-	client.request_init(&req, .Post, context.allocator)
+	client.request_init(&req, .Post, arena_alloc)
 	defer client.request_destroy(&req)
 
 	// Set JSON content type
@@ -290,8 +306,8 @@ submit_to_ultra_execute :: proc(
 	// Write body
 	bytes.buffer_write_string(&req.body, request_body)
 
-	// Make HTTP POST request
-	res, http_err := client.request(&req, JUPITER_EXECUTE_URL, context.allocator)
+	// Make HTTP POST request with arena allocator
+	res, http_err := client.request(&req, JUPITER_EXECUTE_URL, arena_alloc)
 	if http_err != nil {
 		log.errorf("HTTP request failed: %v", http_err)
 		#partial switch _ in http_err {
@@ -356,16 +372,20 @@ submit_to_ultra_execute :: proc(
 // - blockTime: Unix timestamp (optional)
 // - error: Error message if failed (optional)
 //
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+//
 // Returns: SwapTransactionResult, ErrorType
 parse_execute_response :: proc(
 	body_str: string,
 	quote: models.SwapQuote,
 	input_symbol: string,
 	output_symbol: string,
+	arena_alloc := context.allocator,
 ) -> (models.SwapTransactionResult, models.ErrorType) {
-	// Parse JSON
+	// Parse JSON with arena allocator
 	json_val: json.Value
-	if unmarshal_err := json.unmarshal_string(body_str, &json_val); unmarshal_err != nil {
+	spec := json.DEFAULT_SPECIFICATION
+	if unmarshal_err := json.unmarshal_string(body_str, &json_val, spec, arena_alloc); unmarshal_err != nil {
 		log.errorf("JSON unmarshal failed: %v", unmarshal_err)
 		return {}, models.ErrorType.InvalidResponse
 	}

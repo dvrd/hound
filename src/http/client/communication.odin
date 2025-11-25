@@ -13,6 +13,7 @@ import "core:sys/posix"
 
 import http ".."
 import openssl "../openssl"
+import memory "../../lib/memory"
 
 // resolve_hostname_native uses native OS DNS resolution on macOS via getaddrinfo()
 // This is necessary because core:net reads /etc/resolv.conf which is not used on macOS.
@@ -164,8 +165,8 @@ format_request :: proc(target: http.URL, request: ^Request, allocator := context
 
 		// Escape newlines in headers, if we don't, an attacker can find an endpoint
 		// that returns a header with user input, and inject headers into the response.
+		// Escaped header value uses request arena - no defer delete needed
 		esc_value, was_allocation := strings.replace_all(value, "\n", "\\n", allocator)
-		defer if was_allocation { delete(esc_value) }
 
 		bytes.buffer_write_string(&buf, esc_value)
 		bytes.buffer_write_string(&buf, "\r\n")
@@ -269,7 +270,7 @@ parse_response :: proc(socket: Communication, allocator := context.allocator) ->
 		if key == "set-cookie" {
 			cookie_str := http.headers_get_unsafe(res.headers, "set-cookie")
 			http.headers_delete_unsafe(&res.headers, "set-cookie")
-			delete(key, allocator)
+			// Key allocation managed by arena - no delete needed
 
 			cookie, cok := http.cookie_parse(cookie_str, allocator)
 			if !cok {

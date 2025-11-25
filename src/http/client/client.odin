@@ -14,6 +14,7 @@ import "core:time"
 
 import http ".."
 import openssl "../openssl"
+import memory "../../lib/memory"
 
 Request :: struct {
 	method:  http.Method,
@@ -23,6 +24,7 @@ Request :: struct {
 }
 
 // Initializes the request with sane defaults using the given allocator.
+// NOTE: Caller should set context.allocator = memory.request_allocator() for HTTP operations.
 request_init :: proc(r: ^Request, method := http.Method.Get, allocator := context.allocator) {
 	r.method = method
 	http.headers_init(&r.headers, allocator)
@@ -31,12 +33,11 @@ request_init :: proc(r: ^Request, method := http.Method.Get, allocator := contex
 }
 
 // Destroys the request.
-// Header keys and values that the user added will have to be deleted by the user.
-// Same with any strings inside the cookies.
+// Headers and cookies managed by request arena.
+// Note: Caller should reset arena externally after request completes.
 request_destroy :: proc(r: ^Request) {
-	delete(r.headers._kv)
-	delete(r.cookies)
-	bytes.buffer_destroy(&r.body)
+	// Headers and cookies managed by request arena - no manual delete needed
+	bytes.buffer_destroy(&r.body)  // Buffer has internal state to reset
 }
 
 with_json :: proc(r: ^Request, v: any, opt: json.Marshal_Options = {}) -> json.Marshal_Error {
@@ -100,8 +101,8 @@ request :: proc(request: ^Request, target: string, allocator := context.allocato
 		openssl.SSL_set_fd(ssl, c.int(socket))
 
 		// For servers using SNI for SSL certs (like cloudflare), this needs to be set.
+		// SSL hostname uses request arena - no defer delete needed
 		chostname := strings.clone_to_cstring(url.host, allocator)
-		defer delete(chostname, allocator)
 		openssl.SSL_set_tlsext_host_name(ssl, chostname)
 
 		switch openssl.SSL_connect(ssl) {
@@ -146,23 +147,10 @@ Response :: struct {
 
 // Frees the response, closes the connection.
 // Optionally pass the response_body returned 'body' and 'was_allocation' to destroy it too.
+// Note: Headers and cookies managed by request arena - caller resets arena externally.
 response_destroy :: proc(res: ^Response, body: Maybe(Body_Type) = nil, was_allocation := false) {
-	// Header keys are allocated, values are slices into the body.
-	// NOTE: this is fine because we don't add any headers with `headers_set_unsafe()`.
-	// If we did, we wouldn't know if the key was allocated or a literal.
-	// We also set the headers to readonly before giving them to the user so they can't add any either.
-	for k, v in res.headers._kv {
-		delete(v, res.headers._kv.allocator)
-		delete(k, res.headers._kv.allocator)
-	}
-
-	delete(res.headers._kv)
-
+	// Headers and cookies managed by request arena - no manual delete needed
 	bufio.scanner_destroy(&res._body)
-
-	// Cookies only contain slices to memory inside the scanner body.
-	// So just deleting the array will be enough.
-	delete(res.cookies)
 
 	if body != nil {
 		body_destroy(body.(Body_Type), was_allocation)
@@ -206,18 +194,21 @@ Body_Type :: union #no_nil {
 }
 
 // Frees the memory allocated by parsing the body.
-// was_allocation is returned by the body parsing procedure.
+// With request arena, all body allocations cleaned on arena reset.
+// Keep function for API compatibility but no-op.
+// Note: was_allocation flag now irrelevant.
 body_destroy :: proc(body: Body_Type, was_allocation: bool) {
-	switch b in body {
-	case Body_Plain:
-		if was_allocation { delete(b) }
-	case Body_Url_Encoded:
-		for k, v in b {
-			delete(k)
-			delete(v)
+	// With request arena, all body allocations cleaned on arena reset
+	// Keep function for API compatibility but no-op
+	when ODIN_DEBUG {
+		switch b in body {
+		case Body_Plain:
+			// Could verify allocation came from request arena
+		case Body_Url_Encoded:
+			// Could verify map came from request arena
+		case Body_Error:
+			// No-op
 		}
-		delete(b)
-	case Body_Error:
 	}
 }
 
@@ -268,10 +259,10 @@ _parse_body :: proc(
 	// Automatically decode url encoded bodies.
 	if typ, ok := http.headers_get_unsafe(headers^, "content-type"); ok && typ == "application/x-www-form-urlencoded" {
 		plain := body.(Body_Plain)
-		defer if was_allocation { delete(plain) }
+		// Decoded plain text uses request arena - no defer delete needed
 
 		keyvalues := strings.split(plain, "&", allocator)
-		defer delete(keyvalues, allocator)
+		// Split URL-encoded pairs uses request arena - no defer delete needed
 
 		queries := make(Body_Url_Encoded, len(keyvalues), allocator)
 		for keyvalue in keyvalues {

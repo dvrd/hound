@@ -32,6 +32,7 @@ import "core:slice"
 import "core:strconv"
 import "core:time"
 import "../models"
+import memory "../memory"
 
 // =============================================================================
 // DATA STRUCTURES
@@ -152,20 +153,22 @@ estimate_pool_fee :: proc(pair: DexScreenerPair) -> f64 {
 
 // Rank pools by score (descending order - highest score first)
 //
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+//
 // Returns: Array of PoolScore sorted by score descending
-rank_pools :: proc(pairs: []DexScreenerPair) -> []PoolScore {
+rank_pools :: proc(pairs: []DexScreenerPair, arena_alloc := context.allocator) -> []PoolScore {
 	// ASSERTION 1: Input array is not null
 	assert(pairs != nil, "Pairs array cannot be nil")
 
 	if len(pairs) == 0 {
 		log.debug("No pools to rank (empty input)")
-		return make([]PoolScore, 0)
+		return nil
 	}
 
 	log.debugf("Ranking %d pool(s)", len(pairs))
 
-	// Calculate scores for all pools
-	scores := make([dynamic]PoolScore, 0, len(pairs))
+	// Calculate scores for all pools with arena allocator
+	scores := make([dynamic]PoolScore, 0, len(pairs), arena_alloc)
 	for pair in pairs {
 		score := calculate_pool_score(pair)
 		append(&scores, PoolScore{pair = pair, score = score})
@@ -189,20 +192,22 @@ rank_pools :: proc(pairs: []DexScreenerPair) -> []PoolScore {
 // - liquidity.usd >= $1,000 (prevents scam/illiquid pools)
 // - estimated fee <= 1.0% (prevents exploitative pools)
 //
+// NOTE: Caller should set context.allocator = memory.request_allocator()
+//
 // Returns: Filtered array of pools meeting criteria
-filter_pools :: proc(pairs: []DexScreenerPair) -> []DexScreenerPair {
+filter_pools :: proc(pairs: []DexScreenerPair, arena_alloc := context.allocator) -> []DexScreenerPair {
 	// ASSERTION 1: Input array is not null
 	assert(pairs != nil, "Pairs array cannot be nil")
 
 	if len(pairs) == 0 {
 		log.debug("No pools to filter (empty input)")
-		return make([]DexScreenerPair, 0)
+		return nil
 	}
 
 	log.debugf("Filtering %d pool(s) with criteria: min_liquidity=$%.2f, max_fee=%.2f%%",
 		len(pairs), MIN_LIQUIDITY_USD, MAX_FEE_PERCENT)
 
-	filtered := make([dynamic]DexScreenerPair, 0, len(pairs))
+	filtered := make([dynamic]DexScreenerPair, 0, len(pairs), arena_alloc)
 	filtered_count := 0
 
 	for pair in pairs {
@@ -243,18 +248,19 @@ select_best_pool :: proc(pairs: []DexScreenerPair) -> (DexScreenerPair, bool) {
 		return DexScreenerPair{}, false
 	}
 
-	// Filter pools first
-	filtered := filter_pools(pairs)
-	defer delete(filtered)
+	// Set up request arena for this function
+	arena_alloc := memory.request_allocator()
+
+	// Filter pools first with arena allocator
+	filtered := filter_pools(pairs, arena_alloc)
 
 	if len(filtered) == 0 {
 		log.warn("Cannot select best pool: no pools passed filtering criteria")
 		return DexScreenerPair{}, false
 	}
 
-	// Rank filtered pools
-	ranked := rank_pools(filtered)
-	defer delete(ranked)
+	// Rank filtered pools with arena allocator
+	ranked := rank_pools(filtered, arena_alloc)
 
 	if len(ranked) == 0 {
 		log.error("Ranking returned empty array (should not happen)")

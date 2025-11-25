@@ -115,9 +115,11 @@ fetch_price :: proc(contract_address: string) -> (price: models.PriceData, err: 
 	defer client.body_destroy(body, allocation)
 
 	log.debug("Parsing JSON response")
-	// Parse JSON (body is string)
+	// Parse JSON (body is string) with request arena
+	arena_alloc := memory.request_allocator()
 	response: models.DexScreenerResponse
-	json_err := json.unmarshal_string(body.(string), &response)
+	spec := json.DEFAULT_SPECIFICATION
+	json_err := json.unmarshal_string(body.(string), &response, spec, arena_alloc)
 	if json_err != nil {
 		log.errorf("JSON unmarshal failed: %v", json_err)
 		return {}, .InvalidResponse
@@ -190,9 +192,11 @@ fetch_24h_change :: proc(contract_address: string) -> (f64, models.ErrorType) {
 	}
 	defer client.body_destroy(body, allocation)  // CRITICAL: Always cleanup
 
-	// Parse JSON - use minimal struct (only extract h24)
+	// Parse JSON - use minimal struct (only extract h24) with request arena
+	arena_alloc := memory.request_allocator()
 	response: DexScreenerChangeResponse
-	json_err := json.unmarshal_string(body.(string), &response)
+	spec := json.DEFAULT_SPECIFICATION
+	json_err := json.unmarshal_string(body.(string), &response, spec, arena_alloc)
 	if json_err != nil {
 		return 0, .InvalidResponse
 	}
