@@ -23,18 +23,36 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 	case .MissingArgument:
 		fmt.eprintfln("%s", version.get_version_info())
 		fmt.eprintln("")
-		fmt.eprintln("Usage: hound <symbol>")
-		fmt.eprintln("       hound list")
-		fmt.eprintln("       hound wallet <subcommand>")
-		fmt.eprintln("       hound version")
+		fmt.eprintln("Usage: hound <command> [subcommand] [arguments]")
 		fmt.eprintln("")
-		fmt.eprintln("Examples:")
-		fmt.eprintln("  hound aura               # Check AURA price")
-		fmt.eprintln("  hound sol                # Check SOL price")
-		fmt.eprintln("  hound list               # List all configured tokens")
-		fmt.eprintln("  hound wallet status      # Show wallet balances")
-		fmt.eprintln("  hound wallet list        # List configured wallets")
-		fmt.eprintln("  hound wallet swap sol usdc 1.0  # Swap 1 SOL for USDC")
+		fmt.eprintln("COMMANDS:")
+		fmt.eprintln("  tokens <subcommand>      Manage and query token information")
+		fmt.eprintln("  wallet <subcommand>      Manage wallets and perform swaps")
+		fmt.eprintln("  history [--limit N]      Show price history")
+		fmt.eprintln("  version                  Show version information")
+		fmt.eprintln("")
+		fmt.eprintln("TOKEN SUBCOMMANDS:")
+		fmt.eprintln("  list                     List all configured tokens")
+		fmt.eprintln("  fetch <symbol|address>   Fetch detailed token information")
+		fmt.eprintln("  add <symbol> <name> <address>  Add a new token")
+		fmt.eprintln("")
+		fmt.eprintln("WALLET SUBCOMMANDS:")
+		fmt.eprintln("  status                   Show wallet balances")
+		fmt.eprintln("  list                     List configured wallets")
+		fmt.eprintln("  swap <from> <to> <amt>   Swap tokens")
+		fmt.eprintln("  import                   Import wallet from seed phrase")
+		fmt.eprintln("")
+		fmt.eprintln("EXAMPLES:")
+		fmt.eprintln("  hound tokens list")
+		fmt.eprintln("  hound tokens fetch aura")
+		fmt.eprintln("  hound tokens fetch EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+		fmt.eprintln("  hound tokens add AURA \"AURA Memecoin\" DtR4D9FtVoTX2569gaL...")
+		fmt.eprintln("  hound wallet status")
+		fmt.eprintln("  hound wallet swap sol usdc 1.0")
+		fmt.eprintln("")
+		fmt.eprintln("For detailed help on a command:")
+		fmt.eprintln("  hound tokens --help")
+		fmt.eprintln("  hound wallet --help")
 
 	case .InvalidToken:
 		fmt.eprintfln("Error: Invalid token address: %s", token)
@@ -73,23 +91,23 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 
 	case .TokenNotConfigured:
 		fmt.eprintfln("Error: Token '%s' not found in database", token)
-		fmt.eprintln("Run 'hound list' to see available tokens.")
-		fmt.eprintln("Add new tokens with: hound add <symbol> <name> <address>")
+		fmt.eprintln("Run 'hound tokens list' to see available tokens.")
+		fmt.eprintln("Add new tokens with: hound tokens add <symbol> <name> <address>")
 
 	case .ConfigNotFound:
 		fmt.eprintln("Error: Database not found")
 		fmt.eprintln("Expected location: ~/.config/hound/hound.db")
 		fmt.eprintln("")
 		fmt.eprintln("Add your first token to create the database:")
-		fmt.eprintln("  hound add <symbol> <name> <contract_address>")
+		fmt.eprintln("  hound tokens add <symbol> <name> <contract_address>")
 		fmt.eprintln("")
 		fmt.eprintln("Example:")
-		fmt.eprintln("  hound add aura \"AURA Memecoin\" DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2")
+		fmt.eprintln("  hound tokens add aura \"AURA Memecoin\" DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2")
 
 	case .ConfigParseError:
 		fmt.eprintln("Error: Failed to read database")
 		fmt.eprintln("The database at ~/.config/hound/hound.db may be corrupted.")
-		fmt.eprintln("Try deleting the file and re-adding your tokens with 'hound add'.")
+		fmt.eprintln("Try deleting the file and re-adding your tokens with 'hound tokens add'.")
 
 	case .RPCConnectionFailed:
 		fmt.eprintln("Error: Cannot connect to Solana RPC")
@@ -136,7 +154,7 @@ display_error :: proc(err: models.ErrorType, token: string = "") {
 	case .DatabaseCorrupted:
 		fmt.eprintln("Error: Database integrity check failed")
 		fmt.eprintln("The database file at ~/.config/hound/hound.db is corrupted.")
-		fmt.eprintln("Delete the file and re-add your tokens with 'hound add'.")
+		fmt.eprintln("Delete the file and re-add your tokens with 'hound tokens add'.")
 
 	case .MigrationFailed:
 		fmt.eprintln("Error: Database initialization failed")

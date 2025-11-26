@@ -99,23 +99,19 @@ run :: proc() -> models.ErrorType {
 		return commands.handle_version()
 	}
 
-	// Handle "add" command
-	if first_arg == "add" {
-		if len(os.args) < 5 {
-			log.error("Missing arguments for add command")
-			fmt.eprintln("")
-			fmt.eprintln("Usage: hound add <symbol> <name> <contract_address>")
-			fmt.eprintln("")
-			fmt.eprintln("Example:")
-			fmt.eprintln("  hound add AURA \"AURA Memecoin\" DtR4D9FtVoTX2569gaL837ZgrB6wNjj6tkmnX9Rdk9B2")
-			return .MissingArgument
+	// Handle "tokens" command with subcommands
+	if first_arg == "tokens" {
+		log.debug("Tokens command invoked")
+
+		// Pass remaining args to tokens router (subcommand + args)
+		tokens_args: []string
+		if len(os.args) > 2 {
+			tokens_args = os.args[2:]
+		} else {
+			tokens_args = []string{}
 		}
 
-		symbol := strings.to_lower(os.args[2])
-		name := os.args[3]
-		address := os.args[4]
-
-		return commands.handle_add(symbol, name, address)
+		return commands.handle_tokens(tokens_args)
 	}
 
 	// Handle "wallet" command with subcommands
@@ -196,59 +192,7 @@ run :: proc() -> models.ErrorType {
 		return commands.handle_history(os.args[2:])
 	}
 
-	// Load token configuration (needed for all other commands)
-	log.debug("Loading token configuration")
-	config, config_err := token_cfg.load_token_config()
-	if config_err != .None {
-		log.errorf("Failed to load token config: %v", config_err)
-		return config_err
-	}
-	log.debugf("Loaded %d tokens from configuration", len(config.tokens))
-
-	// Handle "list" command
-	if first_arg == "list" {
-		return commands.handle_list(config)
-	}
-
-	// Handle "fetch" command
-	if first_arg == "fetch" {
-		if len(os.args) < 3 {
-			log.error("Missing token symbol for fetch command")
-			fmt.eprintln("")
-			fmt.eprintln("Usage: hound fetch <symbol> [--refresh]")
-			fmt.eprintln("")
-			fmt.eprintln("Examples:")
-			fmt.eprintln("  hound fetch aura           # Fetch using cached pools")
-			fmt.eprintln("  hound fetch sol --refresh  # Force pool rediscovery")
-			return .MissingArgument
-		}
-
-		symbol := strings.to_lower(os.args[2])
-		force_refresh := false
-
-		// Check for --refresh flag
-		for arg in os.args[3:] {
-			if arg == "--refresh" {
-				force_refresh = true
-				break
-			}
-		}
-
-		return commands.handle_fetch(symbol, force_refresh)
-	}
-
-	// Default: treat first argument as token symbol (backward compatibility)
-	symbol := strings.to_lower(first_arg)
-	log.debugf("Treating first arg as token symbol: %s", symbol)
-
-	// Check for --refresh flag in remaining args
-	force_refresh := false
-	for arg in os.args[2:] {
-		if arg == "--refresh" {
-			force_refresh = true
-			break
-		}
-	}
-
-	return commands.handle_fetch(symbol, force_refresh)
+	// Unknown command - show help
+	log.errorf("Unknown command: %s", first_arg)
+	return .MissingArgument
 }

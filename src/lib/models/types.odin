@@ -85,6 +85,60 @@ PriceData :: struct {
 	change_24h:  f64,
 }
 
+// TopHolder represents a major token holder's information
+// Retrieved from Solana RPC getTokenLargestAccounts (returns top 20)
+TopHolder :: struct {
+	address:        string, // Wallet address (base58-encoded)
+	balance:        f64,    // Token balance (with decimals applied)
+	ownership_pct:  f64,    // Percentage of total supply
+}
+
+// TokenExtendedInfo contains comprehensive token information from multiple sources
+// Used by 'hound tokens fetch' command to display detailed token data
+//
+// Data sources:
+// - On-chain (Solana RPC): supply, top_holders
+// - DexScreener API: market_cap, fdv, liquidity, volume, transactions, price_changes
+// - Token metadata: symbols, name, mint_address
+TokenExtendedInfo :: struct {
+	// Basic identification
+	symbols:      []string, // All trading symbols (may vary by pair: "AURA", "WOLF", etc.)
+	name:         string,   // Token full name
+	network:      string,   // "solana", "ethereum", etc.
+	mint_address: string,   // Token mint/contract address
+
+	// Market data (from DexScreener)
+	price_usd:    f64,      // Current price in USD
+	market_cap:   f64,      // Market capitalization (USD)
+	fdv:          f64,      // Fully Diluted Valuation (USD)
+	liquidity:    f64,      // Total liquidity across pools (USD)
+
+	// Supply data (from on-chain)
+	total_supply: f64,      // Total token supply (with decimals applied)
+	decimals:     int,      // Token decimal places
+
+	// Trading activity (from DexScreener - 24h)
+	volume_24h:      f64,   // 24-hour trading volume (USD)
+	txns_24h:        int,   // 24-hour transaction count
+	buys_24h:        int,   // 24-hour buy count
+	sells_24h:       int,   // 24-hour sell count
+
+	// Price changes (from DexScreener)
+	price_change_5m:  f64,  // 5-minute price change %
+	price_change_1h:  f64,  // 1-hour price change %
+	price_change_6h:  f64,  // 6-hour price change %
+	price_change_24h: f64,  // 24-hour price change %
+
+	// Holder information (from on-chain RPC)
+	top_holders: []TopHolder, // Top 20 holders (from getTokenLargestAccounts)
+
+	// Creation info (from DexScreener)
+	created_at:   string,   // Oldest pair creation date (ISO 8601)
+
+	// Status indicators
+	is_active:    bool,     // Has recent trading activity
+}
+
 // PoolInfo represents a liquidity pool for a token
 PoolInfo :: struct {
 	dex:           string, // "raydium"
