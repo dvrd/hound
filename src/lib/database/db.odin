@@ -958,7 +958,7 @@ get_primary_wallet :: proc(db: ^Database) -> (models.Wallet, models.ErrorType) {
 	log.debug("Querying for primary wallet")
 
 	stmt: ^sqlite3.Statement
-	query := "SELECT address, label, is_primary FROM wallets WHERE is_primary = 1 LIMIT 1"
+	query := "SELECT address, label, is_primary, wallet_type, derivation_path, account_index FROM wallets WHERE is_primary = 1 LIMIT 1"
 
 	result := sqlite3.prepare_v2(db.handle, cstring(raw_data(query)), -1, &stmt, nil)
 	if result != .Ok {
@@ -969,10 +969,27 @@ get_primary_wallet :: proc(db: ^Database) -> (models.Wallet, models.ErrorType) {
 
 	step_result := sqlite3.step(stmt)
 	if step_result == .Row {
+		// Parse wallet_type (column 3)
+		wallet_type_str := string(sqlite3.column_text(stmt, 3))
+		wallet_type, _ := models.parse_wallet_type(wallet_type_str)
+
+		// Retrieve derivation_path (column 4, nullable)
+		derivation_path_ptr := sqlite3.column_text(stmt, 4)
+		derivation_path := ""
+		if derivation_path_ptr != nil {
+			derivation_path = strings.clone(string(derivation_path_ptr))
+		}
+
+		// Retrieve account_index (column 5)
+		account_index := int(sqlite3.column_int(stmt, 5))
+
 		wallet := models.Wallet{
-			address    = strings.clone(string(sqlite3.column_text(stmt, 0))),
-			label      = strings.clone(string(sqlite3.column_text(stmt, 1))),
-			is_primary = sqlite3.column_int(stmt, 2) == 1,
+			address         = strings.clone(string(sqlite3.column_text(stmt, 0))),
+			label           = strings.clone(string(sqlite3.column_text(stmt, 1))),
+			is_primary      = sqlite3.column_int(stmt, 2) == 1,
+			wallet_type     = wallet_type,
+			derivation_path = derivation_path,
+			account_index   = account_index,
 		}
 		log.infof("Found primary wallet: %s (%s)", wallet.label, wallet.address)
 		return wallet, .None
@@ -1004,7 +1021,7 @@ get_wallet_by_address :: proc(
 	log.debugf("Querying for wallet: %s", address)
 
 	stmt: ^sqlite3.Statement
-	query := "SELECT address, label, is_primary FROM wallets WHERE address = ? LIMIT 1"
+	query := "SELECT address, label, is_primary, wallet_type, derivation_path, account_index FROM wallets WHERE address = ? LIMIT 1"
 
 	result := sqlite3.prepare_v2(db.handle, cstring(raw_data(query)), -1, &stmt, nil)
 	if result != .Ok {
@@ -1018,10 +1035,27 @@ get_wallet_by_address :: proc(
 
 	step_result := sqlite3.step(stmt)
 	if step_result == .Row {
+		// Parse wallet_type (column 3)
+		wallet_type_str := string(sqlite3.column_text(stmt, 3))
+		wallet_type, _ := models.parse_wallet_type(wallet_type_str)
+
+		// Retrieve derivation_path (column 4, nullable)
+		derivation_path_ptr := sqlite3.column_text(stmt, 4)
+		derivation_path := ""
+		if derivation_path_ptr != nil {
+			derivation_path = strings.clone(string(derivation_path_ptr))
+		}
+
+		// Retrieve account_index (column 5)
+		account_index := int(sqlite3.column_int(stmt, 5))
+
 		wallet := models.Wallet{
-			address    = strings.clone(string(sqlite3.column_text(stmt, 0))),
-			label      = strings.clone(string(sqlite3.column_text(stmt, 1))),
-			is_primary = sqlite3.column_int(stmt, 2) == 1,
+			address         = strings.clone(string(sqlite3.column_text(stmt, 0))),
+			label           = strings.clone(string(sqlite3.column_text(stmt, 1))),
+			is_primary      = sqlite3.column_int(stmt, 2) == 1,
+			wallet_type     = wallet_type,
+			derivation_path = derivation_path,
+			account_index   = account_index,
 		}
 		log.debugf("Found wallet: %s", wallet.label)
 		return wallet, true, .None
