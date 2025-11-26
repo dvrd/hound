@@ -328,7 +328,26 @@ submit_to_ultra_execute :: proc(
 	}
 	request_body := string(request_body_bytes)
 
-	log.debugf("Execute request body (first 200 chars): %s...", request_body[:min(len(request_body), 200)])
+	// Log the full request body with pretty formatting
+	if len(request_body) > 0 {
+		json_val: json.Value
+		spec := json.DEFAULT_SPECIFICATION
+		if unmarshal_err := json.unmarshal_string(request_body, &json_val, spec); unmarshal_err == nil {
+			opt := json.Marshal_Options{
+				pretty = true,
+				use_spaces = true,
+				spaces = 2,
+			}
+			pretty_json, marshal_err := json.marshal(json_val, opt, context.temp_allocator)
+			if marshal_err == nil {
+				log.debugf("Jupiter Ultra Execute Request Body (formatted):\n%s", string(pretty_json))
+			} else {
+				log.debugf("Jupiter Ultra Execute Request Body (raw): %s", request_body)
+			}
+		} else {
+			log.debugf("Jupiter Ultra Execute Request Body (raw): %s", request_body)
+		}
+	}
 
 	// Create POST request with arena allocator
 	req: client.Request
@@ -368,9 +387,31 @@ submit_to_ultra_execute :: proc(
 		if error_body_err == nil {
 			defer client.body_destroy(error_body, error_alloc)
 			if error_str, is_str := error_body.(string); is_str {
-				// Log and print the actual Jupiter error for the user
-				log.errorf("Jupiter Ultra execute API returned 400: %s", error_str)
-				fmt.eprintfln("\nJupiter API Error: %s\n", error_str)
+				// Log the full error response with pretty formatting
+				log.errorf("Jupiter Ultra execute API returned 400")
+
+				// Try to pretty-print if it's JSON
+				json_val: json.Value
+				spec := json.DEFAULT_SPECIFICATION
+				if unmarshal_err := json.unmarshal_string(error_str, &json_val, spec); unmarshal_err == nil {
+					opt := json.Marshal_Options{
+						pretty = true,
+						use_spaces = true,
+						spaces = 2,
+					}
+					pretty_json, marshal_err := json.marshal(json_val, opt, context.temp_allocator)
+					if marshal_err == nil {
+						log.errorf("Jupiter API Error Response (formatted):\n%s", string(pretty_json))
+						fmt.eprintfln("\nJupiter API Error (formatted):\n%s\n", string(pretty_json))
+					} else {
+						log.errorf("Jupiter API Error Response (raw): %s", error_str)
+						fmt.eprintfln("\nJupiter API Error: %s\n", error_str)
+					}
+				} else {
+					// Not JSON, just print raw
+					log.errorf("Jupiter API Error Response (raw): %s", error_str)
+					fmt.eprintfln("\nJupiter API Error: %s\n", error_str)
+				}
 
 				// Check for common error patterns
 				if strings.contains(error_str, "expired") {
