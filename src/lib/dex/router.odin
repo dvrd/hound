@@ -19,7 +19,9 @@ import "../blockchain"
 // Supported DEX Types:
 // - Orca Whirlpool (CLMM pools)
 // - Jupiter Aggregator API (v3)
-// - Raydium CLMM (planned for future)
+// - Raydium CLMM
+// - Raydium AMM V4
+// - Meteora DLMM (Dynamic Liquidity Market Maker)
 //
 // Routing Strategy:
 // 1. Sort pools by priority (lowest number = highest priority)
@@ -39,6 +41,7 @@ DexType :: enum {
 	Jupiter_API,      // Jupiter Aggregator API
 	Raydium_CLMM,     // Raydium CLMM
 	Raydium_AMM_V4,   // Raydium AMM V4 (standard AMM)
+	Meteora_DLMM,     // Meteora Dynamic Liquidity Market Maker
 	Unknown,          // Unsupported DEX
 }
 
@@ -77,6 +80,8 @@ parse_dex_type :: proc(dex: string, pool_type: string = "") -> DexType {
 			return .Raydium_AMM_V4
 		}
 		return .Raydium_CLMM  // Default to CLMM if not specified
+	case "meteora", "meteora_dlmm", "meteoradlmm":
+		return .Meteora_DLMM
 	case:
 		log.warnf("Unknown DEX type: %s", dex)
 		return .Unknown
@@ -202,6 +207,10 @@ fetch_from_dex :: proc(config: DexPoolConfig, token: models.Token) -> (DexPriceR
 	case .Raydium_AMM_V4:
 		assert(len(config.pool_address) > 0, "Raydium AMM V4 pool address cannot be empty")
 		return fetch_raydium_amm_v4_price(config, token)
+
+	case .Meteora_DLMM:
+		assert(len(config.pool_address) > 0, "Meteora DLMM pool address cannot be empty")
+		return fetch_meteora_dlmm_price(config, token)
 
 	case .Unknown:
 		log.error("Attempted to fetch from unknown DEX type")
@@ -532,6 +541,95 @@ fetch_raydium_amm_v4_price :: proc(config: DexPoolConfig, token: models.Token) -
 	return DexPriceResult{
 		price_usd    = price_usd,
 		source       = .Raydium_AMM_V4,
+		pool_address = config.pool_address,
+	}, .None
+}
+
+// Fetch price from Meteora DLMM pool
+//
+// ASSERTION 1: Validate pool address
+// ASSERTION 2: Validate quote token
+//
+// Meteora Dynamic Liquidity Market Maker (DLMM) uses a bin-based pricing model
+// similar to Uniswap V3's concentrated liquidity, but with dynamic fee tiers.
+//
+// Steps:
+// 1. Fetch pool account data from Solana RPC
+// 2. Decode Meteora DLMM LbPair state
+// 3. Calculate price from active bin and bin step
+// 4. Fetch quote token price (SOL/USDC) and convert to USD
+//
+// Error handling:
+// - .RPCConnectionFailed: Cannot connect to Solana RPC
+// - .RPCInvalidResponse: Malformed RPC response
+// - .PoolDataInvalid: Pool decoding failed or invalid state
+// - .OracleConnectionFailed: Cannot fetch SOL price for USD conversion
+//
+// Returns: DexPriceResult with price_usd, source (.Meteora_DLMM), and pool_address
+fetch_meteora_dlmm_price :: proc(config: DexPoolConfig, token: models.Token) -> (DexPriceResult, models.ErrorType) {
+	assert(len(config.pool_address) > 0, "Meteora DLMM pool address cannot be empty")
+	assert(len(config.quote_token) > 0, "Quote token cannot be empty")
+
+	log.infof("Fetching from Meteora DLMM: %s (quote: %s)", config.pool_address, config.quote_token)
+
+	// 1. Fetch pool account from RPC
+	conn := blockchain.RPCConnection{endpoint = "https://api.mainnet-beta.solana.com", timeout = 10000}
+	pool_data, err := blockchain.get_account_info(conn, config.pool_address)
+	if err != .None {
+		log.errorf("Failed to fetch Meteora DLMM pool data: %v", err)
+		return {}, err
+	}
+	// NO defer delete - get_account_info uses request arena
+
+	log.debugf("Received %d bytes of Meteora DLMM pool data", len(pool_data))
+
+	// 2. Decode pool state
+	pool_state, ok := blockchain.decode_meteora_dlmm_pool(pool_data)
+	if !ok {
+		log.error("Meteora DLMM pool decoding failed")
+		return {}, .PoolDataInvalid
+	}
+
+	log.debugf("Pool decoded - active_id: %d, bin_step: %d, decimals: (%d, %d)",
+		pool_state.active_id, pool_state.bin_step,
+		pool_state.token_x_decimals, pool_state.token_y_decimals)
+
+	// 3. Calculate price from active bin
+	// Meteora DLMM uses: price = (1 + bin_step / 10000) ^ (active_id - 8388608)
+	// where 8388608 is the center bin (price = 1.0)
+	price_in_quote := blockchain.calculate_meteora_dlmm_price(pool_state)
+
+	log.debugf("Price in quote token: %.18f", price_in_quote)
+
+	// 4. Convert to USD (get quote token price)
+	quote_usd_price: f64
+	lower_quote := strings.to_lower(config.quote_token)
+	switch lower_quote {
+	case "sol", "wsol":
+		sol_price, sol_err := blockchain.get_sol_price_cached()
+		if sol_err != .None {
+			log.errorf("Failed to get SOL price: %v", sol_err)
+			return {}, sol_err
+		}
+		quote_usd_price = sol_price
+		log.debugf("SOL/USD price: $%.2f", sol_price)
+	case "usdc", "usdt":
+		quote_usd_price = 1.0  // USDC/USDT = $1.00
+		log.debugf("Using %s = $1.00", config.quote_token)
+	case:
+		log.errorf("Unsupported quote token: %s", config.quote_token)
+		return {}, .PoolDataInvalid
+	}
+
+	// 5. Calculate final USD price
+	price_usd := price_in_quote * quote_usd_price
+
+	log.infof("Meteora DLMM price: $%.6f", price_usd)
+	log.infof("Meteora DLMM price: %.9f %s", price_in_quote, config.quote_token)
+
+	return DexPriceResult{
+		price_usd    = price_usd,
+		source       = .Meteora_DLMM,
 		pool_address = config.pool_address,
 	}, .None
 }
