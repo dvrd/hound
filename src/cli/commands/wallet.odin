@@ -1274,16 +1274,61 @@ handle_wallet_list :: proc(args: []string = nil) -> models.ErrorType {
 			fmt.printfln("%s %s %s %s", wallet.label, wallet.address, primary_flag, type_name)
 		}
 	} else {
-		// Table format (original)
+		// Table format with dynamic column widths
 		fmt.println("Configured Wallets:")
 		fmt.println("")
-		fmt.println("┌────────────────────────┬──────────────────────────────────────────────┬───────────────────────┐")
-		fmt.println("│ Label                  │ Address                                      │ Status                │")
-		fmt.println("├────────────────────────┼──────────────────────────────────────────────┼───────────────────────┤")
 
+		// Calculate maximum status width
+		max_status_width := len("Status")  // Minimum width (header)
 		for wallet in wallets {
-			label_padded := fmt.tprintf("%-22s", wallet.label)
-			address_short := fmt.tprintf("%-44s", wallet.address)
+			status_builder := strings.builder_make(context.temp_allocator)
+			if wallet.is_primary {
+				strings.write_string(&status_builder, "PRIMARY ")
+			}
+			type_name := fmt.tprintf("%v", wallet.wallet_type)
+			strings.write_string(&status_builder, "[")
+			strings.write_string(&status_builder, type_name)
+			strings.write_string(&status_builder, "]")
+			status := strings.to_string(status_builder)
+			status_len := len(status)
+			if status_len > max_status_width {
+				max_status_width = status_len
+			}
+		}
+
+		// Build border strings
+		label_width := 22
+		address_width := 44
+		status_width := max_status_width
+
+		// Top border
+		fmt.print("┌")
+		for i in 0..<label_width + 2 {fmt.print("─")}
+		fmt.print("┬")
+		for i in 0..<address_width + 2 {fmt.print("─")}
+		fmt.print("┬")
+		for i in 0..<status_width + 2 {fmt.print("─")}
+		fmt.println("┐")
+
+		// Header
+		fmt.printfln("│ %-*s │ %-*s │ %-*s │",
+			label_width, "Label",
+			address_width, "Address",
+			status_width, "Status")
+
+		// Header separator
+		fmt.print("├")
+		for i in 0..<label_width + 2 {fmt.print("─")}
+		fmt.print("┼")
+		for i in 0..<address_width + 2 {fmt.print("─")}
+		fmt.print("┼")
+		for i in 0..<status_width + 2 {fmt.print("─")}
+		fmt.println("┤")
+
+		// Data rows
+		for wallet in wallets {
+			label_padded := fmt.tprintf("%-*s", label_width, wallet.label)
+			address_short := fmt.tprintf("%-*s", address_width, wallet.address)
 
 			// Build status with badges
 			status_builder := strings.builder_make(memory.command_allocator())
@@ -1298,12 +1343,19 @@ handle_wallet_list :: proc(args: []string = nil) -> models.ErrorType {
 			strings.write_string(&status_builder, "]")
 
 			status := strings.to_string(status_builder)
-			status_padded := fmt.tprintf("%-21s", status)
+			status_padded := fmt.tprintf("%-*s", status_width, status)
 
 			fmt.printfln("│ %s │ %s │ %s │", label_padded, address_short, status_padded)
 		}
 
-		fmt.println("└────────────────────────┴──────────────────────────────────────────────┴───────────────────────┘")
+		// Bottom border
+		fmt.print("└")
+		for i in 0..<label_width + 2 {fmt.print("─")}
+		fmt.print("┴")
+		for i in 0..<address_width + 2 {fmt.print("─")}
+		fmt.print("┴")
+		for i in 0..<status_width + 2 {fmt.print("─")}
+		fmt.println("┘")
 		fmt.println("")
 		fmt.printfln("Total: %d wallet(s)", len(wallets))
 		fmt.println("")
