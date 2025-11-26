@@ -599,6 +599,12 @@ fetch_meteora_dlmm_price :: proc(config: DexPoolConfig, token: models.Token) -> 
 	// where 8388608 is the center bin (price = 1.0)
 	price_in_quote := blockchain.calculate_meteora_dlmm_price(pool_state)
 
+	// Check for invalid price (0 indicates calculation failure)
+	if price_in_quote <= 0.0 {
+		log.error("Meteora DLMM price calculation returned invalid value")
+		return {}, .PoolDataInvalid
+	}
+
 	log.debugf("Price in quote token: %.18f", price_in_quote)
 
 	// 4. Convert to USD (get quote token price)

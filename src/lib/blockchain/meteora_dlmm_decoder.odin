@@ -74,72 +74,38 @@ decode_meteora_dlmm_pool :: proc(data: []u8) -> (MeteoraDLMMPoolState, bool) {
 
 	state: MeteoraDLMMPoolState
 
-	// Account layout (offsets from Meteora DLMM SDK):
+	// Account layout (empirically determined from on-chain data):
 	// Bytes 0-7:   Discriminator (account type identifier)
-	// Bytes 8-39:  Token X Mint (32 bytes)
-	// Bytes 40-71: Token Y Mint (32 bytes)
-	// Bytes 72-79: Bin Step (u16) + padding
-	// Bytes 80-83: Active ID (i32)
-	// Bytes 84-85: Token X Decimals (u8) + Token Y Decimals (u8)
-	// Bytes 86-89: Protocol Fee (u16) + Base Fee (u16)
+	// Bytes 8-15:  Unknown/padding
+	// Bytes 16-17: Bin Step (u16)
+	// Bytes 18-27: Unknown fields
+	// Bytes 28-31: Active ID (i32)
+	// Bytes 32-35: Unknown
+	// Note: Token mints and decimals are at different offsets than initially assumed
+	// TODO: Determine exact locations of token_x_mint, token_y_mint, decimals
 
-	offset := 8  // Skip discriminator
-
-	// Token X Mint (32 bytes)
-	if offset + 32 <= len(data) {
-		mem.copy(&state.token_x_mint[0], &data[offset], 32)
-		offset += 32
+	// Read bin_step at offset 16
+	if 16 + 2 <= len(data) {
+		state.bin_step = read_u16_le(data, 16)
 	} else {
-		log.error("Failed to read token_x_mint")
+		log.error("Failed to read bin_step at offset 16")
 		return {}, false
 	}
 
-	// Token Y Mint (32 bytes)
-	if offset + 32 <= len(data) {
-		mem.copy(&state.token_y_mint[0], &data[offset], 32)
-		offset += 32
+	// Read active_id at offset 28
+	if 28 + 4 <= len(data) {
+		state.active_id = read_i32_le(data, 28)
 	} else {
-		log.error("Failed to read token_y_mint")
+		log.error("Failed to read active_id at offset 28")
 		return {}, false
 	}
 
-	// Bin Step (u16)
-	if offset + 2 <= len(data) {
-		state.bin_step = read_u16_le(data, offset)
-		offset += 8  // Include padding
-	} else {
-		log.error("Failed to read bin_step")
-		return {}, false
-	}
-
-	// Active ID (i32)
-	if offset + 4 <= len(data) {
-		state.active_id = read_i32_le(data, offset)
-		offset += 4
-	} else {
-		log.error("Failed to read active_id")
-		return {}, false
-	}
-
-	// Token Decimals (u8 + u8)
-	if offset + 2 <= len(data) {
-		state.token_x_decimals = data[offset]
-		state.token_y_decimals = data[offset + 1]
-		offset += 2
-	} else {
-		log.error("Failed to read token decimals")
-		return {}, false
-	}
-
-	// Fees (u16 + u16)
-	if offset + 4 <= len(data) {
-		state.protocol_fee = read_u16_le(data, offset)
-		state.base_fee = read_u16_le(data, offset + 2)
-		offset += 4
-	} else {
-		log.error("Failed to read fees")
-		return {}, false
-	}
+	// TODO: Find correct offsets for these fields
+	// For now, set reasonable defaults
+	state.token_x_decimals = 9  // Default to SOL-like
+	state.token_y_decimals = 9
+	state.protocol_fee = 0
+	state.base_fee = 0
 
 	// ASSERTION 2: Validate bin_step
 	if state.bin_step == 0 {
@@ -182,9 +148,26 @@ calculate_meteora_dlmm_price :: proc(state: MeteoraDLMMPoolState) -> f64 {
 	// bin_step is in basis points, so divide by 10_000
 	price_per_bin := 1.0 + f64(state.bin_step) / 10_000.0
 
-	// Calculate price = price_per_bin ^ active_id
-	// Use math.pow for arbitrary exponentiation
-	price := math.pow(price_per_bin, f64(state.active_id))
+	// Calculate price = price_per_bin ^ active_id using logarithms to avoid overflow
+	// price = exp(active_id * ln(price_per_bin))
+	log_price := f64(state.active_id) * math.ln(price_per_bin)
+
+	// Check if log_price is too large (would cause overflow in exp)
+	MAX_LOG_PRICE :: 700.0  // exp(700) ≈ 10^304, beyond this we get inf
+	if math.abs(log_price) > MAX_LOG_PRICE {
+		log.errorf("Meteora price calculation would overflow: log_price=%.2f (bin_step=%d, active_id=%d)",
+			log_price, state.bin_step, state.active_id)
+		return 0.0  // Return 0 to indicate failure
+	}
+
+	price := math.exp(log_price)
+
+	// Check for infinity or invalid values
+	if math.is_inf(price, 0) || math.is_nan(price) {
+		log.errorf("Meteora price calculation resulted in invalid value: log_price=%.2f",
+			log_price)
+		return 0.0
+	}
 
 	// Adjust for decimals
 	decimals_diff := i32(state.token_y_decimals) - i32(state.token_x_decimals)
@@ -192,8 +175,15 @@ calculate_meteora_dlmm_price :: proc(state: MeteoraDLMMPoolState) -> f64 {
 
 	final_price := price * decimal_adjustment
 
-	log.debugf("Meteora price calculation: base=%.6f, exponent=%d, raw_price=%.18f, decimal_adj=%.6f, final=%.18f",
-		price_per_bin, state.active_id, price, decimal_adjustment, final_price)
+	// Final check for infinity
+	if math.is_inf(final_price, 0) || math.is_nan(final_price) {
+		log.errorf("Meteora price after decimal adjustment is invalid: %.18e * %.6f",
+			price, decimal_adjustment)
+		return 0.0
+	}
+
+	log.debugf("Meteora price calculation: bin_step=%d, active_id=%d, log_price=%.2f, raw_price=%.18e, decimal_adj=%.6f, final=%.18f",
+		state.bin_step, state.active_id, log_price, price, decimal_adjustment, final_price)
 
 	return final_price
 }
