@@ -312,12 +312,12 @@ submit_to_ultra_execute :: proc(
 
 	// Build request body using JSON marshal to ensure proper escaping
 	ExecuteRequest :: struct {
-		transaction: string,
+		signedTransaction: string,
 		requestId: string,
 	}
 
 	request_data := ExecuteRequest{
-		transaction = signed_transaction,
+		signedTransaction = signed_transaction,
 		requestId = request_id,
 	}
 
