@@ -310,13 +310,25 @@ submit_to_ultra_execute :: proc(
 ) -> (models.SwapTransactionResult, models.ErrorType) {
 	log.debug("Submitting transaction to Ultra execute endpoint")
 
-	// Build request body with arena allocator
-	request_body := fmt.aprintf(
-		`{"transaction":"%s","requestId":"%s"}`,
-		signed_transaction,
-		request_id,
-		allocator = arena_alloc,
-	)
+	// Build request body using JSON marshal to ensure proper escaping
+	ExecuteRequest :: struct {
+		transaction: string,
+		requestId: string,
+	}
+
+	request_data := ExecuteRequest{
+		transaction = signed_transaction,
+		requestId = request_id,
+	}
+
+	request_body_bytes, marshal_err := json.marshal(request_data, json.Marshal_Options{}, arena_alloc)
+	if marshal_err != nil {
+		log.errorf("Failed to marshal request body: %v", marshal_err)
+		return {}, models.ErrorType.InvalidResponse
+	}
+	request_body := string(request_body_bytes)
+
+	log.debugf("Execute request body (first 200 chars): %s...", request_body[:min(len(request_body), 200)])
 
 	// Create POST request with arena allocator
 	req: client.Request
