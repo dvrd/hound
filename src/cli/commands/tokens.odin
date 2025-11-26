@@ -10,6 +10,7 @@ import models "../../lib/models"
 import db "../../lib/database"
 import memory "../../lib/memory"
 import token_cfg "../../lib/config"
+import services "../../lib/services"
 import output "../output"
 
 // ============================================================================
@@ -164,19 +165,68 @@ handle_tokens_list :: proc(config: models.TokenConfig) -> models.ErrorType {
 
 // handle_tokens_fetch implements "hound tokens fetch <symbol|address>" workflow
 //
-// This will be expanded to fetch extended token information including:
-// - Market cap, FDV, liquidity
-// - Total supply, top holders
-// - 24h volume, transactions, price changes
+// Fetches comprehensive token information including:
+// - Market cap, FDV, liquidity (from DexScreener)
+// - Total supply, top holders (from Solana RPC)
+// - 24h volume, transactions, price changes (from DexScreener)
 // - Multiple symbols (if multiple pools exist)
-//
-// For now, delegates to the existing fetch implementation
 handle_tokens_fetch :: proc(symbol_or_address: string, force_refresh: bool) -> models.ErrorType {
 	log.debugf("Fetching extended token info for: %s (refresh=%v)", symbol_or_address, force_refresh)
 
-	// TODO: Implement extended token info fetching
-	// For now, use existing fetch implementation
-	return handle_fetch(symbol_or_address, force_refresh)
+	// Determine if input is a token address or symbol
+	mint_address := ""
+
+	// Check if it's a valid Solana address (32-44 characters, base58)
+	if len(symbol_or_address) >= 32 && len(symbol_or_address) <= 44 {
+		// Treat as direct mint address
+		mint_address = symbol_or_address
+	} else {
+		// Treat as symbol - look up in database
+		db_path := token_cfg.get_database_path()
+		database, db_err := db.database_open(db_path)
+		if db_err != .None {
+			log.errorf("Failed to open database: %v", db_err)
+			return .DatabaseError
+		}
+		defer db.database_close(database)
+
+		token, found, lookup_err := db.get_token_by_symbol(database, symbol_or_address)
+		if lookup_err != .None {
+			log.errorf("Database lookup failed: %v", lookup_err)
+			return .DatabaseError
+		}
+
+		if !found {
+			log.warnf("Token '%s' not found in database", symbol_or_address)
+			return .TokenNotConfigured
+		}
+
+		mint_address = token.contract_address
+	}
+
+	log.debugf("Resolved mint address: %s", mint_address)
+
+	// Get RPC endpoint (use Helius if available, fallback to public)
+	rpc_endpoint := os.get_env_alloc("HELIUS_RPC_URL", context.temp_allocator)
+	if len(rpc_endpoint) == 0 {
+		rpc_endpoint = "https://api.mainnet-beta.solana.com"
+	}
+
+	// Fetch extended token information
+	token_info, info_err := services.fetch_extended_token_info(mint_address, rpc_endpoint)
+	if info_err != .None {
+		log.errorf("Failed to fetch token info: %v", info_err)
+		return info_err
+	}
+
+	// Display formatted output
+	output.format_extended_token_info(token_info)
+
+	// Reset command arena and log stats
+	memory.reset_command_arena()
+	memory.log_memory_stats()
+
+	return .None
 }
 
 // handle_tokens_add implements "hound tokens add <symbol> <name> <address>" workflow
