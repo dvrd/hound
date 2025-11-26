@@ -395,8 +395,31 @@ submit_to_ultra_execute :: proc(
 		return {}, models.ErrorType.InvalidResponse
 	}
 
-	log.debugf("Jupiter Ultra execute response (first 500 chars): %s", body_str[:min(len(body_str), 500)])
+	// Debug: Log the full execute response with pretty formatting
 	log.debug("Parsing execute response")
+	if len(body_str) > 0 {
+		// Parse and re-format JSON for readability
+		json_val: json.Value
+		spec := json.DEFAULT_SPECIFICATION
+		if unmarshal_err := json.unmarshal_string(body_str, &json_val, spec); unmarshal_err == nil {
+			// Marshal with indentation
+			opt := json.Marshal_Options{
+				pretty = true,
+				use_spaces = true,
+				spaces = 2,
+			}
+			pretty_json, marshal_err := json.marshal(json_val, opt, context.temp_allocator)
+			if marshal_err == nil {
+				log.debugf("Jupiter Ultra Execute Response (formatted):\n%s", string(pretty_json))
+			} else {
+				// Fallback to raw if pretty-print fails
+				log.debugf("Jupiter Ultra Execute Response (raw): %s", body_str)
+			}
+		} else {
+			// Fallback to raw if parsing fails
+			log.debugf("Jupiter Ultra Execute Response (raw - parse failed): %s", body_str)
+		}
+	}
 
 	// Parse JSON response
 	result, parse_err := parse_execute_response(body_str, quote, input_symbol, output_symbol)
