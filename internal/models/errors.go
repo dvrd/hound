@@ -53,6 +53,13 @@ var (
 	// Oracle errors
 	ErrOracleConnectionFailed = errors.New("cannot fetch SOL price")
 	ErrOraclePriceInvalid     = errors.New("SOL price validation failed")
+
+	// Transfer errors
+	ErrInvalidRecipient           = errors.New("invalid recipient address")
+	ErrSendToSelf                 = errors.New("cannot send to own address")
+	ErrInsufficientBalanceForRent = errors.New("insufficient balance for rent exemption")
+	ErrTransactionFailed          = errors.New("transaction failed on-chain")
+	ErrBlockhashExpired           = errors.New("blockhash expired — please retry")
 )
 
 // WalletNotFoundError provides context about which wallet was not found.
@@ -101,7 +108,10 @@ func ExitCode(err error) int {
 		errors.Is(err, ErrQuoteExpired),
 		errors.Is(err, ErrHighPriceImpact),
 		errors.Is(err, ErrInsufficientBalance),
-		errors.Is(err, ErrSlippageExceeded):
+		errors.Is(err, ErrSlippageExceeded),
+		errors.Is(err, ErrInvalidRecipient),
+		errors.Is(err, ErrSendToSelf),
+		errors.Is(err, ErrInsufficientBalanceForRent):
 		return 1
 
 	// Migration/data format errors
@@ -114,7 +124,8 @@ func ExitCode(err error) int {
 		errors.Is(err, ErrRateLimited),
 		errors.Is(err, ErrServerError),
 		errors.Is(err, ErrRPCConnectionFailed),
-		errors.Is(err, ErrOracleConnectionFailed):
+		errors.Is(err, ErrOracleConnectionFailed),
+		errors.Is(err, ErrBlockhashExpired):
 		return 69
 
 	// Internal software error
@@ -124,7 +135,8 @@ func ExitCode(err error) int {
 		errors.Is(err, ErrPoolDataInvalid),
 		errors.Is(err, ErrOraclePriceInvalid),
 		errors.Is(err, ErrCryptoFailed),
-		errors.Is(err, ErrInvalidTransaction):
+		errors.Is(err, ErrInvalidTransaction),
+		errors.Is(err, ErrTransactionFailed):
 		return 70
 
 	// I/O error
@@ -214,6 +226,21 @@ func UserMessage(err error) string {
 
 	case errors.Is(err, ErrConfigNotFound):
 		return "Database not found.\nExpected location: ~/.config/hound/hound.db\n\nAdd your first token to create the database:\n  hound tokens add <symbol> <name> <address>"
+
+	case errors.Is(err, ErrInvalidRecipient):
+		return "Invalid recipient address. Check the address and try again."
+
+	case errors.Is(err, ErrSendToSelf):
+		return "Cannot send to your own address."
+
+	case errors.Is(err, ErrInsufficientBalanceForRent):
+		return "Insufficient SOL to cover rent exemption for new account."
+
+	case errors.Is(err, ErrTransactionFailed):
+		return "Transaction failed on-chain. Check explorer for details."
+
+	case errors.Is(err, ErrBlockhashExpired):
+		return "Transaction expired. Please try again."
 
 	default:
 		return err.Error()

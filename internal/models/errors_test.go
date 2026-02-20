@@ -30,6 +30,11 @@ func TestSentinelErrors(t *testing.T) {
 		models.ErrDatabaseCorrupted,
 		models.ErrMigrationFailed,
 		models.ErrConfigNotFound,
+		models.ErrInvalidRecipient,
+		models.ErrSendToSelf,
+		models.ErrInsufficientBalanceForRent,
+		models.ErrTransactionFailed,
+		models.ErrBlockhashExpired,
 	}
 
 	for i, a := range sentinels {
@@ -101,6 +106,11 @@ func TestExitCode(t *testing.T) {
 		{"database error", models.ErrDatabaseError, 74},
 		{"database corrupted", models.ErrDatabaseCorrupted, 74},
 		{"config not found", models.ErrConfigNotFound, 78},
+		{"invalid recipient", models.ErrInvalidRecipient, 1},
+		{"send to self", models.ErrSendToSelf, 1},
+		{"insufficient rent", models.ErrInsufficientBalanceForRent, 1},
+		{"blockhash expired", models.ErrBlockhashExpired, 69},
+		{"transaction failed", models.ErrTransactionFailed, 70},
 		{"unknown error", errors.New("something else"), 1},
 	}
 
@@ -166,4 +176,23 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestTransferErrorMessages(t *testing.T) {
+	errors := []error{
+		models.ErrInvalidRecipient,
+		models.ErrSendToSelf,
+		models.ErrInsufficientBalanceForRent,
+		models.ErrTransactionFailed,
+		models.ErrBlockhashExpired,
+	}
+	for _, err := range errors {
+		msg := models.UserMessage(err)
+		if msg == "" {
+			t.Errorf("UserMessage(%v) returned empty string", err)
+		}
+		if msg == err.Error() {
+			t.Errorf("UserMessage(%v) should return user-friendly message, not raw error", err)
+		}
+	}
 }
