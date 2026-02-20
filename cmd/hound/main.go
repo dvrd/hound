@@ -78,10 +78,6 @@ func initDeps() (*deps, error) {
 		return nil, fmt.Errorf("database: %w", err)
 	}
 
-	if err := db.MigrateSchema(); err != nil {
-		db.Close()
-		return nil, fmt.Errorf("migration: %w", err)
-	}
 	if err := db.CreateSchema(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("schema: %w", err)

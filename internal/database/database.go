@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -53,49 +52,6 @@ func (d *Database) CreateSchema() error {
 	return nil
 }
 
-// MigrateSchema applies ALTER TABLE migrations for columns that may not exist
-// in older database versions. It is safe to call multiple times.
-func (d *Database) MigrateSchema() error {
-	walletMigrations := []struct {
-		column string
-		ddl    string
-	}{
-		{"wallet_type", "ALTER TABLE wallets ADD COLUMN wallet_type TEXT DEFAULT 'Legacy'"},
-		{"derivation_path", "ALTER TABLE wallets ADD COLUMN derivation_path TEXT DEFAULT 'legacy-sha256'"},
-		{"account_index", "ALTER TABLE wallets ADD COLUMN account_index INTEGER DEFAULT 0"},
-	}
-
-	for _, m := range walletMigrations {
-		if err := addColumnIfNotExists(d.db, "wallets", m.column, m.ddl); err != nil {
-			return fmt.Errorf("migrate wallets.%s: %w", m.column, err)
-		}
-	}
-
-	poolMigrations := []struct {
-		column string
-		ddl    string
-	}{
-		{"liquidity_usd", "ALTER TABLE pools ADD COLUMN liquidity_usd REAL DEFAULT 0.0"},
-		{"volume_24h", "ALTER TABLE pools ADD COLUMN volume_24h REAL DEFAULT 0.0"},
-		{"fee_percent", "ALTER TABLE pools ADD COLUMN fee_percent REAL DEFAULT 0.0"},
-		{"discovered_at", "ALTER TABLE pools ADD COLUMN discovered_at INTEGER DEFAULT 0"},
-	}
-
-	for _, m := range poolMigrations {
-		if err := addColumnIfNotExists(d.db, "pools", m.column, m.ddl); err != nil {
-			return fmt.Errorf("migrate pools.%s: %w", m.column, err)
-		}
-	}
-
-	// Migrate swap_history: Odin schema used "timestamp" column, Go uses "created_at".
-	// Also drop the old unique index on signature and the timestamp-based index.
-	if err := migrateSwapHistory(d.db); err != nil {
-		return fmt.Errorf("migrate swap_history: %w", err)
-	}
-
-	return nil
-}
-
 // IntegrityCheck runs PRAGMA integrity_check and returns an error if the
 // database is corrupt.
 func (d *Database) IntegrityCheck() error {
@@ -123,72 +79,6 @@ func configurePragmas(db *sql.DB) error {
 		}
 	}
 	return nil
-}
-
-// migrateSwapHistory handles the Odin→Go schema transition for swap_history.
-// The Odin schema used "timestamp" instead of "created_at" and had different
-// nullability/uniqueness constraints. This migration renames the column if the
-// old schema is detected. Safe to call on new databases (no-op).
-func migrateSwapHistory(db *sql.DB) error {
-	hasTimestamp, err := columnExists(db, "swap_history", "timestamp")
-	if err != nil {
-		// Table doesn't exist yet — nothing to migrate.
-		return nil
-	}
-	if !hasTimestamp {
-		return nil
-	}
-
-	// Odin schema has "timestamp" — rename to "created_at".
-	if _, err := db.Exec(`ALTER TABLE swap_history RENAME COLUMN "timestamp" TO created_at`); err != nil {
-		return fmt.Errorf("rename timestamp→created_at: %w", err)
-	}
-
-	// Drop the old timestamp-based index if it exists, the schema creation
-	// will recreate it as idx_swap_history_created on created_at.
-	db.Exec(`DROP INDEX IF EXISTS idx_swap_history_timestamp`)
-
-	return nil
-}
-
-// addColumnIfNotExists checks whether a column exists in a table using
-// PRAGMA table_info and adds it via ALTER TABLE if missing.
-func addColumnIfNotExists(db *sql.DB, table, column, ddl string) error {
-	exists, err := columnExists(db, table, column)
-	if err != nil {
-		return err
-	}
-	if exists {
-		return nil
-	}
-	if _, err := db.Exec(ddl); err != nil {
-		return fmt.Errorf("exec %q: %w", ddl, err)
-	}
-	return nil
-}
-
-// columnExists returns true if the given column exists in the table.
-func columnExists(db *sql.DB, table, column string) (bool, error) {
-	rows, err := db.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		return false, fmt.Errorf("table_info(%s): %w", table, err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var dfltValue *string
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltValue, &pk); err != nil {
-			return false, fmt.Errorf("scan table_info row: %w", err)
-		}
-		if strings.EqualFold(name, column) {
-			return true, nil
-		}
-	}
-	return false, rows.Err()
 }
 
 // schema contains all CREATE TABLE and CREATE INDEX statements.

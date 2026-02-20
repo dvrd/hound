@@ -1,7 +1,6 @@
 package database
 
 import (
-	"database/sql"
 	"testing"
 	"time"
 )
@@ -86,24 +85,6 @@ func TestCreateSchemaIdempotent(t *testing.T) {
 		if err != nil {
 			t.Errorf("table %q not found: %v", table, err)
 		}
-	}
-}
-
-func TestMigrateSchemaIdempotent(t *testing.T) {
-	db := mustOpenInMemory(t)
-
-	if err := db.CreateSchema(); err != nil {
-		t.Fatalf("CreateSchema failed: %v", err)
-	}
-
-	// First migration
-	if err := db.MigrateSchema(); err != nil {
-		t.Fatalf("first MigrateSchema failed: %v", err)
-	}
-
-	// Second migration should be a no-op
-	if err := db.MigrateSchema(); err != nil {
-		t.Fatalf("second MigrateSchema failed: %v", err)
 	}
 }
 
@@ -307,85 +288,4 @@ func TestSwapHistoryInsert(t *testing.T) {
 	if id < 1 {
 		t.Errorf("expected positive id, got %d", id)
 	}
-}
-
-func TestMigrateAddsColumns(t *testing.T) {
-	db := mustOpenInMemory(t)
-
-	// Create a minimal schema WITHOUT the migration columns to simulate old DB
-	_, err := db.DB().Exec(`
-		CREATE TABLE IF NOT EXISTS wallets (
-			address TEXT PRIMARY KEY,
-			label TEXT NOT NULL,
-			is_primary INTEGER DEFAULT 0,
-			added_at INTEGER NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS pools (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			token_id INTEGER NOT NULL,
-			dex TEXT NOT NULL,
-			pool_address TEXT NOT NULL,
-			quote_token TEXT NOT NULL,
-			pool_type TEXT NOT NULL,
-			UNIQUE(token_id, pool_address)
-		);
-	`)
-	if err != nil {
-		t.Fatalf("create minimal schema failed: %v", err)
-	}
-
-	// Run migration
-	if err := db.MigrateSchema(); err != nil {
-		t.Fatalf("MigrateSchema failed: %v", err)
-	}
-
-	// Verify wallet columns were added
-	walletCols := getColumnNames(t, db.DB(), "wallets")
-	for _, col := range []string{"wallet_type", "derivation_path", "account_index"} {
-		if !contains(walletCols, col) {
-			t.Errorf("wallets table missing column %q after migration", col)
-		}
-	}
-
-	// Verify pool columns were added
-	poolCols := getColumnNames(t, db.DB(), "pools")
-	for _, col := range []string{"liquidity_usd", "volume_24h", "fee_percent", "discovered_at"} {
-		if !contains(poolCols, col) {
-			t.Errorf("pools table missing column %q after migration", col)
-		}
-	}
-}
-
-// helpers
-
-func getColumnNames(t *testing.T, db *sql.DB, table string) []string {
-	t.Helper()
-	rows, err := db.Query("PRAGMA table_info(" + table + ")")
-	if err != nil {
-		t.Fatalf("PRAGMA table_info(%s) failed: %v", table, err)
-	}
-	defer rows.Close()
-
-	var cols []string
-	for rows.Next() {
-		var cid int
-		var name, typ string
-		var notNull int
-		var dfltValue *string
-		var pk int
-		if err := rows.Scan(&cid, &name, &typ, &notNull, &dfltValue, &pk); err != nil {
-			t.Fatalf("scan table_info row failed: %v", err)
-		}
-		cols = append(cols, name)
-	}
-	return cols
-}
-
-func contains(slice []string, item string) bool {
-	for _, s := range slice {
-		if s == item {
-			return true
-		}
-	}
-	return false
 }

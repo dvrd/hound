@@ -22,9 +22,6 @@ func setupPoolTestDB(t *testing.T) *database.Database {
 	if err := db.CreateSchema(); err != nil {
 		t.Fatalf("CreateSchema failed: %v", err)
 	}
-	if err := db.MigrateSchema(); err != nil {
-		t.Fatalf("MigrateSchema failed: %v", err)
-	}
 	t.Cleanup(func() { db.Close() })
 	return db
 }
