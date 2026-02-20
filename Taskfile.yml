@@ -138,3 +138,47 @@ tasks:
     desc: Install git hooks (pre-commit for auto-bumping version on master)
     cmds:
       - ruby scripts/install-hooks.rb
+
+  # ── Go port tasks ──────────────────────────────────────────────
+
+  go:build:
+    desc: Build the Go port binary
+    dir: go
+    cmds:
+      - mkdir -p ../bin
+      - go build -o ../bin/hound-go ./cmd/hound
+
+  go:test:
+    desc: Run Go tests
+    dir: go
+    cmds:
+      - go test ./... -count=1 -short -timeout 60s
+
+  go:test:verbose:
+    desc: Run Go tests with verbose output
+    dir: go
+    cmds:
+      - go test ./... -count=1 -short -timeout 60s -v
+
+  go:run:
+    desc: Run the Go port directly
+    dir: go
+    cmds:
+      - go run ./cmd/hound {{.CLI_ARGS}}
+
+  go:lint:
+    desc: Run Go vet on all packages
+    dir: go
+    cmds:
+      - go vet ./...
+
+  go:tidy:
+    desc: Tidy Go module dependencies
+    dir: go
+    cmds:
+      - go mod tidy
+
+  go:clean:
+    desc: Remove Go build artifacts
+    cmds:
+      - rm -f bin/hound-go

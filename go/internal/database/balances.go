@@ -1,0 +1,49 @@
+package database
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/dvrd/hound/internal/models"
+)
+
+// UpdateBalance inserts or replaces a token balance for a wallet.
+func (d *Database) UpdateBalance(walletAddr, mint, symbol string, amount, usdPrice, usdValue float64) error {
+	now := time.Now().Unix()
+
+	_, err := d.db.Exec(
+		`INSERT OR REPLACE INTO balances (wallet_address, mint, symbol, amount, usd_price, usd_value, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		walletAddr, mint, symbol, amount, usdPrice, usdValue, now,
+	)
+	if err != nil {
+		return fmt.Errorf("updating balance for wallet %q mint %q: %w", walletAddr, mint, err)
+	}
+	return nil
+}
+
+// GetBalancesForWallet retrieves all token balances for a wallet, ordered by USD value descending.
+func (d *Database) GetBalancesForWallet(walletAddr string) ([]models.TokenBalance, error) {
+	rows, err := d.db.Query(
+		`SELECT mint, symbol, amount, usd_price, usd_value
+		 FROM balances WHERE wallet_address = ? ORDER BY usd_value DESC`, walletAddr,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying balances for wallet %q: %w", walletAddr, err)
+	}
+	defer rows.Close()
+
+	var balances []models.TokenBalance
+	for rows.Next() {
+		var b models.TokenBalance
+		if err := rows.Scan(&b.Mint, &b.Symbol, &b.Amount, &b.USDPrice, &b.USDValue); err != nil {
+			return nil, fmt.Errorf("scanning balance row: %w", err)
+		}
+		balances = append(balances, b)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating balance rows: %w", err)
+	}
+
+	return balances, nil
+}

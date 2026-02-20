@@ -28,6 +28,13 @@ PRPs/
 bin/
 docs/
 
+# Go
+go/bin/
+*.test
+
+# Test artifacts
+test_*.db*
+
 # macOS App Bundle (generated)
 *.app/
 *.dmg
