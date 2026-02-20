@@ -27,6 +27,9 @@ import (
 	"github.com/dvrd/hound/internal/wallet"
 )
 
+// version is set at build time via -ldflags "-X main.version=vX.Y.Z"
+var version = "dev"
+
 var jsonOutput bool
 
 func main() {
@@ -274,7 +277,7 @@ func versionCmd() *cobra.Command {
 		Use:   "version",
 		Short: "Print version",
 		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("hound v0.22.0-go")
+			fmt.Println("hound " + version)
 		},
 	}
 }

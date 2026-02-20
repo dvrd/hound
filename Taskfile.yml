@@ -1,23 +1,47 @@
 version: '3'
 
+vars:
+  VERSION:
+    sh: cat VERSION
+  LDFLAGS: -s -w -X main.version=v{{.VERSION}}
+
 tasks:
   build:
     desc: Build the hound binary
     cmds:
       - mkdir -p bin
-      - odin build src/cli -out:bin/hound -o:speed
-
-  debug:
-    desc: Build with debug symbols
-    cmds:
-      - mkdir -p bin
-      - odin build src/cli -out:bin/hound_debug -debug
+      - go build -ldflags "{{.LDFLAGS}}" -o bin/hound ./cmd/hound
 
   run:
-    desc: 'Build and run with arguments (usage: task run -- aura)'
+    desc: 'Build and run with arguments (usage: task run -- wallet status)'
     cmds:
-      - task: default
+      - task: build
       - ./bin/hound {{.CLI_ARGS}}
+
+  test:
+    desc: Run all tests
+    cmds:
+      - go test ./... -count=1 -short -timeout 60s
+
+  test:verbose:
+    desc: Run tests with verbose output
+    cmds:
+      - go test ./... -count=1 -short -timeout 60s -v
+
+  test:watch:
+    desc: Run tests in watch mode (requires entr)
+    cmds:
+      - find cmd internal -name '*.go' | entr -c go test ./... -count=1 -short -timeout 60s
+
+  lint:
+    desc: Run go vet on all packages
+    cmds:
+      - go vet ./...
+
+  tidy:
+    desc: Tidy module dependencies
+    cmds:
+      - go mod tidy
 
   clean:
     desc: Remove build artifacts
@@ -27,158 +51,60 @@ tasks:
   install:
     desc: Install to /usr/local/bin
     cmds:
-      - task: default
+      - task: build
       - sudo cp bin/hound /usr/local/bin/
       - sudo chmod +x /usr/local/bin/hound
-
-  test:
-    desc: Run all unit tests
-    cmds:
-      - odin test tests
-
-  test:decoder:
-    desc: Run raydium decoder tests only
-    cmds:
-      - odin test tests -file:tests/raydium_decoder_test.odin
-
-  test:price:
-    desc: Run price fetcher tests only
-    cmds:
-      - odin test tests -file:tests/price_fetcher_test.odin
-
-  test:config:
-    desc: Run config tests only
-    cmds:
-      - odin test tests -file:tests/token_config_test.odin
-
-  test:integration:
-    desc: Run integration tests only
-    cmds:
-      - odin test tests -file:tests/integration_test.odin
-
-  test:memory:
-    desc: Run memory management tests (single-threaded to avoid race conditions)
-    cmds:
-      - odin test tests/memory -define:ODIN_TEST_THREADS=1
-
-  test:all:
-    desc: Run all tests including memory tests
-    cmds:
-      - odin test tests
-      - odin test tests/memory -define:ODIN_TEST_THREADS=1
-
-  test:watch:
-    desc: Run tests in watch mode (requires entr)
-    cmds:
-      - find tests src -name "*.odin" | entr -c task test
-
-  menubar:build:
-    desc: Build full menu bar app
-    cmds:
-      - mkdir -p bin
-      - odin build src/menubar -out:bin/hound-menubar -o:speed -extra-linker-flags:"-framework AppKit -framework Foundation -lsqlite3"
-
-  menubar:debug:
-    desc: Build menu bar app with debug symbols
-    cmds:
-      - mkdir -p bin
-      - odin build src/menubar -out:bin/hound-menubar-debug -debug -extra-linker-flags:"-framework AppKit -framework Foundation -lsqlite3"
-
-  menubar:run:
-    desc: Build and run menu bar app immediately
-    cmds:
-      - task: menubar:build
-      - ./bin/hound-menubar
-
-  menubar:install:
-    desc: Install menu bar app to /usr/local/bin
-    cmds:
-      - task: menubar:build
-      - sudo cp bin/hound-menubar /usr/local/bin/
-      - sudo chmod +x /usr/local/bin/hound-menubar
-
-  menubar:bundle:
-    desc: Create Hound.app bundle
-    cmds:
-      - ruby scripts/create_app_bundle.rb
-
-  menubar:dmg:
-    desc: Create DMG installer
-    deps: [menubar:bundle]
-    cmds:
-      - ruby scripts/create_dmg.rb
-
-  menubar:clean:
-    desc: Remove app bundle and DMG
-    cmds:
-      - rm -rf Hound.app
-      - rm -f Hound-*.dmg
 
   version:
     desc: Display current version
     cmds:
-      - cat VERSION
+      - echo "v$(cat VERSION)"
 
   version:major:
     desc: Bump major version (X.0.0) and create git tag
     cmds:
-      - ruby scripts/update_version.rb major
+      - |
+        current=$(cat VERSION)
+        major=$(echo "$current" | cut -d. -f1)
+        new="$((major + 1)).0.0"
+        echo "$new" > VERSION
+        git add VERSION
+        git commit -m "chore: bump version to v${new}"
+        git tag "v${new}"
+        echo "Bumped to v${new}"
 
   version:minor:
     desc: Bump minor version (0.X.0) and create git tag
     cmds:
-      - ruby scripts/update_version.rb minor
+      - |
+        current=$(cat VERSION)
+        major=$(echo "$current" | cut -d. -f1)
+        minor=$(echo "$current" | cut -d. -f2)
+        new="${major}.$((minor + 1)).0"
+        echo "$new" > VERSION
+        git add VERSION
+        git commit -m "chore: bump version to v${new}"
+        git tag "v${new}"
+        echo "Bumped to v${new}"
 
   version:patch:
     desc: Bump patch version (0.0.X) and create git tag
     cmds:
-      - ruby scripts/update_version.rb patch
+      - |
+        current=$(cat VERSION)
+        major=$(echo "$current" | cut -d. -f1)
+        minor=$(echo "$current" | cut -d. -f2)
+        patch=$(echo "$current" | cut -d. -f3)
+        new="${major}.${minor}.$((patch + 1))"
+        echo "$new" > VERSION
+        git add VERSION
+        git commit -m "chore: bump version to v${new}"
+        git tag "v${new}"
+        echo "Bumped to v${new}"
 
   hooks:install:
-    desc: Install git hooks (pre-commit for auto-bumping version on master)
+    desc: Install git pre-commit hook
     cmds:
-      - ruby scripts/install-hooks.rb
-
-  # ── Go port tasks ──────────────────────────────────────────────
-
-  go:build:
-    desc: Build the Go port binary
-    dir: go
-    cmds:
-      - mkdir -p ../bin
-      - go build -o ../bin/hound-go ./cmd/hound
-
-  go:test:
-    desc: Run Go tests
-    dir: go
-    cmds:
-      - go test ./... -count=1 -short -timeout 60s
-
-  go:test:verbose:
-    desc: Run Go tests with verbose output
-    dir: go
-    cmds:
-      - go test ./... -count=1 -short -timeout 60s -v
-
-  go:run:
-    desc: Run the Go port directly
-    dir: go
-    cmds:
-      - go run ./cmd/hound {{.CLI_ARGS}}
-
-  go:lint:
-    desc: Run Go vet on all packages
-    dir: go
-    cmds:
-      - go vet ./...
-
-  go:tidy:
-    desc: Tidy Go module dependencies
-    dir: go
-    cmds:
-      - go mod tidy
-
-  go:clean:
-    desc: Remove Go build artifacts
-    cmds:
-      - rm -f bin/hound-go
+      - cp hooks/pre-commit .git/hooks/pre-commit
+      - chmod +x .git/hooks/pre-commit
+      - echo "Pre-commit hook installed"

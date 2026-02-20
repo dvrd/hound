@@ -1,9 +1,15 @@
 # Build outputs
-/build/
-*.bin
+bin/
 *.exe
-*.o
-hound
+
+# Go
+*.test
+__debug_bin*
+
+# SQLite test artifacts
+*.db
+*.db-shm
+*.db-wal
 
 # Logs
 *.log
@@ -18,23 +24,11 @@ Thumbs.db
 *.swp
 *~
 
-# Odin
-.odin/
-
 # Config (user-specific)
 .hound/
 
+# Agent/tool directories (not source)
 PRPs/
-bin/
 docs/
-
-# Go
-go/bin/
-*.test
-
-# Test artifacts
-test_*.db*
-
-# macOS App Bundle (generated)
-*.app/
-*.dmg
+.logs/
+.opencode/

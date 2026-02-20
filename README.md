@@ -1,6 +1,6 @@
 # Hound
 
-A Solana toolkit for token price tracking, wallet management, and portfolio monitoring via CLI and macOS menubar.
+A Solana toolkit for token price tracking, wallet management, and portfolio monitoring via CLI.
 
 ## What Does It Do?
 
@@ -8,14 +8,12 @@ A Solana toolkit for token price tracking, wallet management, and portfolio moni
 - **Manage Wallets**: Secure wallet import with encrypted storage (compatible with Phantom, Solflare, Ledger)
 - **Monitor Portfolio**: View all your holdings and their USD values
 - **Swap Tokens**: Execute token swaps via Jupiter aggregator
-- **MenuBar App**: Live portfolio display in your macOS menubar
 
 ## Installation
 
 ### Prerequisites
-- [Odin compiler](https://odin-lang.org/)
+- [Go 1.25+](https://go.dev/dl/)
 - [Task runner](https://taskfile.dev/): `brew install go-task`
-- macOS or Linux
 
 ### Build
 ```bash
@@ -26,10 +24,9 @@ task build
 
 The binary will be at `./bin/hound`
 
-### MenuBar App (macOS only)
+### Install system-wide
 ```bash
-task menubar:build
-task menubar:run
+task install
 ```
 
 ## Quick Start
@@ -63,34 +60,13 @@ Shows:
 
 ```bash
 # Add a token
-./bin/hound add bonk "Bonk" DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263
+./bin/hound tokens list
 
-# Check price
-./bin/hound bonk
-# Output: bonk: $0.000028 (+5.2%)
-
-# List all tokens
-./bin/hound list
+# Check all tracked tokens
+./bin/hound tokens list --json
 ```
 
 ## CLI Commands
-
-### Price Commands
-
-```bash
-# Check token price
-./bin/hound <symbol>
-./bin/hound sol
-
-# Force pool rediscovery
-./bin/hound fetch <symbol> --refresh
-
-# Add new token
-./bin/hound add <symbol> "<name>" <contract_address>
-
-# List configured tokens
-./bin/hound list
-```
 
 ### Wallet Commands
 
@@ -108,47 +84,40 @@ Shows:
 ./bin/hound wallet status --all
 
 # View specific wallet
-./bin/hound wallet status --wallet <address|label>
+./bin/hound wallet status [address|label]
+```
 
-# Sort holdings
-./bin/hound wallet status --sort value    # By USD value (default)
-./bin/hound wallet status --sort symbol   # Alphabetically
-./bin/hound wallet status --sort balance  # By token amount
+### Token Commands
 
-# Switch active wallet
-./bin/hound wallet switch <label>
-
-# Update wallet password
-./bin/hound wallet update-password
-
-# Delete wallet
-./bin/hound wallet delete <label>
+```bash
+# List tracked tokens
+./bin/hound tokens list
 ```
 
 ### Swap Commands
 
 ```bash
-# Get swap quote and execute
-./bin/hound wallet swap <input_token> <output_token> <amount>
-
-# Example: Swap 1 SOL for USDC
-./bin/hound wallet swap sol usdc 1
-
-# Preview only (no execution)
-./bin/hound wallet swap sol usdc 1 --dry-run
+# Get swap quote and execute (via TUI)
+./bin/hound
+# Navigate to swap view from the TUI
 ```
 
 ### History
 
 ```bash
-# View transaction history
+# View swap history
 ./bin/hound history
+```
 
-# Filter by wallet
-./bin/hound history --wallet <address>
+### JSON Output
 
-# Limit results
-./bin/hound history --limit 20
+All list commands support `--json` for scripting:
+
+```bash
+./bin/hound wallet list --json
+./bin/hound wallet status --json
+./bin/hound tokens list --json
+./bin/hound history --json
 ```
 
 ### Other Commands
@@ -162,60 +131,38 @@ Shows:
 ./bin/hound wallet --help
 ```
 
-## MenuBar App
+## Development
 
-The menubar app provides real-time portfolio monitoring in your macOS menubar.
-
-### Setup
-
+### Run tests
 ```bash
-# Build and run
-task menubar:run
+task test
 
-# Or build standalone app bundle
-task menubar:bundle
+# Verbose
+task test:verbose
+
+# Watch mode (requires entr)
+task test:watch
 ```
 
-### Usage
-
-1. Look for the **🐕 icon** in your menubar
-2. Click to view:
-   - Total portfolio value
-   - Individual token holdings
-   - Real-time prices
-   - 24h price changes
-3. Refreshes automatically in the background
-
-### Troubleshooting MenuBar
-
+### Lint
 ```bash
-# Kill existing instances
-pkill -9 hound-menubar
-
-# Rebuild and run
-task menubar:build
-task menubar:run
-
-# Check logs
-log show --predicate 'process == "Hound"' --last 30s
+task lint
 ```
 
-## Wallet Compatibility
-
-Hound supports industry-standard BIP44 wallets:
-
-| Wallet | Compatible | How to Import |
-|--------|-----------|---------------|
-| 🟣 Phantom | ✅ Yes | Select "BIP44 Standard" during import |
-| 🌅 Solflare | ✅ Yes | Select "BIP44 Standard" during import |
-| 🔐 Ledger | ✅ Yes | Select "BIP44 Standard" during import |
-| 🎒 Backpack | ✅ Yes | Select "BIP44 Standard" during import |
-| 🛡️ Trust Wallet | ✅ Yes | Select "BIP44-Change" during import |
-| ⚡ solana-keygen | ✅ Yes | Select "Solana CLI" during import |
-
-**Your derived address will match your Phantom/Solflare wallet** when using BIP44 Standard.
+### Version bumping
+```bash
+task version:patch   # 0.0.X — bug fixes
+task version:minor   # 0.X.0 — new features
+task version:major   # X.0.0 — breaking changes
+```
 
 ## Configuration
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `HOUND_RPC_ENDPOINT` | Solana RPC endpoint URL | Public mainnet-beta |
 
 ### Database Location
 ```
@@ -232,19 +179,22 @@ Contains encrypted wallets and token configuration.
 - **Raydium**: AMM V4, CLMM
 - **Jupiter**: Aggregator (for swaps)
 
+## Wallet Compatibility
+
+Hound supports industry-standard BIP44 wallets:
+
+| Wallet | Compatible | How to Import |
+|--------|-----------|---------------|
+| Phantom | Yes | Select "BIP44 Standard" during import |
+| Solflare | Yes | Select "BIP44 Standard" during import |
+| Ledger | Yes | Select "BIP44 Standard" during import |
+| Backpack | Yes | Select "BIP44 Standard" during import |
+| Trust Wallet | Yes | Select "BIP44-Change" during import |
+| solana-keygen | Yes | Select "Solana CLI" during import |
+
+**Your derived address will match your Phantom/Solflare wallet** when using BIP44 Standard.
+
 ## Common Issues
-
-### "Token not found"
-Add the token first:
-```bash
-./bin/hound add <symbol> "<name>" <contract_address>
-```
-
-### "No pools configured"
-Force pool discovery:
-```bash
-./bin/hound fetch <symbol> --refresh
-```
 
 ### "Wallet import failed"
 Check that:
@@ -257,18 +207,6 @@ Make sure you have:
 - Enough input tokens for the swap
 - Enough SOL to pay transaction fees (~0.000005 SOL)
 
-### MenuBar app not appearing
-```bash
-pkill -9 hound-menubar
-task menubar:build
-task menubar:run
-```
-
-### Prices not updating
-- Check internet connection
-- Token may need pool refresh: `./bin/hound fetch <symbol> --refresh`
-- Verify token exists: `./bin/hound list`
-
 ## Security Notes
 
 - **Encrypted Storage**: Wallets encrypted with AES-256-GCM + Argon2id
@@ -276,21 +214,14 @@ task menubar:run
 - **Memory Safety**: Sensitive data is zeroed after use
 - **Never Share**: Don't share your seed phrase or password with anyone
 
-**⚠️ Important**:
-- This is alpha software - use at your own risk
+**Important**:
+- This is alpha software — use at your own risk
 - Always verify addresses and amounts before swaps
 - Never use publicly known test mnemonics with real funds
 - Keep backups of your seed phrases securely offline
 
-## Support
-
-For issues or questions:
-- Check the troubleshooting section above
-- Review command help: `./bin/hound --help`
-- Verify wallet compatibility in the table above
-
 ---
 
-**Version**: v0.21.0
+**Version**: See `VERSION` file
 
 **License**: MIT
