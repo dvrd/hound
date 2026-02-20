@@ -6,101 +6,81 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/dvrd/hound/internal/database"
-	"github.com/dvrd/hound/internal/models"
+	"github.com/dvrd/hound/internal/blockchain"
+	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/components"
 )
 
-// HistoryLoadedMsg is sent when swap history has been loaded.
-type HistoryLoadedMsg struct {
-	Entries []models.SwapHistoryEntry
-	Total   int
-	Err     error
+// ActivityLoadedMsg is sent when activity history has been loaded.
+type ActivityLoadedMsg struct {
+	Items []services.ActivityItem
+	Err   error
 }
 
-// Model is the swap history view.
+// Model is the activity history view.
 type Model struct {
-	entries    []models.SwapHistoryEntry
-	total      int
-	page       int
-	pageSize   int
-	cursor     int
-	walletAddr string
-	db         *database.Database
-	loading    bool
-	spinner    components.SpinnerModel
-	width      int
-	height     int
-	err        error
+	items         []services.ActivityItem
+	cursor        int
+	walletAddr    string
+	activitySvc   *services.ActivityService
+	rpcClient     *blockchain.RPCClient
+	lastSignature string // pagination cursor
+	loading       bool
+	spinner       components.SpinnerModel
+	width         int
+	height        int
+	err           error
 }
 
-// New creates a new swap history view.
-func New(walletAddr string, db *database.Database) Model {
+// New creates a new activity history view.
+func New(walletAddr string, activitySvc *services.ActivityService, rpcClient *blockchain.RPCClient) Model {
 	return Model{
-		walletAddr: walletAddr,
-		db:         db,
-		pageSize:   20,
-		loading:    true,
-		spinner:    components.NewSpinner("Loading history..."),
+		walletAddr:  walletAddr,
+		activitySvc: activitySvc,
+		rpcClient:   rpcClient,
+		loading:     true,
+		spinner:     components.NewSpinner("Loading history..."),
 	}
 }
 
+const pageSize = 20
+
 // Init starts loading history.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Init(), m.loadHistory())
+	return tea.Batch(m.spinner.Init(), m.loadActivity())
 }
 
-func (m Model) loadHistory() tea.Cmd {
+func (m Model) loadActivity() tea.Cmd {
 	return func() tea.Msg {
-		if m.db == nil {
-			return HistoryLoadedMsg{Err: fmt.Errorf("database not available")}
+		if m.activitySvc == nil || m.rpcClient == nil {
+			return ActivityLoadedMsg{Err: fmt.Errorf("activity service not available")}
 		}
 
-		total, err := m.db.GetSwapHistoryCount(m.walletAddr)
+		items, err := m.activitySvc.GetActivity(m.rpcClient, m.walletAddr, pageSize, m.lastSignature)
 		if err != nil {
-			return HistoryLoadedMsg{Err: err}
+			return ActivityLoadedMsg{Err: err}
 		}
 
-		// Calculate offset for current page
-		offset := m.page * m.pageSize
-		// GetSwapHistory uses LIMIT but not OFFSET directly,
-		// so we fetch enough and slice. For simplicity, fetch limit from offset.
-		// Actually, the DB method uses LIMIT only. We'll fetch all up to offset+pageSize
-		// and take the last pageSize entries.
-		entries, err := m.db.GetSwapHistory(m.walletAddr, offset+m.pageSize)
-		if err != nil {
-			return HistoryLoadedMsg{Err: err}
-		}
-
-		// Slice to current page
-		if offset < len(entries) {
-			end := offset + m.pageSize
-			if end > len(entries) {
-				end = len(entries)
-			}
-			entries = entries[offset:end]
-		} else {
-			entries = nil
-		}
-
-		return HistoryLoadedMsg{Entries: entries, Total: total}
+		return ActivityLoadedMsg{Items: items}
 	}
 }
 
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case HistoryLoadedMsg:
+	case ActivityLoadedMsg:
 		m.loading = false
 		m.spinner.SetDone()
 		if msg.Err != nil {
 			m.err = msg.Err
 			return m, nil
 		}
-		m.entries = msg.Entries
-		m.total = msg.Total
+		m.items = msg.Items
 		m.cursor = 0
+		if len(m.items) > 0 {
+			m.lastSignature = m.items[len(m.items)-1].Signature
+		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
@@ -117,23 +97,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor--
 			}
 		case "down", "j":
-			if m.cursor < len(m.entries)-1 {
+			if m.cursor < len(m.items)-1 {
 				m.cursor++
 			}
 		case "n":
-			totalPages := m.totalPages()
-			if m.page < totalPages-1 {
-				m.page++
+			// Load more (next page)
+			if len(m.items) >= pageSize && m.lastSignature != "" {
 				m.loading = true
-				m.spinner = components.NewSpinner("Loading history...")
-				return m, tea.Batch(m.spinner.Init(), m.loadHistory())
-			}
-		case "p":
-			if m.page > 0 {
-				m.page--
-				m.loading = true
-				m.spinner = components.NewSpinner("Loading history...")
-				return m, tea.Batch(m.spinner.Init(), m.loadHistory())
+				m.spinner = components.NewSpinner("Loading more...")
+				return m, tea.Batch(m.spinner.Init(), m.loadActivity())
 			}
 		}
 	}
@@ -147,22 +119,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) totalPages() int {
-	if m.total == 0 {
-		return 1
+// directionIcon returns the icon for a direction.
+func directionIcon(direction, activityType string) string {
+	switch activityType {
+	case "swap":
+		return "⇄"
 	}
-	pages := m.total / m.pageSize
-	if m.total%m.pageSize > 0 {
-		pages++
+	switch direction {
+	case "sent":
+		return "↑"
+	case "received":
+		return "↓"
+	default:
+		return "·"
 	}
-	return pages
 }
 
-// View renders the swap history.
+// directionStyle returns the styled icon.
+func directionStyledIcon(direction, activityType string) string {
+	icon := directionIcon(direction, activityType)
+	switch {
+	case activityType == "swap":
+		return tui.StyleTitle.Render(icon) // purple
+	case direction == "sent":
+		return tui.StyleError.Render(icon) // red
+	case direction == "received":
+		return tui.StyleSuccess.Render(icon) // green
+	default:
+		return tui.StyleMuted.Render(icon)
+	}
+}
+
+// formatActivityLine returns the description for an activity item.
+func formatActivityLine(item services.ActivityItem) string {
+	switch item.Type {
+	case "sol_transfer":
+		if item.Direction == "sent" {
+			return fmt.Sprintf("Sent %s", item.Amount)
+		}
+		return fmt.Sprintf("Received %s", item.Amount)
+	case "spl_transfer":
+		if item.Direction == "sent" {
+			return fmt.Sprintf("Sent %s", item.Amount)
+		}
+		return fmt.Sprintf("Received %s", item.Amount)
+	case "swap":
+		return fmt.Sprintf("Swapped %s", item.Amount)
+	case "program_interaction":
+		return "Program interaction"
+	default:
+		return "Unknown transaction"
+	}
+}
+
+// View renders the activity history.
 func (m Model) View() string {
 	var b strings.Builder
 
-	title := tui.StyleTitle.Render("Swap History")
+	title := tui.StyleTitle.Render("History")
 	b.WriteString(title + "\n\n")
 
 	if m.loading {
@@ -175,47 +189,37 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	if len(m.entries) == 0 {
-		b.WriteString(tui.StyleMuted.Render("No swap history found.") + "\n")
+	if len(m.items) == 0 {
+		b.WriteString(tui.StyleMuted.Render("No transaction history found.") + "\n")
 	} else {
-		header := fmt.Sprintf("%-12s %-20s %12s %-12s %-10s",
-			"Date", "Trade", "Rate", "Status", "DEX")
-		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
+		for i, item := range m.items {
+			icon := directionStyledIcon(item.Direction, item.Type)
+			line := formatActivityLine(item)
+			timeStr := FormatRelativeTime(item.Timestamp)
 
-		for i, e := range m.entries {
-			dateStr := FormatRelativeTime(e.CreatedAt)
-			trade := fmt.Sprintf("%s -> %s", e.InputSymbol, e.OutputSymbol)
-			if trade == " -> " {
-				trade = fmt.Sprintf("%.4s -> %.4s", e.InputMint, e.OutputMint)
+			var counterparty string
+			if item.Counterparty != "" {
+				if item.Direction == "sent" {
+					counterparty = fmt.Sprintf(" → %s", item.Counterparty)
+				} else {
+					counterparty = fmt.Sprintf(" ← %s", item.Counterparty)
+				}
 			}
 
-			var rateStr string
-			if e.InputAmount > 0 {
-				rate := e.OutputAmount / e.InputAmount
-				rateStr = fmt.Sprintf("%.6f", rate)
-			} else {
-				rateStr = "-"
-			}
-
-			statusStr := e.Status
-			switch e.Status {
-			case "finalized", "confirmed":
-				statusStr = tui.StyleSuccess.Render(e.Status)
+			statusStr := item.Status
+			switch item.Status {
+			case "confirmed":
+				statusStr = tui.StyleSuccess.Render(item.Status)
 			case "failed":
-				statusStr = tui.StyleError.Render(e.Status)
+				statusStr = tui.StyleError.Render(item.Status)
 			}
 
-			dex := e.Dex
-			if dex == "" {
-				dex = "-"
-			}
-
-			row := fmt.Sprintf("%-12s %-20s %12s %-12s %-10s",
-				dateStr,
-				truncate(trade, 20),
-				rateStr,
+			row := fmt.Sprintf("%s %-30s %-15s %-12s %s",
+				icon,
+				truncate(line+counterparty, 30),
+				tui.StyleMuted.Render(timeStr),
 				statusStr,
-				truncate(dex, 10),
+				"",
 			)
 
 			if i == m.cursor {
@@ -226,13 +230,9 @@ func (m Model) View() string {
 		}
 	}
 
-	// Pagination
-	b.WriteString("\n")
-	totalPages := m.totalPages()
-	b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("Page %d/%d (%d total)", m.page+1, totalPages, m.total)) + "\n")
-
 	// Status bar
-	b.WriteString(tui.StyleStatusBar.Render("[n]ext [p]rev [esc]back"))
+	b.WriteString("\n")
+	b.WriteString(tui.StyleStatusBar.Render("[n]ext page [j/k]navigate [esc]back"))
 
 	return b.String()
 }
@@ -276,24 +276,14 @@ func FormatRelativeTime(unixTimestamp int64) string {
 	}
 }
 
-// GetPage returns the current page for testing.
-func (m Model) GetPage() int {
-	return m.page
-}
-
 // GetCursor returns the current cursor position for testing.
 func (m Model) GetCursor() int {
 	return m.cursor
 }
 
-// GetEntries returns the loaded entries for testing.
-func (m Model) GetEntries() []models.SwapHistoryEntry {
-	return m.entries
-}
-
-// GetTotal returns the total entry count for testing.
-func (m Model) GetTotal() int {
-	return m.total
+// GetItems returns the loaded items for testing.
+func (m Model) GetItems() []services.ActivityItem {
+	return m.items
 }
 
 // SetSize updates the view dimensions.

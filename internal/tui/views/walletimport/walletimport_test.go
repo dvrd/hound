@@ -13,10 +13,10 @@ func newTestModel() walletimport.Model {
 	return walletimport.New(nil, nil)
 }
 
-func TestNew(t *testing.T) {
+func TestInitialStepIsChoice(t *testing.T) {
 	m := newTestModel()
-	if m.CurrentStep() != walletimport.StepSeedPhrase {
-		t.Errorf("initial step = %d, want StepSeedPhrase (0)", m.CurrentStep())
+	if m.CurrentStep() != walletimport.StepChoice {
+		t.Errorf("initial step = %d, want StepChoice (0)", m.CurrentStep())
 	}
 }
 
@@ -34,20 +34,126 @@ func TestViewContainsStepIndicator(t *testing.T) {
 	if !strings.Contains(view, "Step 1/") {
 		t.Errorf("View should contain step indicator, got %q", view)
 	}
-	if !strings.Contains(view, "Seed Phrase") {
-		t.Errorf("View should contain step name 'Seed Phrase', got %q", view)
+	if !strings.Contains(view, "Choose Action") {
+		t.Errorf("View should contain step name 'Choose Action', got %q", view)
 	}
 }
 
-func TestEscOnFirstStep_NavigatesBack(t *testing.T) {
+func TestChoiceImport(t *testing.T) {
+	m := newTestModel()
+	// Cursor starts at 0 (Import existing)
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model := updated.(walletimport.Model)
+	if model.CurrentStep() != walletimport.StepSeedPhrase {
+		t.Errorf("step after choosing import = %d, want StepSeedPhrase", model.CurrentStep())
+	}
+	if model.IsGenerate() {
+		t.Error("should not be in generate mode")
+	}
+}
+
+func TestChoiceGenerate(t *testing.T) {
+	m := newTestModel()
+	// Move cursor to "Create new wallet"
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(walletimport.Model)
+	// Select it
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model := updated.(walletimport.Model)
+	if model.CurrentStep() != walletimport.StepShowMnemonic {
+		t.Errorf("step after choosing generate = %d, want StepShowMnemonic", model.CurrentStep())
+	}
+	if !model.IsGenerate() {
+		t.Error("should be in generate mode")
+	}
+	words := model.Words()
+	if len(words) != 12 {
+		t.Errorf("generated words count = %d, want 12", len(words))
+	}
+}
+
+func TestShowMnemonicDisplay(t *testing.T) {
+	m := newTestModel()
+	// Navigate to generate flow
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(walletimport.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletimport.Model)
+
+	view := m.View()
+	if !strings.Contains(view, "recovery phrase") {
+		t.Error("show mnemonic view should contain 'recovery phrase'")
+	}
+	// Should contain numbered words
+	if !strings.Contains(view, "1.") {
+		t.Error("show mnemonic view should contain numbered words")
+	}
+	if !strings.Contains(view, "Write down") {
+		t.Error("show mnemonic view should contain warning")
+	}
+}
+
+func TestShowMnemonicEnter(t *testing.T) {
+	m := newTestModel()
+	// Navigate to generate flow
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(walletimport.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletimport.Model)
+	if m.CurrentStep() != walletimport.StepShowMnemonic {
+		t.Fatalf("should be at StepShowMnemonic, got %d", m.CurrentStep())
+	}
+
+	// Press enter to confirm
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletimport.Model)
+	if m.CurrentStep() != walletimport.StepWalletType {
+		t.Errorf("step after confirming mnemonic = %d, want StepWalletType", m.CurrentStep())
+	}
+}
+
+func TestShowMnemonicEsc(t *testing.T) {
+	m := newTestModel()
+	// Navigate to generate flow
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(walletimport.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletimport.Model)
+
+	// Esc should go back to choice
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(walletimport.Model)
+	if m.CurrentStep() != walletimport.StepChoice {
+		t.Errorf("step after esc on mnemonic = %d, want StepChoice", m.CurrentStep())
+	}
+}
+
+func TestEscAtChoiceNavigatesBack(t *testing.T) {
 	m := newTestModel()
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
 	if cmd == nil {
-		t.Fatal("esc on first step should return a command")
+		t.Fatal("esc on choice step should return a command")
 	}
 	msg := cmd()
 	if _, ok := msg.(tui.NavigateBackMsg); !ok {
-		t.Errorf("esc on first step should return NavigateBackMsg, got %T", msg)
+		t.Errorf("esc on choice step should return NavigateBackMsg, got %T", msg)
+	}
+}
+
+func TestEscOnSeedPhraseGoesToChoice(t *testing.T) {
+	m := newTestModel()
+	// Go to seed phrase step
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletimport.Model)
+	if m.CurrentStep() != walletimport.StepSeedPhrase {
+		t.Fatalf("should be at seed phrase, got %d", m.CurrentStep())
+	}
+
+	// Esc should go back to choice (not NavigateBackMsg)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(walletimport.Model)
+	if m.CurrentStep() != walletimport.StepChoice {
+		t.Errorf("esc on seed phrase should go to choice, got step %d", m.CurrentStep())
 	}
 }
 
@@ -56,7 +162,9 @@ func TestStepName(t *testing.T) {
 		step walletimport.Step
 		want string
 	}{
+		{walletimport.StepChoice, "Choose Action"},
 		{walletimport.StepSeedPhrase, "Seed Phrase"},
+		{walletimport.StepShowMnemonic, "Recovery Phrase"},
 		{walletimport.StepWalletType, "Wallet Type"},
 		{walletimport.StepAccountIndex, "Account Index"},
 		{walletimport.StepPassword, "Password"},
@@ -127,8 +235,22 @@ func TestSuccessStep_AnyKeyNavigatesBack(t *testing.T) {
 	}
 }
 
+func TestChoiceViewContainsOptions(t *testing.T) {
+	m := newTestModel()
+	view := m.View()
+	if !strings.Contains(view, "Import existing") {
+		t.Error("choice view should contain 'Import existing'")
+	}
+	if !strings.Contains(view, "Create new") {
+		t.Error("choice view should contain 'Create new'")
+	}
+}
+
 func TestSeedPhraseStep_ViewContainsInstructions(t *testing.T) {
 	m := newTestModel()
+	// Go to seed phrase step
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletimport.Model)
 	view := m.View()
 	if !strings.Contains(view, "seed phrase") {
 		t.Error("seed phrase step should contain instructions about seed phrase")
@@ -136,20 +258,15 @@ func TestSeedPhraseStep_ViewContainsInstructions(t *testing.T) {
 }
 
 func TestWalletTypeStep_ViewContainsChoices(t *testing.T) {
+	// Verify the view doesn't panic at various steps
 	m := newTestModel()
-	// We need to advance to wallet type step
-	// Simulate the step transition by sending WalletImportedMsg won't work
-	// Instead, test the view at the initial step
 	view := m.View()
-	// At step 0, we should see seed phrase UI
-	if !strings.Contains(view, "Seed Phrase") {
-		t.Error("initial view should show Seed Phrase step")
+	if !strings.Contains(view, "Choose Action") {
+		t.Error("initial view should show Choose Action step")
 	}
 }
 
 func TestImportingStep_ViewContainsSpinner(t *testing.T) {
-	// We can't easily get to the importing step without mocking,
-	// but we can verify the model doesn't panic at various steps
 	m := newTestModel()
 	_ = m.View() // Should not panic
 }

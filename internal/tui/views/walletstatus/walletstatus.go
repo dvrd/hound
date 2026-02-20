@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dvrd/hound/internal/database"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/components"
@@ -35,6 +38,9 @@ func (s SortMode) String() string {
 	}
 }
 
+// autoRefreshTickMsg is sent by the auto-refresh timer.
+type autoRefreshTickMsg struct{}
+
 // Model is the wallet status/detail view.
 type Model struct {
 	wallet    models.Wallet
@@ -49,22 +55,32 @@ type Model struct {
 	width     int
 	height    int
 	err       error
+
+	// Rename mode
+	renaming    bool
+	renameInput textinput.Model
+	renameErr   error
+	db          *database.Database
+
+	// Auto-refresh
+	lastRefresh time.Time
 }
 
 // New creates a new wallet status view.
-func New(walletMgr *wallet.WalletManager, address string) Model {
+func New(walletMgr *wallet.WalletManager, address string, db *database.Database) Model {
 	return Model{
 		walletMgr: walletMgr,
 		address:   address,
 		loading:   true,
 		spinner:   components.NewSpinner("Loading portfolio..."),
 		sortMode:  SortByValue,
+		db:        db,
 	}
 }
 
 // Init starts loading the portfolio.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Init(), m.loadPortfolio())
+	return tea.Batch(m.spinner.Init(), m.loadPortfolio(), m.scheduleRefresh())
 }
 
 func (m Model) loadPortfolio() tea.Cmd {
@@ -91,8 +107,19 @@ func (m Model) refreshPortfolio() tea.Cmd {
 	}
 }
 
+func (m Model) scheduleRefresh() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg {
+		return autoRefreshTickMsg{}
+	})
+}
+
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// Handle rename mode first
+	if m.renaming {
+		return m.updateRename(msg)
+	}
+
 	switch msg := msg.(type) {
 	case tui.PortfolioRefreshedMsg:
 		m.loading = false
@@ -102,7 +129,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.portfolio = msg.Portfolio
+		m.lastRefresh = time.Now()
 		return m, nil
+
+	case autoRefreshTickMsg:
+		if !m.loading {
+			m.loading = true
+			m.spinner = components.NewSpinner("Refreshing...")
+			return m, tea.Batch(m.spinner.Init(), m.refreshPortfolio(), m.scheduleRefresh())
+		}
+		return m, m.scheduleRefresh()
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -117,6 +153,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loading = true
 			m.spinner = components.NewSpinner("Refreshing portfolio...")
 			return m, tea.Batch(m.spinner.Init(), m.refreshPortfolio())
+		case "R":
+			m.renaming = true
+			m.renameErr = nil
+			ri := textinput.New()
+			ri.Placeholder = "New wallet name"
+			ri.CharLimit = 32
+			ri.Width = 30
+			ri.Focus()
+			m.renameInput = ri
+			return m, ri.Focus()
 		case "a":
 			m.showAll = !m.showAll
 		case "1":
@@ -144,6 +190,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
+	keyMsg, ok := msg.(tea.KeyMsg)
+	if !ok {
+		// Pass non-key messages through (e.g., blink)
+		var cmd tea.Cmd
+		m.renameInput, cmd = m.renameInput.Update(msg)
+		return m, cmd
+	}
+
+	switch keyMsg.String() {
+	case "esc":
+		m.renaming = false
+		m.renameErr = nil
+		return m, nil
+	case "enter":
+		newLabel := strings.TrimSpace(m.renameInput.Value())
+		if newLabel == "" {
+			m.renameErr = fmt.Errorf("name cannot be empty")
+			return m, nil
+		}
+		if m.db != nil {
+			if err := m.db.UpdateWalletLabel(m.address, newLabel); err != nil {
+				m.renameErr = err
+				return m, nil
+			}
+		}
+		m.renaming = false
+		m.renameErr = nil
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.renameInput, cmd = m.renameInput.Update(msg)
+	return m, cmd
 }
 
 func (m Model) visibleTokens() []models.TokenBalance {
@@ -185,6 +267,17 @@ func (m Model) View() string {
 		addrDisplay = addrDisplay[:4] + "..." + addrDisplay[len(addrDisplay)-4:]
 	}
 	b.WriteString(tui.StyleSubtitle.Render(addrDisplay) + "\n\n")
+
+	// Rename overlay
+	if m.renaming {
+		b.WriteString("Rename wallet:\n\n")
+		b.WriteString(m.renameInput.View() + "\n\n")
+		if m.renameErr != nil {
+			b.WriteString(tui.StyleError.Render("Error: "+m.renameErr.Error()) + "\n\n")
+		}
+		b.WriteString(tui.StyleMuted.Render("Enter to save, Esc to cancel"))
+		return b.String()
+	}
 
 	if m.loading {
 		b.WriteString(m.spinner.View() + "\n")
@@ -233,9 +326,13 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleMuted.Render("No tokens found") + "\n")
 	}
 
-	// Sort indicator
+	// Sort indicator + last refresh
 	b.WriteString("\n")
-	b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("Sort: %s", m.sortMode.String())) + "\n")
+	sortLine := fmt.Sprintf("Sort: %s", m.sortMode.String())
+	if !m.lastRefresh.IsZero() {
+		sortLine += fmt.Sprintf("  |  Last refresh: %s", m.lastRefresh.Format("15:04:05"))
+	}
+	b.WriteString(tui.StyleMuted.Render(sortLine) + "\n")
 
 	// Status bar
 	showAllLabel := "[a]ll"
@@ -243,7 +340,7 @@ func (m Model) View() string {
 		showAllLabel = "[a]ll*"
 	}
 	b.WriteString(tui.StyleStatusBar.Render(
-		fmt.Sprintf("[r]efresh %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)))
+		fmt.Sprintf("[r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)))
 
 	return b.String()
 }
@@ -269,4 +366,9 @@ func (m Model) GetSortMode() SortMode {
 // GetShowAll returns whether zero-balance tokens are shown.
 func (m Model) GetShowAll() bool {
 	return m.showAll
+}
+
+// IsRenaming returns whether the rename mode is active for testing.
+func (m Model) IsRenaming() bool {
+	return m.renaming
 }

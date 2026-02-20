@@ -11,7 +11,7 @@ import (
 )
 
 func newTestModel() walletstatus.Model {
-	return walletstatus.New(nil, "7xKXabc1234567890abcdef9mPq")
+	return walletstatus.New(nil, "7xKXabc1234567890abcdef9mPq", nil)
 }
 
 func loadedModel() walletstatus.Model {
@@ -262,5 +262,62 @@ func TestShowAllLabel(t *testing.T) {
 	view := model.View()
 	if !strings.Contains(view, "[a]ll*") {
 		t.Error("View should show [a]ll* when showAll is active")
+	}
+}
+
+func TestRenameKeyBinding(t *testing.T) {
+	m := loadedModel()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	model := updated.(walletstatus.Model)
+	if !model.IsRenaming() {
+		t.Error("pressing R should enter rename mode")
+	}
+}
+
+func TestRenameEscCancels(t *testing.T) {
+	m := loadedModel()
+	// Enter rename mode
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	model := updated.(walletstatus.Model)
+
+	// Press esc to cancel
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	model = updated.(walletstatus.Model)
+	if model.IsRenaming() {
+		t.Error("esc should cancel rename mode")
+	}
+}
+
+func TestRenameEmptyRejects(t *testing.T) {
+	m := loadedModel()
+	// Enter rename mode
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	model := updated.(walletstatus.Model)
+
+	// Press enter with empty input
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(walletstatus.Model)
+	// Should still be in rename mode or show error
+	view := model.View()
+	if !strings.Contains(view, "empty") && !strings.Contains(view, "Error") {
+		t.Error("empty label should show error")
+	}
+}
+
+func TestRenameViewContainsInput(t *testing.T) {
+	m := loadedModel()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	model := updated.(walletstatus.Model)
+	view := model.View()
+	if !strings.Contains(view, "Rename") {
+		t.Error("rename view should contain 'Rename'")
+	}
+}
+
+func TestStatusBarContainsRename(t *testing.T) {
+	m := loadedModel()
+	view := m.View()
+	if !strings.Contains(view, "[R]ename") {
+		t.Error("status bar should contain [R]ename")
 	}
 }

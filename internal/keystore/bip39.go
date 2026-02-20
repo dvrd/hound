@@ -38,3 +38,20 @@ func MnemonicToSeed(words []string) ([64]byte, error) {
 	copy(seed[:], seedBytes)
 	return seed, nil
 }
+
+// GenerateMnemonic generates a new BIP39 mnemonic phrase.
+// bitSize must be 128 (12 words) or 256 (24 words).
+func GenerateMnemonic(bitSize int) (string, error) {
+	if bitSize != 128 && bitSize != 256 {
+		return "", fmt.Errorf("bitSize must be 128 or 256, got %d", bitSize)
+	}
+	entropy, err := bip39.NewEntropy(bitSize)
+	if err != nil {
+		return "", fmt.Errorf("generate entropy: %w", err)
+	}
+	mnemonic, err := bip39.NewMnemonic(entropy)
+	if err != nil {
+		return "", fmt.Errorf("generate mnemonic: %w", err)
+	}
+	return mnemonic, nil
+}

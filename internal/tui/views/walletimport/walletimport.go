@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dvrd/hound/internal/database"
+	"github.com/dvrd/hound/internal/keystore"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/tui"
@@ -19,23 +20,29 @@ import (
 type Step int
 
 const (
-	StepSeedPhrase      Step = iota // 0
-	StepWalletType                  // 1
-	StepAccountIndex                // 2
-	StepPassword                    // 3
-	StepConfirmPassword             // 4
-	StepLabel                       // 5
-	StepImporting                   // 6
-	StepSuccess                     // 7
+	StepChoice          Step = iota // 0 — "Import existing" or "Create new"
+	StepSeedPhrase                  // 1 — only for import flow
+	StepShowMnemonic                // 2 — only for generate flow
+	StepWalletType                  // 3
+	StepAccountIndex                // 4
+	StepPassword                    // 5
+	StepConfirmPassword             // 6
+	StepLabel                       // 7
+	StepImporting                   // 8
+	StepSuccess                     // 9
 )
 
-const totalSteps = 7
+const totalSteps = 8
 
 // StepName returns the display name for a step.
 func (s Step) Name() string {
 	switch s {
+	case StepChoice:
+		return "Choose Action"
 	case StepSeedPhrase:
 		return "Seed Phrase"
+	case StepShowMnemonic:
+		return "Recovery Phrase"
 	case StepWalletType:
 		return "Wallet Type"
 	case StepAccountIndex:
@@ -69,6 +76,11 @@ type Model struct {
 	spinner        components.SpinnerModel
 	err            error
 
+	// Choice step
+	choiceOptions []string
+	choiceCursor  int
+	isGenerate    bool
+
 	// Collected data
 	words        []string
 	walletType   models.WalletType
@@ -91,7 +103,6 @@ func New(db *database.Database, keystoreSvc *services.KeystoreService) Model {
 	ta.CharLimit = 500
 	ta.SetWidth(60)
 	ta.SetHeight(3)
-	ta.Focus()
 
 	// Account index input
 	ai := textinput.New()
@@ -120,7 +131,7 @@ func New(db *database.Database, keystoreSvc *services.KeystoreService) Model {
 	li.Width = 30
 
 	return Model{
-		step:           StepSeedPhrase,
+		step:           StepChoice,
 		seedInput:      ta,
 		typeChoices:    []string{"BIP44 Standard (Phantom/Solflare)", "BIP44 Change (Trust Wallet)", "Solana CLI", "Legacy"},
 		accountInput:   ai,
@@ -128,6 +139,7 @@ func New(db *database.Database, keystoreSvc *services.KeystoreService) Model {
 		confirmPwInput: cpi,
 		labelInput:     li,
 		spinner:        components.NewSpinner("Importing wallet..."),
+		choiceOptions:  []string{"Import existing wallet", "Create new wallet"},
 		db:             db,
 		keystoreSvc:    keystoreSvc,
 	}
@@ -135,7 +147,7 @@ func New(db *database.Database, keystoreSvc *services.KeystoreService) Model {
 
 // Init returns the initial command.
 func (m Model) Init() tea.Cmd {
-	return textarea.Blink
+	return nil
 }
 
 // Update handles messages.
@@ -159,17 +171,43 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		// Global escape handling
 		if msg.String() == "esc" {
-			if m.step > StepSeedPhrase {
+			switch m.step {
+			case StepChoice:
+				return m, func() tea.Msg { return tui.NavigateBackMsg{} }
+			case StepSeedPhrase:
 				m.err = nil
-				m.step--
-				return m, m.focusCurrentStep()
+				m.step = StepChoice
+				return m, nil
+			case StepShowMnemonic:
+				m.err = nil
+				m.words = nil
+				m.isGenerate = false
+				m.step = StepChoice
+				return m, nil
+			default:
+				if m.step > StepShowMnemonic && m.step < StepImporting {
+					m.err = nil
+					m.step--
+					// Skip StepShowMnemonic if importing, or StepSeedPhrase if generating
+					if !m.isGenerate && m.step == StepShowMnemonic {
+						m.step = StepSeedPhrase
+					}
+					if m.isGenerate && m.step == StepSeedPhrase {
+						m.step = StepShowMnemonic
+					}
+					return m, m.focusCurrentStep()
+				}
+				return m, nil
 			}
-			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 		}
 
 		switch m.step {
+		case StepChoice:
+			return m.updateChoice(msg)
 		case StepSeedPhrase:
 			return m.updateSeedPhrase(msg)
+		case StepShowMnemonic:
+			return m.updateShowMnemonic(msg)
 		case StepWalletType:
 			return m.updateWalletType(msg)
 		case StepAccountIndex:
@@ -213,6 +251,38 @@ func (m Model) focusCurrentStep() tea.Cmd {
 	}
 }
 
+func (m Model) updateChoice(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.choiceCursor > 0 {
+			m.choiceCursor--
+		}
+	case "down", "j":
+		if m.choiceCursor < len(m.choiceOptions)-1 {
+			m.choiceCursor++
+		}
+	case "enter":
+		if m.choiceCursor == 0 {
+			// Import existing wallet
+			m.isGenerate = false
+			m.step = StepSeedPhrase
+			m.seedInput.Focus()
+			return m, m.seedInput.Focus()
+		}
+		// Create new wallet
+		m.isGenerate = true
+		mnemonic, err := keystore.GenerateMnemonic(128)
+		if err != nil {
+			m.err = fmt.Errorf("failed to generate mnemonic: %w", err)
+			return m, nil
+		}
+		m.words = strings.Fields(mnemonic)
+		m.step = StepShowMnemonic
+		return m, nil
+	}
+	return m, nil
+}
+
 func (m Model) updateSeedPhrase(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "ctrl+d" || msg.String() == "tab" {
 		// Submit seed phrase
@@ -231,6 +301,15 @@ func (m Model) updateSeedPhrase(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.seedInput, cmd = m.seedInput.Update(msg)
 	return m, cmd
+}
+
+func (m Model) updateShowMnemonic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "enter" {
+		m.err = nil
+		m.step = StepWalletType
+		return m, nil
+	}
+	return m, nil
 }
 
 func (m Model) updateWalletType(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -359,11 +438,8 @@ func (m Model) View() string {
 	title := tui.StyleTitle.Render("Import Wallet")
 	b.WriteString(title + "\n")
 
-	// Step indicator
-	stepNum := int(m.step) + 1
-	if stepNum > totalSteps {
-		stepNum = totalSteps
-	}
+	// Step indicator — adjust step number for display
+	stepNum := m.displayStepNum()
 	indicator := tui.StyleSubtitle.Render(fmt.Sprintf("Step %d/%d - %s", stepNum, totalSteps, m.step.Name()))
 	b.WriteString(indicator + "\n\n")
 
@@ -373,10 +449,38 @@ func (m Model) View() string {
 	}
 
 	switch m.step {
+	case StepChoice:
+		b.WriteString("What would you like to do?\n\n")
+		for i, option := range m.choiceOptions {
+			cursor := "  "
+			if i == m.choiceCursor {
+				cursor = tui.StylePrimaryBadge.Render("> ")
+			}
+			b.WriteString(cursor + option + "\n")
+		}
+		b.WriteString("\n" + tui.StyleMuted.Render("Use arrow keys to select, Enter to confirm, Esc to cancel"))
+
 	case StepSeedPhrase:
 		b.WriteString("Enter your seed phrase (12 or 24 words):\n\n")
 		b.WriteString(m.seedInput.View() + "\n\n")
-		b.WriteString(tui.StyleMuted.Render("Press Ctrl+D or Tab to continue, Esc to cancel"))
+		b.WriteString(tui.StyleMuted.Render("Press Ctrl+D or Tab to continue, Esc to go back"))
+
+	case StepShowMnemonic:
+		b.WriteString(tui.StyleWarning.Render("Write down these words and store them safely!") + "\n")
+		b.WriteString(tui.StyleWarning.Render("You will NOT be able to see them again.") + "\n\n")
+		b.WriteString("Your recovery phrase:\n\n")
+		// Display words in a 3-column grid
+		for i, word := range m.words {
+			col := i % 3
+			num := fmt.Sprintf("%2d. %-12s", i+1, word)
+			b.WriteString(tui.StyleBold.Render(num))
+			if col == 2 || i == len(m.words)-1 {
+				b.WriteString("\n")
+			} else {
+				b.WriteString("  ")
+			}
+		}
+		b.WriteString("\n" + tui.StyleMuted.Render("Press Enter to confirm you have saved your recovery phrase"))
 
 	case StepWalletType:
 		b.WriteString("Select wallet type:\n\n")
@@ -421,9 +525,46 @@ func (m Model) View() string {
 	return b.String()
 }
 
+// displayStepNum returns the human-friendly step number (1-based),
+// skipping steps not relevant to the current flow.
+func (m Model) displayStepNum() int {
+	// For import flow: Choice, SeedPhrase, WalletType, AccountIndex, Password, ConfirmPassword, Label, Importing/Success
+	// For generate flow: Choice, ShowMnemonic, WalletType, AccountIndex, Password, ConfirmPassword, Label, Importing/Success
+	switch m.step {
+	case StepChoice:
+		return 1
+	case StepSeedPhrase, StepShowMnemonic:
+		return 2
+	case StepWalletType:
+		return 3
+	case StepAccountIndex:
+		return 4
+	case StepPassword:
+		return 5
+	case StepConfirmPassword:
+		return 6
+	case StepLabel:
+		return 7
+	case StepImporting, StepSuccess:
+		return 8
+	default:
+		return int(m.step) + 1
+	}
+}
+
 // CurrentStep returns the current step for testing.
 func (m Model) CurrentStep() Step {
 	return m.step
+}
+
+// IsGenerate returns whether the generate flow was chosen for testing.
+func (m Model) IsGenerate() bool {
+	return m.isGenerate
+}
+
+// Words returns the collected words for testing.
+func (m Model) Words() []string {
+	return m.words
 }
 
 // SetSize updates the view dimensions.

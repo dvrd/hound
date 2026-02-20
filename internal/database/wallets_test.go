@@ -271,3 +271,81 @@ func TestWalletCount(t *testing.T) {
 		t.Errorf("count = %d, want 3", count)
 	}
 }
+
+func TestUpdateWalletLabel(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema: %v", err)
+	}
+
+	w := models.Wallet{
+		Address:        "label_test_addr",
+		Label:          "Original Label",
+		IsPrimary:      false,
+		WalletType:     models.WalletTypeBIP44Standard,
+		DerivationPath: "m/44'/501'/0'/0'",
+	}
+	if err := db.InsertWallet(w); err != nil {
+		t.Fatalf("InsertWallet: %v", err)
+	}
+
+	// Update label
+	if err := db.UpdateWalletLabel("label_test_addr", "New Label"); err != nil {
+		t.Fatalf("UpdateWalletLabel: %v", err)
+	}
+
+	// Verify
+	got, err := db.GetWalletByAddress("label_test_addr")
+	if err != nil {
+		t.Fatalf("GetWalletByAddress: %v", err)
+	}
+	if got.Label != "New Label" {
+		t.Errorf("Label = %q, want %q", got.Label, "New Label")
+	}
+}
+
+func TestUpdateWalletLabel_NotFound(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema: %v", err)
+	}
+
+	err := db.UpdateWalletLabel("nonexistent_addr", "Some Label")
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !errors.Is(err, models.ErrWalletNotFound) {
+		t.Errorf("error = %v, want ErrWalletNotFound", err)
+	}
+}
+
+func TestUpdateWalletLabel_Empty(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema: %v", err)
+	}
+
+	w := models.Wallet{
+		Address:        "empty_label_addr",
+		Label:          "Has Label",
+		IsPrimary:      false,
+		WalletType:     models.WalletTypeLegacy,
+		DerivationPath: "legacy-sha256",
+	}
+	if err := db.InsertWallet(w); err != nil {
+		t.Fatalf("InsertWallet: %v", err)
+	}
+
+	// Update with empty label — should succeed
+	if err := db.UpdateWalletLabel("empty_label_addr", ""); err != nil {
+		t.Fatalf("UpdateWalletLabel with empty: %v", err)
+	}
+
+	got, err := db.GetWalletByAddress("empty_label_addr")
+	if err != nil {
+		t.Fatalf("GetWalletByAddress: %v", err)
+	}
+	if got.Label != "" {
+		t.Errorf("Label = %q, want empty", got.Label)
+	}
+}

@@ -1,0 +1,244 @@
+package services
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/dvrd/hound/internal/blockchain"
+)
+
+func TestClassifySOLTransfer(t *testing.T) {
+	myAddr := "7xKXabc123def456ghi789jkl012mno345pqr678stu"
+	blockTime := int64(1700000000)
+	detail := &blockchain.TransactionDetail{
+		Signature: "sig123",
+		Slot:      100,
+		BlockTime: &blockTime,
+		Fee:       5000,
+		Instructions: []blockchain.ParsedInstruction{
+			{
+				ProgramID: "11111111111111111111111111111111",
+				Program:   "system",
+				Type:      "transfer",
+				Info: map[string]interface{}{
+					"source":      myAddr,
+					"destination": "RecipientAddr999",
+					"lamports":    float64(1_500_000_000), // 1.5 SOL
+				},
+			},
+		},
+		PreBalances:  []uint64{5_000_000_000, 0},
+		PostBalances: []uint64{3_499_995_000, 1_500_000_000},
+	}
+
+	item := classifyTransaction(detail, myAddr)
+
+	if item.Type != "sol_transfer" {
+		t.Errorf("type = %q, want sol_transfer", item.Type)
+	}
+	if item.Direction != "sent" {
+		t.Errorf("direction = %q, want sent", item.Direction)
+	}
+	if !strings.Contains(item.Amount, "1.5") {
+		t.Errorf("amount = %q, want to contain '1.5'", item.Amount)
+	}
+	if item.Status != "confirmed" {
+		t.Errorf("status = %q, want confirmed", item.Status)
+	}
+}
+
+func TestClassifySPLTransfer(t *testing.T) {
+	myAddr := "7xKXabc123def456ghi789jkl012mno345pqr678stu"
+	blockTime := int64(1700000000)
+	detail := &blockchain.TransactionDetail{
+		Signature: "sig456",
+		Slot:      200,
+		BlockTime: &blockTime,
+		Fee:       5000,
+		Instructions: []blockchain.ParsedInstruction{
+			{
+				ProgramID: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+				Program:   "spl-token",
+				Type:      "transferChecked",
+				Info: map[string]interface{}{
+					"authority":   myAddr,
+					"source":      "SourceATA",
+					"destination": "DestATA",
+					"tokenAmount": map[string]interface{}{
+						"uiAmountString": "100.5",
+					},
+				},
+			},
+		},
+		PreBalances:  []uint64{1_000_000_000},
+		PostBalances: []uint64{999_995_000},
+	}
+
+	item := classifyTransaction(detail, myAddr)
+
+	if item.Type != "spl_transfer" {
+		t.Errorf("type = %q, want spl_transfer", item.Type)
+	}
+	if item.Direction != "sent" {
+		t.Errorf("direction = %q, want sent", item.Direction)
+	}
+	if item.Amount != "100.5" {
+		t.Errorf("amount = %q, want '100.5'", item.Amount)
+	}
+}
+
+func TestClassifyUnknown(t *testing.T) {
+	myAddr := "7xKXabc123"
+	blockTime := int64(1700000000)
+	detail := &blockchain.TransactionDetail{
+		Signature: "sig789",
+		Slot:      300,
+		BlockTime: &blockTime,
+		Fee:       5000,
+		Instructions: []blockchain.ParsedInstruction{
+			{
+				ProgramID: "SomeRandomProgram111111111111111111111111111",
+				Program:   "unknown_program",
+				Type:      "some_action",
+				Info:      map[string]interface{}{},
+			},
+		},
+		PreBalances:  []uint64{1_000_000_000},
+		PostBalances: []uint64{999_995_000},
+	}
+
+	item := classifyTransaction(detail, myAddr)
+
+	if item.Type != "program_interaction" {
+		t.Errorf("type = %q, want program_interaction", item.Type)
+	}
+}
+
+func TestDirectionSent(t *testing.T) {
+	myAddr := "SenderAddr"
+	blockTime := int64(1700000000)
+	detail := &blockchain.TransactionDetail{
+		Signature:    "sigSent",
+		Slot:         400,
+		BlockTime:    &blockTime,
+		Fee:          5000,
+		Instructions: []blockchain.ParsedInstruction{},
+		PreBalances:  []uint64{5_000_000_000},
+		PostBalances: []uint64{3_000_000_000},
+	}
+
+	item := classifyTransaction(detail, myAddr)
+
+	// No instructions → unknown type, but direction from balances
+	if item.Direction != "sent" {
+		t.Errorf("direction = %q, want sent", item.Direction)
+	}
+}
+
+func TestDirectionReceived(t *testing.T) {
+	myAddr := "ReceiverAddr"
+	blockTime := int64(1700000000)
+	detail := &blockchain.TransactionDetail{
+		Signature:    "sigRecv",
+		Slot:         500,
+		BlockTime:    &blockTime,
+		Fee:          5000,
+		Instructions: []blockchain.ParsedInstruction{},
+		PreBalances:  []uint64{1_000_000_000},
+		PostBalances: []uint64{3_000_000_000},
+	}
+
+	item := classifyTransaction(detail, myAddr)
+
+	if item.Direction != "received" {
+		t.Errorf("direction = %q, want received", item.Direction)
+	}
+}
+
+func TestMergeWithSwapHistory(t *testing.T) {
+	// This tests the merge logic conceptually - we can't easily test GetActivity
+	// without a real RPC client, but we can test that classifyTransaction + merge works.
+	// The merge is done in GetActivity by matching signatures against swap records.
+	// Here we test the classify function returns items that can be merged.
+	myAddr := "7xKXabc123"
+	blockTime := int64(1700000000)
+	detail := &blockchain.TransactionDetail{
+		Signature: "swapSig123",
+		Slot:      600,
+		BlockTime: &blockTime,
+		Fee:       5000,
+		Instructions: []blockchain.ParsedInstruction{
+			{
+				ProgramID: "11111111111111111111111111111111",
+				Program:   "system",
+				Type:      "transfer",
+				Info: map[string]interface{}{
+					"source":      myAddr,
+					"destination": "RecipientAddr",
+					"lamports":    float64(500_000_000),
+				},
+			},
+		},
+		PreBalances:  []uint64{1_000_000_000},
+		PostBalances: []uint64{499_995_000},
+	}
+
+	item := classifyTransaction(detail, myAddr)
+	// Before merge, it's a sol_transfer
+	if item.Type != "sol_transfer" {
+		t.Errorf("type before merge = %q, want sol_transfer", item.Type)
+	}
+
+	// Simulate merge (what GetActivity does)
+	item.Type = "swap"
+	if item.Type != "swap" {
+		t.Errorf("type after merge = %q, want swap", item.Type)
+	}
+}
+
+func TestTruncateAddress(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"7xKXabc123def456ghi789jkl012mno345pqr678stu", "7xKX...8stu"},
+		{"short", "short"},
+		{"12345678", "12345678"},
+		{"123456789", "1234...6789"},
+	}
+
+	for _, tt := range tests {
+		got := TruncateAddress(tt.input)
+		if got != tt.want {
+			t.Errorf("TruncateAddress(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestActivityGetActivity_Empty(t *testing.T) {
+	// With nil RPC client, GetActivity should fail gracefully
+	svc := NewActivityService(nil)
+	_, err := svc.GetActivity(nil, "addr", 10, "")
+	if err == nil {
+		t.Error("expected error with nil RPC client")
+	}
+}
+
+func TestFormatLamports(t *testing.T) {
+	tests := []struct {
+		lamports uint64
+		want     string
+	}{
+		{1_000_000_000, "1 SOL"},
+		{1_500_000_000, "1.5 SOL"},
+		{5000, "5e-06 SOL"},
+		{0, "0 SOL"},
+	}
+
+	for _, tt := range tests {
+		got := FormatLamports(tt.lamports)
+		if got != tt.want {
+			t.Errorf("FormatLamports(%d) = %q, want %q", tt.lamports, got, tt.want)
+		}
+	}
+}

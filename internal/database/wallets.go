@@ -188,3 +188,24 @@ func (d *Database) WalletCount() (int, error) {
 	}
 	return count, nil
 }
+
+// UpdateWalletLabel updates the label for a wallet.
+func (d *Database) UpdateWalletLabel(address, label string) error {
+	result, err := d.db.Exec(
+		`UPDATE wallets SET label = ? WHERE address = ?`,
+		label, address,
+	)
+	if err != nil {
+		return fmt.Errorf("updating wallet label %q: %w", address, err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("checking rows affected for wallet label update %q: %w", address, err)
+	}
+	if rows == 0 {
+		return fmt.Errorf("updating wallet label %q: %w", address, models.ErrWalletNotFound)
+	}
+	// Also update encrypted_keypairs label for consistency
+	_, _ = d.db.Exec(`UPDATE encrypted_keypairs SET label = ? WHERE address = ?`, label, address)
+	return nil
+}

@@ -7,50 +7,70 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/dvrd/hound/internal/models"
+	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/views/history"
 )
 
 func newTestModel() history.Model {
-	return history.New("7xKXabc123", nil)
+	return history.New("7xKXabc123", nil, nil)
 }
 
 func loadedModel() history.Model {
 	m := newTestModel()
 	now := time.Now().Unix()
-	entries := []models.SwapHistoryEntry{
+	items := []services.ActivityItem{
 		{
-			ID:           1,
-			InputSymbol:  "SOL",
-			OutputSymbol: "USDC",
-			InputAmount:  1.0,
-			OutputAmount: 150.0,
-			Status:       "finalized",
-			Dex:          "Raydium",
-			CreatedAt:    now - 3600, // 1 hour ago
+			Signature:    "sig1",
+			Type:         "sol_transfer",
+			Direction:    "sent",
+			Amount:       "1.5 SOL",
+			Counterparty: "7xKp...3mFq",
+			Fee:          5000,
+			Timestamp:    now - 3600, // 1 hour ago
+			Status:       "confirmed",
+			Slot:         100,
 		},
 		{
-			ID:           2,
-			InputSymbol:  "USDC",
-			OutputSymbol: "BONK",
-			InputAmount:  50.0,
-			OutputAmount: 1000000.0,
-			Status:       "failed",
-			Dex:          "Orca",
-			ErrorMessage: "slippage exceeded",
-			CreatedAt:    now - 86400*2, // 2 days ago
+			Signature:    "sig2",
+			Type:         "spl_transfer",
+			Direction:    "received",
+			Amount:       "100 USDC",
+			Counterparty: "9aBc...dEfG",
+			Fee:          5000,
+			Timestamp:    now - 86400*2, // 2 days ago
+			Status:       "confirmed",
+			Slot:         200,
+		},
+		{
+			Signature:    "sig3",
+			Type:         "swap",
+			Direction:    "self",
+			Amount:       "0.5 SOL",
+			Counterparty: "",
+			Fee:          5000,
+			Timestamp:    now - 86400, // 1 day ago
+			Status:       "confirmed",
+			Slot:         150,
 		},
 	}
-	updated, _ := m.Update(history.HistoryLoadedMsg{Entries: entries, Total: 2})
+	updated, _ := m.Update(history.ActivityLoadedMsg{Items: items})
 	return updated.(history.Model)
 }
 
 func TestNew(t *testing.T) {
 	m := newTestModel()
 	view := m.View()
-	if !strings.Contains(view, "Swap History") {
-		t.Errorf("View should contain 'Swap History', got %q", view)
+	if !strings.Contains(view, "History") {
+		t.Errorf("View should contain 'History', got %q", view)
+	}
+}
+
+func TestActivityLoadedMsg(t *testing.T) {
+	m := loadedModel()
+	items := m.GetItems()
+	if len(items) != 3 {
+		t.Errorf("expected 3 items, got %d", len(items))
 	}
 }
 
@@ -63,41 +83,28 @@ func TestViewContainsEntries(t *testing.T) {
 	if !strings.Contains(view, "USDC") {
 		t.Error("View should contain 'USDC'")
 	}
-	if !strings.Contains(view, "BONK") {
-		t.Error("View should contain 'BONK'")
+}
+
+func TestDirectionIcons(t *testing.T) {
+	m := loadedModel()
+	view := m.View()
+	// Check for direction icons (they may be styled, so check the raw characters)
+	if !strings.Contains(view, "↑") {
+		t.Error("View should contain ↑ for sent")
+	}
+	if !strings.Contains(view, "↓") {
+		t.Error("View should contain ↓ for received")
+	}
+	if !strings.Contains(view, "⇄") {
+		t.Error("View should contain ⇄ for swap")
 	}
 }
 
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel()
 	view := m.View()
-	if !strings.Contains(view, "[n]ext") {
-		t.Error("View should contain [n]ext in status bar")
-	}
-	if !strings.Contains(view, "[p]rev") {
-		t.Error("View should contain [p]rev in status bar")
-	}
 	if !strings.Contains(view, "[esc]back") {
 		t.Error("View should contain [esc]back in status bar")
-	}
-}
-
-func TestViewContainsPagination(t *testing.T) {
-	m := loadedModel()
-	view := m.View()
-	if !strings.Contains(view, "Page 1/") {
-		t.Error("View should contain page indicator")
-	}
-	if !strings.Contains(view, "2 total") {
-		t.Error("View should contain total count")
-	}
-}
-
-func TestViewContainsDex(t *testing.T) {
-	m := loadedModel()
-	view := m.View()
-	if !strings.Contains(view, "Raydium") {
-		t.Error("View should contain DEX name 'Raydium'")
 	}
 }
 
@@ -127,38 +134,45 @@ func TestCursorNavigation(t *testing.T) {
 		t.Errorf("cursor after j = %d, want 1", model.GetCursor())
 	}
 
-	// Move down again (boundary)
+	// Move down again
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	model = updated.(history.Model)
-	if model.GetCursor() != 1 {
-		t.Errorf("cursor after second j = %d, want 1 (boundary)", model.GetCursor())
+	if model.GetCursor() != 2 {
+		t.Errorf("cursor after second j = %d, want 2", model.GetCursor())
+	}
+
+	// Move down at boundary
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	model = updated.(history.Model)
+	if model.GetCursor() != 2 {
+		t.Errorf("cursor after third j = %d, want 2 (boundary)", model.GetCursor())
 	}
 
 	// Move up
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	model = updated.(history.Model)
-	if model.GetCursor() != 0 {
-		t.Errorf("cursor after k = %d, want 0", model.GetCursor())
+	if model.GetCursor() != 1 {
+		t.Errorf("cursor after k = %d, want 1", model.GetCursor())
 	}
 }
 
-func TestHistoryLoadedMsg_Error(t *testing.T) {
+func TestActivityLoadedMsg_Error(t *testing.T) {
 	m := newTestModel()
-	updated, _ := m.Update(history.HistoryLoadedMsg{Err: fmt.Errorf("db error")})
+	updated, _ := m.Update(history.ActivityLoadedMsg{Err: fmt.Errorf("rpc error")})
 	model := updated.(history.Model)
 	view := model.View()
 	if !strings.Contains(view, "Error") {
-		t.Error("View should show error when HistoryLoadedMsg has error")
+		t.Error("View should show error when ActivityLoadedMsg has error")
 	}
 }
 
 func TestEmptyHistory(t *testing.T) {
 	m := newTestModel()
-	updated, _ := m.Update(history.HistoryLoadedMsg{Entries: nil, Total: 0})
+	updated, _ := m.Update(history.ActivityLoadedMsg{Items: nil})
 	model := updated.(history.Model)
 	view := model.View()
-	if !strings.Contains(view, "No swap history") {
-		t.Error("View with no entries should show 'No swap history found'")
+	if !strings.Contains(view, "No transaction history") {
+		t.Error("View with no items should show 'No transaction history found'")
 	}
 }
 
@@ -167,50 +181,6 @@ func TestWindowSizeMsg(t *testing.T) {
 	updated, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	_ = updated.(history.Model)
 	// Should not panic
-}
-
-func TestPaginationNextPage(t *testing.T) {
-	m := newTestModel()
-	// Load with more entries than page size
-	updated, _ := m.Update(history.HistoryLoadedMsg{
-		Entries: make([]models.SwapHistoryEntry, 20),
-		Total:   50,
-	})
-	model := updated.(history.Model)
-
-	if model.GetPage() != 0 {
-		t.Errorf("initial page = %d, want 0", model.GetPage())
-	}
-
-	// Press 'n' for next page - this triggers a reload
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-	model = updated.(history.Model)
-	if model.GetPage() != 1 {
-		t.Errorf("page after 'n' = %d, want 1", model.GetPage())
-	}
-	if cmd == nil {
-		t.Error("next page should trigger a reload command")
-	}
-}
-
-func TestPaginationPrevPage(t *testing.T) {
-	m := newTestModel()
-	// Simulate being on page 0
-	updated, _ := m.Update(history.HistoryLoadedMsg{
-		Entries: make([]models.SwapHistoryEntry, 5),
-		Total:   5,
-	})
-	model := updated.(history.Model)
-
-	// Press 'p' on page 0 - should not go negative
-	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}})
-	model = updated.(history.Model)
-	if model.GetPage() != 0 {
-		t.Errorf("page after 'p' on page 0 = %d, want 0", model.GetPage())
-	}
-	if cmd != nil {
-		t.Error("prev page on page 0 should not trigger a command")
-	}
 }
 
 func TestFormatRelativeTime(t *testing.T) {
@@ -289,7 +259,31 @@ func TestFormatRelativeTime_Ranges(t *testing.T) {
 func TestLoadingView(t *testing.T) {
 	m := newTestModel()
 	view := m.View()
-	if !strings.Contains(view, "Swap History") {
+	if !strings.Contains(view, "History") {
 		t.Error("loading view should contain title")
+	}
+}
+
+func TestSentItemDisplay(t *testing.T) {
+	m := loadedModel()
+	view := m.View()
+	if !strings.Contains(view, "Sent") {
+		t.Error("View should contain 'Sent' for sent items")
+	}
+}
+
+func TestReceivedItemDisplay(t *testing.T) {
+	m := loadedModel()
+	view := m.View()
+	if !strings.Contains(view, "Received") {
+		t.Error("View should contain 'Received' for received items")
+	}
+}
+
+func TestSwapItemDisplay(t *testing.T) {
+	m := loadedModel()
+	view := m.View()
+	if !strings.Contains(view, "Swapped") {
+		t.Error("View should contain 'Swapped' for swap items")
 	}
 }

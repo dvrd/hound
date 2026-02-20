@@ -34,3 +34,9 @@ type ErrorMsg struct {
 type StatusMsg struct {
 	Message string
 }
+
+// TransferSentMsg is sent when a transfer completes.
+type TransferSentMsg struct {
+	Signature string
+	Err       error
+}
