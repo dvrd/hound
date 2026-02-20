@@ -87,6 +87,12 @@ func (d *Database) MigrateSchema() error {
 		}
 	}
 
+	// Migrate swap_history: Odin schema used "timestamp" column, Go uses "created_at".
+	// Also drop the old unique index on signature and the timestamp-based index.
+	if err := migrateSwapHistory(d.db); err != nil {
+		return fmt.Errorf("migrate swap_history: %w", err)
+	}
+
 	return nil
 }
 
@@ -116,6 +122,32 @@ func configurePragmas(db *sql.DB) error {
 			return fmt.Errorf("exec %q: %w", p, err)
 		}
 	}
+	return nil
+}
+
+// migrateSwapHistory handles the Odin→Go schema transition for swap_history.
+// The Odin schema used "timestamp" instead of "created_at" and had different
+// nullability/uniqueness constraints. This migration renames the column if the
+// old schema is detected. Safe to call on new databases (no-op).
+func migrateSwapHistory(db *sql.DB) error {
+	hasTimestamp, err := columnExists(db, "swap_history", "timestamp")
+	if err != nil {
+		// Table doesn't exist yet — nothing to migrate.
+		return nil
+	}
+	if !hasTimestamp {
+		return nil
+	}
+
+	// Odin schema has "timestamp" — rename to "created_at".
+	if _, err := db.Exec(`ALTER TABLE swap_history RENAME COLUMN "timestamp" TO created_at`); err != nil {
+		return fmt.Errorf("rename timestamp→created_at: %w", err)
+	}
+
+	// Drop the old timestamp-based index if it exists, the schema creation
+	// will recreate it as idx_swap_history_created on created_at.
+	db.Exec(`DROP INDEX IF EXISTS idx_swap_history_timestamp`)
+
 	return nil
 }
 
