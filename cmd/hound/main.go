@@ -16,6 +16,8 @@ import (
 	"github.com/dvrd/hound/internal/swap"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/views/history"
+	"github.com/dvrd/hound/internal/tui/views/receive"
+	"github.com/dvrd/hound/internal/tui/views/send"
 	"github.com/dvrd/hound/internal/tui/views/swapview"
 	"github.com/dvrd/hound/internal/tui/views/tokenadd"
 	"github.com/dvrd/hound/internal/tui/views/tokenfetch"
@@ -65,6 +67,8 @@ type deps struct {
 	swapClient   *swap.SwapClient
 	swapSvc      *services.SwapService
 	tokenInfoSvc *services.TokenInfoService
+	activitySvc  *services.ActivityService
+	transferSvc  *services.TransferService
 }
 
 func initDeps() (*deps, error) {
@@ -93,6 +97,8 @@ func initDeps() (*deps, error) {
 	swapClient := swap.NewSwapClient()
 	swapSvc := services.NewSwapService(swapClient, keystoreSvc, db)
 	tokenInfoSvc := services.NewTokenInfoService(dexscreenerClient, rpcClient)
+	activitySvc := services.NewActivityService(db)
+	transferSvc := services.NewTransferService(keystoreSvc, db)
 
 	return &deps{
 		db:           db,
@@ -105,6 +111,8 @@ func initDeps() (*deps, error) {
 		swapClient:   swapClient,
 		swapSvc:      swapSvc,
 		tokenInfoSvc: tokenInfoSvc,
+		activitySvc:  activitySvc,
+		transferSvc:  transferSvc,
 	}, nil
 }
 
@@ -122,7 +130,7 @@ func makeViewFactory(d *deps) tui.ViewFactory {
 
 		case "wallet-status":
 			addr, _ := data.(string)
-			m := walletstatus.New(d.walletMgr, addr)
+			m := walletstatus.New(d.walletMgr, addr, d.db)
 			return m
 
 		case "wallet-delete":
@@ -164,9 +172,29 @@ func makeViewFactory(d *deps) tui.ViewFactory {
 			m := swapview.New(addr, d.swapClient, d.swapSvc, false)
 			return m
 
+		case "send":
+			addr, _ := data.(string)
+			if addr == "" {
+				if pw, err := d.walletMgr.GetPrimaryWallet(); err == nil {
+					addr = pw.Address
+				}
+			}
+			portfolio, _ := d.walletMgr.GetCachedPortfolio(addr)
+			m := send.New(addr, d.transferSvc, d.rpcClient, portfolio)
+			return m
+
+		case "receive":
+			addr, _ := data.(string)
+			label := ""
+			if w, err := d.db.GetWalletByAddress(addr); err == nil {
+				label = w.Label
+			}
+			m := receive.New(addr, label)
+			return m
+
 		case "history":
 			addr, _ := data.(string)
-			m := history.New(addr, d.db)
+			m := history.New(addr, d.activitySvc, d.rpcClient)
 			return m
 
 		default:
