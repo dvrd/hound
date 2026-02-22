@@ -150,9 +150,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Global escape handling
 		if msg.String() == "esc" {
 			if m.step == StepSelectToken {
+				// M6: Clear all sensitive state on exit
+				m.passwordInput.Reset()
 				return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 			}
 			if m.step > StepSelectToken && m.step < StepSending {
+				// M6: Clear password buffer when navigating away from password step
+				if m.step == StepPassword {
+					m.passwordInput.Reset()
+				}
 				m.err = nil
 				m.step--
 				return m, m.focusCurrentStep()
@@ -331,6 +337,8 @@ func (m Model) updatePassword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("password cannot be empty")
 			return m, nil
 		}
+		// M6: Clear password from input buffer immediately after extraction
+		m.passwordInput.Reset()
 		m.err = nil
 		m.step = StepSending
 		return m, tea.Batch(m.spinner.Init(), m.doTransfer(password))

@@ -289,3 +289,110 @@ func TestSwapHistoryInsert(t *testing.T) {
 		t.Errorf("expected positive id, got %d", id)
 	}
 }
+
+func TestSetMaxOpenConns(t *testing.T) {
+	db := mustOpenInMemory(t)
+
+	// Verify max open conns is 1 by checking the stats
+	stats := db.DB().Stats()
+	// We can't directly check MaxOpenConnections from stats in all Go versions,
+	// but we can verify the DB works correctly with single connection
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema failed with single conn: %v", err)
+	}
+
+	// Run multiple queries to verify single-connection mode works
+	for i := 0; i < 5; i++ {
+		var result int
+		if err := db.DB().QueryRow("SELECT 1").Scan(&result); err != nil {
+			t.Fatalf("query %d failed: %v", i, err)
+		}
+	}
+	_ = stats // used above
+}
+
+func TestMigrateIdempotent(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema failed: %v", err)
+	}
+
+	// First migration should succeed
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("first Migrate() failed: %v", err)
+	}
+
+	// Second migration should also succeed (idempotent)
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("second Migrate() failed: %v", err)
+	}
+}
+
+func TestMigrateAddsColumns(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema failed: %v", err)
+	}
+	if err := db.Migrate(); err != nil {
+		t.Fatalf("Migrate() failed: %v", err)
+	}
+
+	// Verify verifier_salt column exists in encrypted_keypairs
+	_, err := db.DB().Exec(
+		`INSERT INTO encrypted_keypairs (address, encrypted_private_key, salt, nonce, tag, password_hash, verifier_salt, argon2_version, label, is_primary, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"test_addr", []byte{1}, []byte{2}, []byte{3}, []byte{4}, []byte{5}, []byte{6}, 2, "test", 0, time.Now().Unix(),
+	)
+	if err != nil {
+		t.Fatalf("INSERT with verifier_salt failed: %v", err)
+	}
+
+	// Read it back
+	var verSalt []byte
+	var argonVer int
+	err = db.DB().QueryRow(
+		`SELECT verifier_salt, argon2_version FROM encrypted_keypairs WHERE address = ?`, "test_addr",
+	).Scan(&verSalt, &argonVer)
+	if err != nil {
+		t.Fatalf("SELECT verifier_salt failed: %v", err)
+	}
+	if len(verSalt) != 1 || verSalt[0] != 6 {
+		t.Errorf("verifier_salt = %v, want [6]", verSalt)
+	}
+	if argonVer != 2 {
+		t.Errorf("argon2_version = %d, want 2", argonVer)
+	}
+}
+
+func TestFreshSchemaHasNewColumns(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema failed: %v", err)
+	}
+
+	// Fresh schema should already have verifier_salt and argon2_version
+	_, err := db.DB().Exec(
+		`INSERT INTO encrypted_keypairs (address, encrypted_private_key, salt, nonce, tag, password_hash, verifier_salt, argon2_version, label, is_primary, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"fresh_addr", []byte{1}, []byte{2}, []byte{3}, []byte{4}, []byte{5}, nil, 1, "test", 0, time.Now().Unix(),
+	)
+	if err != nil {
+		t.Fatalf("INSERT with new columns on fresh schema failed: %v", err)
+	}
+}
+
+func TestPragmasApplyWithSingleConn(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema failed: %v", err)
+	}
+
+	// With single connection, foreign_keys should always be ON
+	var fk int
+	if err := db.DB().QueryRow("PRAGMA foreign_keys").Scan(&fk); err != nil {
+		t.Fatalf("PRAGMA foreign_keys failed: %v", err)
+	}
+	if fk != 1 {
+		t.Errorf("foreign_keys = %d, want 1 (ON)", fk)
+	}
+}

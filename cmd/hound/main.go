@@ -87,6 +87,11 @@ func initDeps() (*deps, error) {
 		return nil, fmt.Errorf("schema: %w", err)
 	}
 
+	if err := db.Migrate(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+
 	rpcClient := blockchain.NewRPCClient(cfg.RPCEndpoint, cfg.BackupEndpoints)
 	jupiterClient := dex.NewJupiterClient()
 	dexscreenerClient := dex.NewDexScreenerClient()

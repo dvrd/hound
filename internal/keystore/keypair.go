@@ -3,7 +3,6 @@ package keystore
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
-	"strings"
 
 	"github.com/dvrd/hound/internal/models"
 	"github.com/mr-tron/base58"
@@ -48,8 +47,11 @@ func DeriveKeypairBIP44(words []string, walletType models.WalletType, accountInd
 // Joins words with spaces, SHA-256 hashes the result to get a 32-byte seed, then
 // derives an Ed25519 keypair.
 func DeriveKeypairLegacy(words []string) (Keypair, error) {
-	mnemonic := strings.Join(words, " ")
-	hash := sha256.Sum256([]byte(mnemonic))
+	// Use mutable []byte instead of immutable string (Fix H5).
+	mnemonicBytes := JoinWordsToBytes(words)
+	defer ZeroBytes(mnemonicBytes)
+
+	hash := sha256.Sum256(mnemonicBytes)
 	defer ZeroBytes(hash[:])
 
 	privKey := ed25519.NewKeyFromSeed(hash[:])

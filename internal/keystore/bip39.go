@@ -2,7 +2,6 @@ package keystore
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/tyler-smith/go-bip39"
 )
@@ -15,8 +14,12 @@ func ValidateMnemonic(words []string) error {
 		return fmt.Errorf("mnemonic must be 12 or 24 words, got %d", n)
 	}
 
-	mnemonic := strings.Join(words, " ")
-	if !bip39.IsMnemonicValid(mnemonic) {
+	// Build mnemonic as mutable []byte, zero after validation (Fix H5).
+	mnemonicBytes := JoinWordsToBytes(words)
+	defer ZeroBytes(mnemonicBytes)
+
+	// Library requires string — unavoidable conversion at boundary.
+	if !bip39.IsMnemonicValid(string(mnemonicBytes)) {
 		return fmt.Errorf("invalid BIP39 mnemonic")
 	}
 
@@ -30,9 +33,14 @@ func MnemonicToSeed(words []string) ([64]byte, error) {
 		return [64]byte{}, err
 	}
 
-	mnemonic := strings.Join(words, " ")
+	// Build mnemonic as mutable []byte, zero after use (Fix H5).
+	mnemonicBytes := JoinWordsToBytes(words)
+	defer ZeroBytes(mnemonicBytes)
+
+	// Library requires string — unavoidable conversion at boundary.
 	// Empty passphrase → salt is just "mnemonic"
-	seedBytes := bip39.NewSeed(mnemonic, "")
+	seedBytes := bip39.NewSeed(string(mnemonicBytes), "")
+	defer ZeroBytes(seedBytes) // Zero heap-allocated seed after copy
 
 	var seed [64]byte
 	copy(seed[:], seedBytes)
@@ -49,6 +57,8 @@ func GenerateMnemonic(bitSize int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("generate entropy: %w", err)
 	}
+	defer ZeroBytes(entropy) // Zero entropy after mnemonic generation
+
 	mnemonic, err := bip39.NewMnemonic(entropy)
 	if err != nil {
 		return "", fmt.Errorf("generate mnemonic: %w", err)

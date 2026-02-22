@@ -61,6 +61,46 @@ func TestImportAndUnlockRoundTrip(t *testing.T) {
 	}
 }
 
+func TestImportUsesDualSalt(t *testing.T) {
+	db := setupTestDB(t)
+	svc := &services.KeystoreService{}
+	words := strings.Split(testMnemonic, " ")
+
+	address, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	if err != nil {
+		t.Fatalf("ImportKeypair failed: %v", err)
+	}
+
+	// Verify the stored keypair uses dual-salt format
+	ekd, err := db.GetEncryptedKeypair(address)
+	if err != nil {
+		t.Fatalf("GetEncryptedKeypair failed: %v", err)
+	}
+
+	if ekd.IsLegacyFormat() {
+		t.Error("newly imported keypair should NOT be legacy format")
+	}
+	if ekd.Argon2Version != 2 {
+		t.Errorf("Argon2Version = %d, want 2", ekd.Argon2Version)
+	}
+	if len(ekd.VerifierSalt) != 16 {
+		t.Errorf("VerifierSalt length = %d, want 16", len(ekd.VerifierSalt))
+	}
+
+	// CRITICAL: verify that encryption salt != verifier salt
+	var verSalt [16]byte
+	copy(verSalt[:], ekd.VerifierSalt)
+	if ekd.Salt == verSalt {
+		t.Error("CRITICAL: encryption salt and verifier salt are identical")
+	}
+
+	// CRITICAL: verify that password_hash != DeriveKeyV2(password, encryption_salt)
+	encKey := keystore.DeriveKeyV2(testPassword, ekd.Salt)
+	if encKey == ekd.PasswordHash {
+		t.Error("CRITICAL: password_hash equals encryption key — dual-salt is broken")
+	}
+}
+
 func TestImportLegacyAndUnlock(t *testing.T) {
 	db := setupTestDB(t)
 	svc := &services.KeystoreService{}
@@ -173,6 +213,35 @@ func TestUpdatePasswordAndUnlock(t *testing.T) {
 	}
 }
 
+func TestUpdatePasswordUsesDualSalt(t *testing.T) {
+	db := setupTestDB(t)
+	svc := &services.KeystoreService{}
+	words := strings.Split(testMnemonic, " ")
+
+	address, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	if err != nil {
+		t.Fatalf("ImportKeypair failed: %v", err)
+	}
+
+	newPassword := "NewStr0ng!Pass#2"
+	_, err = svc.UpdatePassword(db, words, newPassword)
+	if err != nil {
+		t.Fatalf("UpdatePassword failed: %v", err)
+	}
+
+	ekd, err := db.GetEncryptedKeypair(address)
+	if err != nil {
+		t.Fatalf("GetEncryptedKeypair failed: %v", err)
+	}
+
+	if ekd.IsLegacyFormat() {
+		t.Error("after UpdatePassword, keypair should NOT be legacy format")
+	}
+	if ekd.Argon2Version != 2 {
+		t.Errorf("Argon2Version = %d, want 2", ekd.Argon2Version)
+	}
+}
+
 func TestUpdatePasswordWeakRejected(t *testing.T) {
 	db := setupTestDB(t)
 	svc := &services.KeystoreService{}
@@ -202,5 +271,156 @@ func TestUpdatePasswordWalletNotFound(t *testing.T) {
 	_, err := svc.UpdatePassword(db, words, testPassword)
 	if err == nil {
 		t.Fatal("UpdatePassword for non-existent wallet should return error")
+	}
+}
+
+func TestLegacyMigrationOnUnlock(t *testing.T) {
+	// Simulate a pre-migration wallet by inserting directly with old format
+	db := setupTestDB(t)
+	svc := &services.KeystoreService{}
+	words := strings.Split(testMnemonic, " ")
+
+	// First, derive the keypair to get the address and seed
+	kp, err := keystore.DeriveKeypairBIP44(words, models.WalletTypeBIP44Standard, 0)
+	if err != nil {
+		t.Fatalf("DeriveKeypairBIP44 failed: %v", err)
+	}
+	address := keystore.KeypairToAddress(kp)
+	seed := kp.PrivateKey.Seed()
+
+	// Create old-format entry: same salt for key and hash (the vulnerability)
+	salt, _ := keystore.GenerateSalt()
+	oldKey := keystore.DeriveKeyV1(testPassword, salt)
+	nonce, _ := keystore.GenerateNonce()
+	encrypted, _ := keystore.Encrypt(seed, oldKey, nonce)
+
+	oldEKD := database.EncryptedKeypairData{
+		Address:             address,
+		EncryptedPrivateKey: encrypted.Ciphertext,
+		Salt:                salt,
+		Nonce:               encrypted.Nonce,
+		Tag:                 encrypted.Tag,
+		PasswordHash:        oldKey, // OLD BUG: hash == key
+		VerifierSalt:        nil,    // legacy: no verifier salt
+		Argon2Version:       1,
+		Label:               "legacy-test",
+		IsPrimary:           true,
+	}
+
+	if err := db.InsertEncryptedKeypair(oldEKD); err != nil {
+		t.Fatalf("InsertEncryptedKeypair (legacy): %v", err)
+	}
+
+	// Insert wallet record too
+	wallet := models.Wallet{
+		Address:        address,
+		Label:          "legacy-test",
+		IsPrimary:      true,
+		WalletType:     models.WalletTypeBIP44Standard,
+		DerivationPath: models.GetDerivationPath(models.WalletTypeBIP44Standard, 0),
+		AccountIndex:   0,
+	}
+	if err := db.InsertWallet(wallet); err != nil {
+		t.Fatalf("InsertWallet: %v", err)
+	}
+
+	// Verify it's legacy before unlock
+	preUnlock, _ := db.GetEncryptedKeypair(address)
+	if !preUnlock.IsLegacyFormat() {
+		t.Fatal("expected legacy format before unlock")
+	}
+
+	// Unlock — should trigger migration
+	privKey, err := svc.UnlockKeypair(db, address, testPassword)
+	if err != nil {
+		t.Fatalf("UnlockKeypair (legacy migration) failed: %v", err)
+	}
+	defer keystore.ZeroBytes(privKey)
+
+	// Verify the key is correct
+	pubKey := privKey.Public().(ed25519.PublicKey)
+	derivedKP := keystore.Keypair{PublicKey: pubKey, PrivateKey: privKey}
+	if keystore.KeypairToAddress(derivedKP) != address {
+		t.Error("address mismatch after legacy migration unlock")
+	}
+
+	// Verify migration happened
+	postUnlock, err := db.GetEncryptedKeypair(address)
+	if err != nil {
+		t.Fatalf("GetEncryptedKeypair after migration: %v", err)
+	}
+
+	if postUnlock.IsLegacyFormat() {
+		t.Error("expected non-legacy format after migration")
+	}
+	if postUnlock.Argon2Version != 2 {
+		t.Errorf("Argon2Version = %d, want 2 after migration", postUnlock.Argon2Version)
+	}
+
+	// CRITICAL: verify password_hash != encryption key after migration
+	encKey := keystore.DeriveKeyV2(testPassword, postUnlock.Salt)
+	if encKey == postUnlock.PasswordHash {
+		t.Error("CRITICAL: after migration, password_hash still equals encryption key")
+	}
+
+	// Verify we can unlock again with the migrated format
+	privKey2, err := svc.UnlockKeypair(db, address, testPassword)
+	if err != nil {
+		t.Fatalf("UnlockKeypair (post-migration) failed: %v", err)
+	}
+	defer keystore.ZeroBytes(privKey2)
+
+	pubKey2 := privKey2.Public().(ed25519.PublicKey)
+	derivedKP2 := keystore.Keypair{PublicKey: pubKey2, PrivateKey: privKey2}
+	if keystore.KeypairToAddress(derivedKP2) != address {
+		t.Error("address mismatch on post-migration unlock")
+	}
+}
+
+func TestLegacyWrongPasswordRejected(t *testing.T) {
+	db := setupTestDB(t)
+	svc := &services.KeystoreService{}
+	words := strings.Split(testMnemonic, " ")
+
+	// Create old-format entry
+	kp, _ := keystore.DeriveKeypairBIP44(words, models.WalletTypeBIP44Standard, 0)
+	address := keystore.KeypairToAddress(kp)
+	seed := kp.PrivateKey.Seed()
+
+	salt, _ := keystore.GenerateSalt()
+	oldKey := keystore.DeriveKeyV1(testPassword, salt)
+	nonce, _ := keystore.GenerateNonce()
+	encrypted, _ := keystore.Encrypt(seed, oldKey, nonce)
+
+	oldEKD := database.EncryptedKeypairData{
+		Address:             address,
+		EncryptedPrivateKey: encrypted.Ciphertext,
+		Salt:                salt,
+		Nonce:               encrypted.Nonce,
+		Tag:                 encrypted.Tag,
+		PasswordHash:        oldKey,
+		VerifierSalt:        nil,
+		Argon2Version:       1,
+		Label:               "legacy-test",
+		IsPrimary:           true,
+	}
+	db.InsertEncryptedKeypair(oldEKD)
+
+	wallet := models.Wallet{Address: address, Label: "legacy-test", IsPrimary: true, WalletType: models.WalletTypeBIP44Standard, DerivationPath: "m/44'/501'/0'/0'"}
+	db.InsertWallet(wallet)
+
+	// Wrong password should fail
+	_, err := svc.UnlockKeypair(db, address, "Wr0ng!Password#9")
+	if err == nil {
+		t.Fatal("UnlockKeypair with wrong password on legacy wallet should fail")
+	}
+	if !errors.Is(err, models.ErrCryptoFailed) {
+		t.Errorf("expected ErrCryptoFailed, got: %v", err)
+	}
+
+	// Verify migration did NOT happen (wrong password = no migration)
+	ekd, _ := db.GetEncryptedKeypair(address)
+	if !ekd.IsLegacyFormat() {
+		t.Error("legacy wallet should NOT be migrated on wrong password")
 	}
 }

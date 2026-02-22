@@ -173,9 +173,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "esc" {
 			switch m.step {
 			case StepChoice:
+				// M6: Clear all sensitive state on exit
+				m.password = ""
+				m.words = nil
+				m.passwordInput.Reset()
+				m.confirmPwInput.Reset()
+				m.seedInput.Reset()
 				return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 			case StepSeedPhrase:
 				m.err = nil
+				m.seedInput.Reset() // M6: Clear seed input
 				m.step = StepChoice
 				return m, nil
 			case StepShowMnemonic:
@@ -187,6 +194,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				if m.step > StepShowMnemonic && m.step < StepImporting {
 					m.err = nil
+					// M6: Clear sensitive inputs when navigating back
+					if m.step == StepPassword || m.step == StepConfirmPassword {
+						m.passwordInput.Reset()
+						m.confirmPwInput.Reset()
+						m.password = ""
+					}
 					m.step--
 					// Skip StepShowMnemonic if importing, or StepSeedPhrase if generating
 					if !m.isGenerate && m.step == StepShowMnemonic {
@@ -372,6 +385,8 @@ func (m Model) updatePassword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.password = pw
+		// M6: Clear password from input buffer after extraction
+		m.passwordInput.Reset()
 		m.err = nil
 		m.step = StepConfirmPassword
 		m.confirmPwInput.Focus()
@@ -389,6 +404,8 @@ func (m Model) updateConfirmPassword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("passwords do not match")
 			return m, nil
 		}
+		// M6: Clear confirm password buffer after validation
+		m.confirmPwInput.Reset()
 		m.err = nil
 		m.step = StepLabel
 		m.labelInput.Focus()
@@ -410,7 +427,12 @@ func (m Model) updateLabel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.label = label
 		m.err = nil
 		m.step = StepImporting
-		return m, tea.Batch(m.spinner.Init(), m.doImport())
+		cmd := m.doImport()
+		// M6: Clear sensitive state after capturing in closure
+		m.password = ""
+		m.words = nil
+		m.seedInput.Reset()
+		return m, tea.Batch(m.spinner.Init(), cmd)
 	}
 
 	var cmd tea.Cmd

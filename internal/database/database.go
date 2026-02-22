@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 
 	_ "modernc.org/sqlite"
 )
@@ -19,6 +20,10 @@ func Open(path string) (*Database, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open database %q: %w", path, err)
 	}
+
+	// Fix H4: Force single connection so PRAGMAs apply to all queries.
+	// SQLite is single-writer anyway; pooling only causes PRAGMA drift.
+	db.SetMaxOpenConns(1)
 
 	if err := configurePragmas(db); err != nil {
 		db.Close()
@@ -50,6 +55,40 @@ func (d *Database) CreateSchema() error {
 		return fmt.Errorf("create schema: %w", err)
 	}
 	return nil
+}
+
+// Migrate runs ALTER TABLE migrations for schema evolution.
+// Safe to call multiple times — uses IF NOT EXISTS / ignores "duplicate column" errors.
+func (d *Database) Migrate() error {
+	migrations := []string{
+		// C1: Add verifier_salt for dual-salt derivation
+		`ALTER TABLE encrypted_keypairs ADD COLUMN verifier_salt BLOB`,
+		`ALTER TABLE hyperliquid_wallets ADD COLUMN verifier_salt BLOB`,
+		// H7: Track Argon2 parameter version
+		`ALTER TABLE encrypted_keypairs ADD COLUMN argon2_version INTEGER DEFAULT 1`,
+		`ALTER TABLE hyperliquid_wallets ADD COLUMN argon2_version INTEGER DEFAULT 1`,
+	}
+
+	for _, m := range migrations {
+		_, err := d.db.Exec(m)
+		if err != nil {
+			// SQLite returns "duplicate column name" if column already exists.
+			// This is expected on subsequent runs — ignore it.
+			if isDuplicateColumnError(err) {
+				continue
+			}
+			return fmt.Errorf("migration %q: %w", m, err)
+		}
+	}
+	return nil
+}
+
+// isDuplicateColumnError checks if the error is a "duplicate column" from ALTER TABLE.
+func isDuplicateColumnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "duplicate column")
 }
 
 // IntegrityCheck runs PRAGMA integrity_check and returns an error if the
@@ -150,6 +189,8 @@ CREATE TABLE IF NOT EXISTS encrypted_keypairs (
     nonce BLOB NOT NULL,
     tag BLOB NOT NULL,
     password_hash BLOB NOT NULL,
+    verifier_salt BLOB,
+    argon2_version INTEGER DEFAULT 1,
     label TEXT NOT NULL,
     is_primary INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
@@ -170,6 +211,8 @@ CREATE TABLE IF NOT EXISTS hyperliquid_wallets (
     tag_key BLOB NOT NULL,
     tag_secret BLOB NOT NULL,
     password_hash BLOB NOT NULL,
+    verifier_salt BLOB,
+    argon2_version INTEGER DEFAULT 1,
     is_active INTEGER DEFAULT 0,
     created_at INTEGER NOT NULL,
     last_used INTEGER

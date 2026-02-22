@@ -12,14 +12,21 @@ import (
 type EncryptedKeypairData struct {
 	Address             string
 	EncryptedPrivateKey []byte
-	Salt                [16]byte
+	Salt                [16]byte // encryption salt
 	Nonce               [12]byte
 	Tag                 [16]byte
 	PasswordHash        [32]byte
+	VerifierSalt        []byte // nil = old format (pre-migration), non-nil = new dual-salt format
+	Argon2Version       int    // 1 = V1 params, 2 = V2 params; 0 treated as 1
 	Label               string
 	IsPrimary           bool
 	CreatedAt           int64
 	LastUsed            int64
+}
+
+// IsLegacyFormat returns true if this keypair was stored before the dual-salt migration.
+func (d EncryptedKeypairData) IsLegacyFormat() bool {
+	return d.VerifierSalt == nil || len(d.VerifierSalt) == 0
 }
 
 // InsertEncryptedKeypair inserts a new encrypted keypair into the database.
@@ -30,11 +37,17 @@ func (d *Database) InsertEncryptedKeypair(data EncryptedKeypairData) error {
 		isPrimary = 1
 	}
 
+	argonVersion := data.Argon2Version
+	if argonVersion == 0 {
+		argonVersion = 1 // default for backward compat
+	}
+
 	_, err := d.db.Exec(
-		`INSERT INTO encrypted_keypairs (address, encrypted_private_key, salt, nonce, tag, password_hash, label, is_primary, created_at, last_used)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO encrypted_keypairs (address, encrypted_private_key, salt, nonce, tag, password_hash, verifier_salt, argon2_version, label, is_primary, created_at, last_used)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		data.Address, data.EncryptedPrivateKey,
 		data.Salt[:], data.Nonce[:], data.Tag[:], data.PasswordHash[:],
+		data.VerifierSalt, argonVersion,
 		data.Label, isPrimary, now, now,
 	)
 	if err != nil {
@@ -49,14 +62,16 @@ func (d *Database) GetEncryptedKeypair(addr string) (EncryptedKeypairData, error
 	var data EncryptedKeypairData
 	var isPrimary int
 	var lastUsed sql.NullInt64
+	var argonVersion sql.NullInt64
 
 	// Use []byte intermediaries for BLOB fields
 	var salt, nonce, tag, passwordHash []byte
 
 	err := d.db.QueryRow(
-		`SELECT address, encrypted_private_key, salt, nonce, tag, password_hash, label, is_primary, created_at, last_used
+		`SELECT address, encrypted_private_key, salt, nonce, tag, password_hash, verifier_salt, argon2_version, label, is_primary, created_at, last_used
 		 FROM encrypted_keypairs WHERE address = ?`, addr,
 	).Scan(&data.Address, &data.EncryptedPrivateKey, &salt, &nonce, &tag, &passwordHash,
+		&data.VerifierSalt, &argonVersion,
 		&data.Label, &isPrimary, &data.CreatedAt, &lastUsed)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -69,6 +84,11 @@ func (d *Database) GetEncryptedKeypair(addr string) (EncryptedKeypairData, error
 	if lastUsed.Valid {
 		data.LastUsed = lastUsed.Int64
 	}
+	if argonVersion.Valid {
+		data.Argon2Version = int(argonVersion.Int64)
+	} else {
+		data.Argon2Version = 1 // pre-migration default
+	}
 
 	// Copy BLOB data into fixed-size arrays
 	copy(data.Salt[:], salt)
@@ -79,17 +99,27 @@ func (d *Database) GetEncryptedKeypair(addr string) (EncryptedKeypairData, error
 	return data, nil
 }
 
-// UpdateEncryptedKeypair updates an existing encrypted keypair.
+// UpdateEncryptedKeypair updates all crypto fields for an existing encrypted keypair.
+// Used during C1 migration (re-encrypt with dual salts) and password updates.
 func (d *Database) UpdateEncryptedKeypair(data EncryptedKeypairData) error {
 	isPrimary := 0
 	if data.IsPrimary {
 		isPrimary = 1
 	}
 
+	argonVersion := data.Argon2Version
+	if argonVersion == 0 {
+		argonVersion = 1
+	}
+
 	result, err := d.db.Exec(
-		`UPDATE encrypted_keypairs SET encrypted_private_key = ?, salt = ?, nonce = ?, tag = ?, password_hash = ?, label = ?, is_primary = ?
+		`UPDATE encrypted_keypairs
+		 SET encrypted_private_key = ?, salt = ?, nonce = ?, tag = ?,
+		     password_hash = ?, verifier_salt = ?, argon2_version = ?,
+		     label = ?, is_primary = ?
 		 WHERE address = ?`,
-		data.EncryptedPrivateKey, data.Salt[:], data.Nonce[:], data.Tag[:], data.PasswordHash[:],
+		data.EncryptedPrivateKey, data.Salt[:], data.Nonce[:], data.Tag[:],
+		data.PasswordHash[:], data.VerifierSalt, argonVersion,
 		data.Label, isPrimary, data.Address,
 	)
 	if err != nil {
