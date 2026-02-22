@@ -396,3 +396,33 @@ func TestPragmasApplyWithSingleConn(t *testing.T) {
 		t.Errorf("foreign_keys = %d, want 1 (ON)", fk)
 	}
 }
+
+func TestBeginTxCommitAndRollback(t *testing.T) {
+	db, err := OpenInMemory()
+	if err != nil {
+		t.Fatalf("open in-memory db: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	// Test commit
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("BeginTx failed: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit failed: %v", err)
+	}
+
+	// Test rollback
+	tx2, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("BeginTx (2) failed: %v", err)
+	}
+	if err := tx2.Rollback(); err != nil {
+		t.Fatalf("Rollback failed: %v", err)
+	}
+}

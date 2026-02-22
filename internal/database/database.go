@@ -104,6 +104,16 @@ func (d *Database) IntegrityCheck() error {
 	return nil
 }
 
+// BeginTx starts a new database transaction.
+// The caller must call tx.Commit() or tx.Rollback() when done.
+func (d *Database) BeginTx() (*sql.Tx, error) {
+	tx, err := d.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin transaction: %w", err)
+	}
+	return tx, nil
+}
+
 // configurePragmas sets performance and safety PRAGMAs on the connection.
 func configurePragmas(db *sql.DB) error {
 	pragmas := []string{

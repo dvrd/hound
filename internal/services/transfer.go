@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"crypto/ed25519"
 	"fmt"
 
@@ -50,7 +51,7 @@ func (s *TransferService) SendSOL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}()
 
 	// 4. Check balance
-	balance, err := blockchain.GetBalance(rpcClient, fromAddr)
+	balance, err := blockchain.GetBalance(context.Background(), rpcClient, fromAddr)
 	if err != nil {
 		return "", fmt.Errorf("send SOL: get balance: %w", err)
 	}
@@ -60,7 +61,7 @@ func (s *TransferService) SendSOL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}
 
 	// 5. Get latest blockhash
-	blockhashStr, _, err := blockchain.GetLatestBlockhash(rpcClient)
+	blockhashStr, _, err := blockchain.GetLatestBlockhash(context.Background(), rpcClient)
 	if err != nil {
 		return "", fmt.Errorf("send SOL: %w", err)
 	}
@@ -86,7 +87,7 @@ func (s *TransferService) SendSOL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}
 
 	// 10. Submit
-	sig, err := blockchain.SendTransaction(rpcClient, tx.ToBase64())
+	sig, err := blockchain.SendTransaction(context.Background(), rpcClient, tx.ToBase64())
 	if err != nil {
 		return "", fmt.Errorf("send SOL: submit: %w", err)
 	}
@@ -120,7 +121,7 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}()
 
 	// 4. Check SOL balance for fees
-	solBalance, err := blockchain.GetBalance(rpcClient, fromAddr)
+	solBalance, err := blockchain.GetBalance(context.Background(), rpcClient, fromAddr)
 	if err != nil {
 		return "", fmt.Errorf("send SPL: get SOL balance: %w", err)
 	}
@@ -131,7 +132,7 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}
 
 	// 5. Check token balance
-	tokenAccounts, err := blockchain.GetTokenAccountsByOwner(rpcClient, fromAddr)
+	tokenAccounts, err := blockchain.GetTokenAccountsByOwner(context.Background(), rpcClient, fromAddr)
 	if err != nil {
 		return "", fmt.Errorf("send SPL: get token accounts: %w", err)
 	}
@@ -165,7 +166,7 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}
 
 	// 8. Check if recipient ATA exists
-	accountData, err := blockchain.GetAccountInfo(rpcClient, recipientATA.String())
+	accountData, err := blockchain.GetAccountInfo(context.Background(), rpcClient, recipientATA.String())
 	if err != nil {
 		return "", fmt.Errorf("send SPL: check recipient ATA: %w", err)
 	}
@@ -185,7 +186,7 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	instructions = append(instructions, transferIx)
 
 	// 10. Get blockhash, build message, sign, submit
-	blockhashStr, _, err := blockchain.GetLatestBlockhash(rpcClient)
+	blockhashStr, _, err := blockchain.GetLatestBlockhash(context.Background(), rpcClient)
 	if err != nil {
 		return "", fmt.Errorf("send SPL: %w", err)
 	}
@@ -200,7 +201,7 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 		return "", fmt.Errorf("send SPL: sign: %w", err)
 	}
 
-	sig, err := blockchain.SendTransaction(rpcClient, tx.ToBase64())
+	sig, err := blockchain.SendTransaction(context.Background(), rpcClient, tx.ToBase64())
 	if err != nil {
 		return "", fmt.Errorf("send SPL: submit: %w", err)
 	}

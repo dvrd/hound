@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strconv"
@@ -117,7 +118,7 @@ func (s *TokenInfoService) FetchExtendedTokenInfo(mintOrSymbol string, db *datab
 
 	// Fetch on-chain supply
 	if s.rpcClient != nil {
-		totalSupply, decimals, err := blockchain.GetTokenSupply(s.rpcClient, mint)
+		totalSupply, decimals, err := blockchain.GetTokenSupply(context.Background(), s.rpcClient, mint)
 		if err == nil {
 			if decimals > 0 {
 				info.TotalSupply = float64(totalSupply) / math.Pow(10, float64(decimals))
@@ -130,7 +131,7 @@ func (s *TokenInfoService) FetchExtendedTokenInfo(mintOrSymbol string, db *datab
 		}
 
 		// Fetch top holders
-		holders, err := blockchain.GetTokenLargestAccounts(s.rpcClient, mint)
+		holders, err := blockchain.GetTokenLargestAccounts(context.Background(), s.rpcClient, mint)
 		if err == nil && info.TotalSupply > 0 {
 			for _, h := range holders {
 				if h.UIAmount <= 0 {

@@ -309,6 +309,51 @@ func TestPersistPortfolio(t *testing.T) {
 	}
 }
 
+func TestPersistPortfolioAtomic(t *testing.T) {
+	db, err := database.OpenInMemory()
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	// Insert wallet
+	w := models.Wallet{Address: "persistTestAddr", Label: "persist-test", IsPrimary: true}
+	if err := db.InsertWallet(w); err != nil {
+		t.Fatalf("insert wallet: %v", err)
+	}
+
+	mgr := NewWalletManager(db, nil)
+
+	portfolio := models.PortfolioBalance{
+		WalletAddress: "persistTestAddr",
+		SOLBalance: models.TokenBalance{
+			Mint: "So11111111111111111111111111111111111111112", Symbol: "SOL",
+			Amount: 5.0, USDPrice: 150.0, USDValue: 750.0,
+		},
+		TokenBalances: []models.TokenBalance{
+			{Mint: "USDCmint", Symbol: "USDC", Amount: 100.0, USDPrice: 1.0, USDValue: 100.0},
+			{Mint: "BONKmint", Symbol: "BONK", Amount: 1000000.0, USDPrice: 0.00001, USDValue: 10.0},
+		},
+		TotalUSD: 860.0,
+	}
+
+	if err := mgr.PersistPortfolio(portfolio); err != nil {
+		t.Fatalf("PersistPortfolio failed: %v", err)
+	}
+
+	// Verify all 3 balances were written
+	balances, err := db.GetBalancesForWallet("persistTestAddr")
+	if err != nil {
+		t.Fatalf("GetBalancesForWallet: %v", err)
+	}
+	if len(balances) != 3 {
+		t.Fatalf("expected 3 balances, got %d", len(balances))
+	}
+}
+
 func TestCachedPortfolioReturnsCached(t *testing.T) {
 	db := testDB(t)
 	seedWallets(t, db)

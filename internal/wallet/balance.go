@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -35,7 +36,7 @@ func NewBalanceFetcher(rpcClient *blockchain.RPCClient, priceFetcher PriceFetche
 // FetchPortfolioBalance fetches the complete portfolio for a wallet address.
 func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.PortfolioBalance, error) {
 	// 1. Get SOL balance in lamports
-	lamports, err := blockchain.GetBalance(f.rpcClient, address)
+	lamports, err := blockchain.GetBalance(context.Background(), f.rpcClient, address)
 	if err != nil {
 		return models.PortfolioBalance{}, fmt.Errorf("fetching SOL balance: %w", err)
 	}
@@ -44,7 +45,7 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 	solAmount := float64(lamports) / 1_000_000_000.0
 
 	// 3. Get SOL price (best-effort, default to 0)
-	solPrice, _ := blockchain.GetSOLPriceCached()
+	solPrice, _ := blockchain.GetSOLPriceCached(context.Background())
 
 	solUSDValue := solAmount * solPrice
 	totalUSD := solUSDValue
@@ -60,7 +61,7 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 	}
 
 	// 5. Get token accounts
-	tokenAccounts, err := blockchain.GetTokenAccountsByOwner(f.rpcClient, address)
+	tokenAccounts, err := blockchain.GetTokenAccountsByOwner(context.Background(), f.rpcClient, address)
 	if err != nil {
 		return models.PortfolioBalance{}, fmt.Errorf("fetching token accounts: %w", err)
 	}

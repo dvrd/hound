@@ -1,6 +1,7 @@
 package blockchain_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -42,7 +43,7 @@ func TestGetBalance(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	balance, err := blockchain.GetBalance(client, "11111111111111111111111111111111")
+	balance, err := blockchain.GetBalance(context.Background(), client, "11111111111111111111111111111111")
 	if err != nil {
 		t.Fatalf("GetBalance failed: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestGetTokenAccountsByOwner(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	accounts, err := blockchain.GetTokenAccountsByOwner(client, "ownerAddr")
+	accounts, err := blockchain.GetTokenAccountsByOwner(context.Background(), client, "ownerAddr")
 	if err != nil {
 		t.Fatalf("GetTokenAccountsByOwner failed: %v", err)
 	}
@@ -119,7 +120,6 @@ func TestGetTokenAccountsByOwner(t *testing.T) {
 		t.Fatalf("expected 2 token accounts, got %d", len(accounts))
 	}
 
-	// Check first account (USDC)
 	if accounts[0].Pubkey != "tokenAcct1" {
 		t.Errorf("account[0].Pubkey = %q, want %q", accounts[0].Pubkey, "tokenAcct1")
 	}
@@ -132,8 +132,6 @@ func TestGetTokenAccountsByOwner(t *testing.T) {
 	if accounts[0].Decimals != 6 {
 		t.Errorf("account[0].Decimals = %d, want 6", accounts[0].Decimals)
 	}
-
-	// Check second account (BONK)
 	if accounts[1].Pubkey != "tokenAcct2" {
 		t.Errorf("account[1].Pubkey = %q, want %q", accounts[1].Pubkey, "tokenAcct2")
 	}
@@ -143,14 +141,13 @@ func TestGetTokenAccountsByOwner(t *testing.T) {
 }
 
 func TestGetAccountInfo(t *testing.T) {
-	// "SGVsbG8gV29ybGQ=" is base64 for "Hello World"
 	server := mockRPCServer(t, map[string]string{
 		"getAccountInfo": `{"context":{"slot":123},"value":{"data":["SGVsbG8gV29ybGQ=","base64"],"executable":false,"lamports":1000000,"owner":"11111111111111111111111111111111"}}`,
 	})
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	data, err := blockchain.GetAccountInfo(client, "someAddress")
+	data, err := blockchain.GetAccountInfo(context.Background(), client, "someAddress")
 	if err != nil {
 		t.Fatalf("GetAccountInfo failed: %v", err)
 	}
@@ -168,7 +165,7 @@ func TestGetAccountInfoNull(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	data, err := blockchain.GetAccountInfo(client, "nonExistentAddress")
+	data, err := blockchain.GetAccountInfo(context.Background(), client, "nonExistentAddress")
 	if err != nil {
 		t.Fatalf("GetAccountInfo for null should not error: %v", err)
 	}
@@ -184,7 +181,7 @@ func TestGetTokenAccountBalance(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	amount, decimals, uiAmount, err := blockchain.GetTokenAccountBalance(client, "vaultAddr")
+	amount, decimals, uiAmount, err := blockchain.GetTokenAccountBalance(context.Background(), client, "vaultAddr")
 	if err != nil {
 		t.Fatalf("GetTokenAccountBalance failed: %v", err)
 	}
@@ -206,7 +203,7 @@ func TestGetTokenSupply(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	supply, decimals, err := blockchain.GetTokenSupply(client, "mintAddr")
+	supply, decimals, err := blockchain.GetTokenSupply(context.Background(), client, "mintAddr")
 	if err != nil {
 		t.Fatalf("GetTokenSupply failed: %v", err)
 	}
@@ -225,7 +222,7 @@ func TestGetTokenLargestAccounts(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	accounts, err := blockchain.GetTokenLargestAccounts(client, "mintAddr")
+	accounts, err := blockchain.GetTokenLargestAccounts(context.Background(), client, "mintAddr")
 	if err != nil {
 		t.Fatalf("GetTokenLargestAccounts failed: %v", err)
 	}
@@ -250,7 +247,7 @@ func TestGetLatestBlockhash(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	blockhash, height, err := blockchain.GetLatestBlockhash(client)
+	blockhash, height, err := blockchain.GetLatestBlockhash(context.Background(), client)
 	if err != nil {
 		t.Fatalf("GetLatestBlockhash failed: %v", err)
 	}
@@ -269,7 +266,7 @@ func TestSendTransaction(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	sig, err := blockchain.SendTransaction(client, "base64encodedtx")
+	sig, err := blockchain.SendTransaction(context.Background(), client, "base64encodedtx")
 	if err != nil {
 		t.Fatalf("SendTransaction failed: %v", err)
 	}
@@ -285,7 +282,7 @@ func TestGetSignaturesForAddress(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	sigs, err := blockchain.GetSignaturesForAddress(client, "someAddr", 10, "")
+	sigs, err := blockchain.GetSignaturesForAddress(context.Background(), client, "someAddr", 10, "")
 	if err != nil {
 		t.Fatalf("GetSignaturesForAddress failed: %v", err)
 	}
@@ -305,7 +302,6 @@ func TestGetSignaturesForAddress_WithBefore(t *testing.T) {
 		var req blockchain.RPCRequest
 		json.NewDecoder(r.Body).Decode(&req)
 
-		// Verify 'before' is in params
 		if len(req.Params) < 2 {
 			t.Error("expected 2 params")
 		}
@@ -327,7 +323,7 @@ func TestGetSignaturesForAddress_WithBefore(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	_, err := blockchain.GetSignaturesForAddress(client, "addr", 5, "beforeSig")
+	_, err := blockchain.GetSignaturesForAddress(context.Background(), client, "addr", 5, "beforeSig")
 	if err != nil {
 		t.Fatalf("GetSignaturesForAddress with before failed: %v", err)
 	}
@@ -369,7 +365,7 @@ func TestGetTransaction(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	detail, err := blockchain.GetTransaction(client, "someSig")
+	detail, err := blockchain.GetTransaction(context.Background(), client, "someSig")
 	if err != nil {
 		t.Fatalf("GetTransaction failed: %v", err)
 	}
@@ -400,7 +396,7 @@ func TestGetTransaction_NotFound(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	detail, err := blockchain.GetTransaction(client, "nonexistent")
+	detail, err := blockchain.GetTransaction(context.Background(), client, "nonexistent")
 	if err != nil {
 		t.Fatalf("GetTransaction failed: %v", err)
 	}
@@ -416,7 +412,7 @@ func TestGetMinimumBalanceForRentExemption(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	lamports, err := blockchain.GetMinimumBalanceForRentExemption(client, 165)
+	lamports, err := blockchain.GetMinimumBalanceForRentExemption(context.Background(), client, 165)
 	if err != nil {
 		t.Fatalf("GetMinimumBalanceForRentExemption failed: %v", err)
 	}

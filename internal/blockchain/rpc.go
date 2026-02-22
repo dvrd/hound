@@ -2,6 +2,7 @@ package blockchain
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -62,37 +63,47 @@ func NewRPCClient(endpoint string, backupEndpoints []string) *RPCClient {
 }
 
 // Call makes a JSON-RPC call with endpoint failover.
-func (c *RPCClient) Call(method string, params []interface{}) (json.RawMessage, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
+// The mutex is only held for ID increment and endpoint selection, NOT during HTTP I/O.
+// Endpoint rotation only happens on transport failures (HTTP errors, read errors, non-200 status,
+// JSON unmarshal errors). RPC-level errors (rpcResp.Error) are returned immediately without rotation.
+func (c *RPCClient) Call(ctx context.Context, method string, params []interface{}) (json.RawMessage, error) {
 	maxAttempts := 1 + len(c.backupEndpoints)
 	var lastErr error
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		// Get current endpoint
+		// === CRITICAL SECTION: only protect shared mutable state ===
+		c.mu.Lock()
 		endpoint := c.getEndpoint()
+		reqID := c.requestID
+		c.requestID++
+		c.mu.Unlock()
+		// === END CRITICAL SECTION ===
 
-		// Build request
+		// Build request (no shared state needed)
 		req := RPCRequest{
 			JSONRPC: "2.0",
-			ID:      c.requestID,
+			ID:      reqID,
 			Method:  method,
 			Params:  params,
 		}
-		c.requestID++
 
-		// Marshal to JSON
 		body, err := json.Marshal(req)
 		if err != nil {
 			return nil, fmt.Errorf("marshal RPC request: %w", err)
 		}
 
-		// HTTP POST
-		resp, err := c.httpClient.Post(endpoint, "application/json", bytes.NewReader(body))
+		// Build HTTP request with context for cancellation
+		httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("create RPC request: %w", err)
+		}
+		httpReq.Header.Set("Content-Type", "application/json")
+
+		// HTTP POST (no lock held — concurrent calls proceed freely)
+		resp, err := c.httpClient.Do(httpReq)
 		if err != nil {
 			lastErr = fmt.Errorf("RPC POST to %s: %w", endpoint, err)
-			c.rotateEndpoint(maxAttempts)
+			c.rotateEndpointSafe(maxAttempts)
 			continue
 		}
 
@@ -101,30 +112,30 @@ func (c *RPCClient) Call(method string, params []interface{}) (json.RawMessage, 
 		resp.Body.Close()
 		if err != nil {
 			lastErr = fmt.Errorf("read RPC response from %s: %w", endpoint, err)
-			c.rotateEndpoint(maxAttempts)
+			c.rotateEndpointSafe(maxAttempts)
 			continue
 		}
 
-		// Check HTTP status
+		// Check HTTP status (transport failure)
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("RPC HTTP %d from %s", resp.StatusCode, endpoint)
-			c.rotateEndpoint(maxAttempts)
+			c.rotateEndpointSafe(maxAttempts)
 			continue
 		}
 
-		// Unmarshal response
+		// Unmarshal response (transport failure if malformed)
 		var rpcResp RPCResponse
 		if err := json.Unmarshal(respBody, &rpcResp); err != nil {
 			lastErr = fmt.Errorf("unmarshal RPC response from %s: %w", endpoint, err)
-			c.rotateEndpoint(maxAttempts)
+			c.rotateEndpointSafe(maxAttempts)
 			continue
 		}
 
-		// Check for RPC error
+		// Check for RPC error — this is an APPLICATION error, NOT a transport failure.
+		// The endpoint is healthy; it just returned an error for this specific request.
+		// Do NOT rotate, do NOT retry. Return immediately.
 		if rpcResp.Error != nil {
-			lastErr = rpcResp.Error
-			c.rotateEndpoint(maxAttempts)
-			continue
+			return nil, rpcResp.Error
 		}
 
 		// Success
@@ -135,6 +146,7 @@ func (c *RPCClient) Call(method string, params []interface{}) (json.RawMessage, 
 }
 
 // getEndpoint returns the current endpoint based on currentIndex.
+// Caller must hold c.mu.
 func (c *RPCClient) getEndpoint() string {
 	if c.currentIndex == 0 {
 		return c.endpoint
@@ -142,7 +154,9 @@ func (c *RPCClient) getEndpoint() string {
 	return c.backupEndpoints[c.currentIndex-1]
 }
 
-// rotateEndpoint advances to the next endpoint.
-func (c *RPCClient) rotateEndpoint(maxAttempts int) {
+// rotateEndpointSafe acquires the mutex and advances to the next endpoint.
+func (c *RPCClient) rotateEndpointSafe(maxAttempts int) {
+	c.mu.Lock()
 	c.currentIndex = (c.currentIndex + 1) % maxAttempts
+	c.mu.Unlock()
 }

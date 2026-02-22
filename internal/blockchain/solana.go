@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -28,8 +29,8 @@ type AccountBalance struct {
 }
 
 // GetBalance returns the SOL balance in lamports for an address.
-func GetBalance(client *RPCClient, address string) (uint64, error) {
-	result, err := client.Call("getBalance", []interface{}{address})
+func GetBalance(ctx context.Context, client *RPCClient, address string) (uint64, error) {
+	result, err := client.Call(ctx, "getBalance", []interface{}{address})
 	if err != nil {
 		return 0, fmt.Errorf("getBalance: %w", err)
 	}
@@ -45,7 +46,7 @@ func GetBalance(client *RPCClient, address string) (uint64, error) {
 }
 
 // GetTokenAccountsByOwner returns all SPL token accounts for an address.
-func GetTokenAccountsByOwner(client *RPCClient, address string) ([]TokenAccount, error) {
+func GetTokenAccountsByOwner(ctx context.Context, client *RPCClient, address string) ([]TokenAccount, error) {
 	params := []interface{}{
 		address,
 		map[string]string{
@@ -56,7 +57,7 @@ func GetTokenAccountsByOwner(client *RPCClient, address string) ([]TokenAccount,
 		},
 	}
 
-	result, err := client.Call("getTokenAccountsByOwner", params)
+	result, err := client.Call(ctx, "getTokenAccountsByOwner", params)
 	if err != nil {
 		return nil, fmt.Errorf("getTokenAccountsByOwner: %w", err)
 	}
@@ -105,7 +106,7 @@ func GetTokenAccountsByOwner(client *RPCClient, address string) ([]TokenAccount,
 
 // GetAccountInfo returns raw account data (base64 decoded) for an address.
 // Returns nil if the account does not exist (value is null).
-func GetAccountInfo(client *RPCClient, address string) ([]byte, error) {
+func GetAccountInfo(ctx context.Context, client *RPCClient, address string) ([]byte, error) {
 	params := []interface{}{
 		address,
 		map[string]string{
@@ -114,7 +115,7 @@ func GetAccountInfo(client *RPCClient, address string) ([]byte, error) {
 		},
 	}
 
-	result, err := client.Call("getAccountInfo", params)
+	result, err := client.Call(ctx, "getAccountInfo", params)
 	if err != nil {
 		return nil, fmt.Errorf("getAccountInfo: %w", err)
 	}
@@ -147,8 +148,8 @@ func GetAccountInfo(client *RPCClient, address string) ([]byte, error) {
 }
 
 // GetTokenAccountBalance returns the balance of a specific token account.
-func GetTokenAccountBalance(client *RPCClient, vaultAddr string) (amount uint64, decimals int, uiAmount float64, err error) {
-	result, err := client.Call("getTokenAccountBalance", []interface{}{vaultAddr})
+func GetTokenAccountBalance(ctx context.Context, client *RPCClient, vaultAddr string) (amount uint64, decimals int, uiAmount float64, err error) {
+	result, err := client.Call(ctx, "getTokenAccountBalance", []interface{}{vaultAddr})
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("getTokenAccountBalance: %w", err)
 	}
@@ -170,8 +171,8 @@ func GetTokenAccountBalance(client *RPCClient, vaultAddr string) (amount uint64,
 }
 
 // GetTokenSupply returns the total supply of an SPL token.
-func GetTokenSupply(client *RPCClient, mintAddr string) (totalSupply uint64, decimals int, err error) {
-	result, err := client.Call("getTokenSupply", []interface{}{mintAddr})
+func GetTokenSupply(ctx context.Context, client *RPCClient, mintAddr string) (totalSupply uint64, decimals int, err error) {
+	result, err := client.Call(ctx, "getTokenSupply", []interface{}{mintAddr})
 	if err != nil {
 		return 0, 0, fmt.Errorf("getTokenSupply: %w", err)
 	}
@@ -192,8 +193,8 @@ func GetTokenSupply(client *RPCClient, mintAddr string) (totalSupply uint64, dec
 }
 
 // GetTokenLargestAccounts returns the top holders of an SPL token.
-func GetTokenLargestAccounts(client *RPCClient, mintAddr string) ([]AccountBalance, error) {
-	result, err := client.Call("getTokenLargestAccounts", []interface{}{mintAddr})
+func GetTokenLargestAccounts(ctx context.Context, client *RPCClient, mintAddr string) ([]AccountBalance, error) {
+	result, err := client.Call(ctx, "getTokenLargestAccounts", []interface{}{mintAddr})
 	if err != nil {
 		return nil, fmt.Errorf("getTokenLargestAccounts: %w", err)
 	}
@@ -255,8 +256,8 @@ type ParsedInstruction struct {
 }
 
 // GetLatestBlockhash returns the latest blockhash and last valid block height.
-func GetLatestBlockhash(client *RPCClient) (string, uint64, error) {
-	result, err := client.Call("getLatestBlockhash", []interface{}{
+func GetLatestBlockhash(ctx context.Context, client *RPCClient) (string, uint64, error) {
+	result, err := client.Call(ctx, "getLatestBlockhash", []interface{}{
 		map[string]string{"commitment": "finalized"},
 	})
 	if err != nil {
@@ -277,8 +278,8 @@ func GetLatestBlockhash(client *RPCClient) (string, uint64, error) {
 }
 
 // SendTransaction submits a signed transaction to the network.
-func SendTransaction(client *RPCClient, base64Tx string) (string, error) {
-	result, err := client.Call("sendTransaction", []interface{}{
+func SendTransaction(ctx context.Context, client *RPCClient, base64Tx string) (string, error) {
+	result, err := client.Call(ctx, "sendTransaction", []interface{}{
 		base64Tx,
 		map[string]interface{}{
 			"encoding":            "base64",
@@ -299,13 +300,13 @@ func SendTransaction(client *RPCClient, base64Tx string) (string, error) {
 }
 
 // GetSignaturesForAddress returns transaction signatures for an address.
-func GetSignaturesForAddress(client *RPCClient, address string, limit int, before string) ([]SignatureInfo, error) {
+func GetSignaturesForAddress(ctx context.Context, client *RPCClient, address string, limit int, before string) ([]SignatureInfo, error) {
 	opts := map[string]interface{}{"limit": limit}
 	if before != "" {
 		opts["before"] = before
 	}
 
-	result, err := client.Call("getSignaturesForAddress", []interface{}{address, opts})
+	result, err := client.Call(ctx, "getSignaturesForAddress", []interface{}{address, opts})
 	if err != nil {
 		return nil, fmt.Errorf("getSignaturesForAddress: %w", err)
 	}
@@ -319,8 +320,8 @@ func GetSignaturesForAddress(client *RPCClient, address string, limit int, befor
 }
 
 // GetTransaction returns parsed transaction details for a signature.
-func GetTransaction(client *RPCClient, signature string) (*TransactionDetail, error) {
-	result, err := client.Call("getTransaction", []interface{}{
+func GetTransaction(ctx context.Context, client *RPCClient, signature string) (*TransactionDetail, error) {
+	result, err := client.Call(ctx, "getTransaction", []interface{}{
 		signature,
 		map[string]interface{}{
 			"encoding":                       "jsonParsed",
@@ -389,8 +390,8 @@ func GetTransaction(client *RPCClient, signature string) (*TransactionDetail, er
 }
 
 // GetMinimumBalanceForRentExemption returns the minimum balance for rent exemption.
-func GetMinimumBalanceForRentExemption(client *RPCClient, dataSize uint64) (uint64, error) {
-	result, err := client.Call("getMinimumBalanceForRentExemption", []interface{}{dataSize})
+func GetMinimumBalanceForRentExemption(ctx context.Context, client *RPCClient, dataSize uint64) (uint64, error) {
+	result, err := client.Call(ctx, "getMinimumBalanceForRentExemption", []interface{}{dataSize})
 	if err != nil {
 		return 0, fmt.Errorf("getMinimumBalanceForRentExemption: %w", err)
 	}

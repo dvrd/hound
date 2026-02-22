@@ -1,6 +1,7 @@
 package dex
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -61,7 +62,7 @@ func ParseDexType(dex, poolType string) DexType {
 type Router struct {
 	rpcClient     *blockchain.RPCClient
 	jupiterClient *JupiterClient
-	getSOLPrice   func() (float64, error)
+	getSOLPrice   func(context.Context) (float64, error)
 }
 
 // NewRouter creates a new price router.
@@ -74,7 +75,7 @@ func NewRouter(rpcClient *blockchain.RPCClient, jupiterClient *JupiterClient) *R
 }
 
 // NewRouterWithSOLPrice creates a router with a custom SOL price function (for testing).
-func NewRouterWithSOLPrice(rpcClient *blockchain.RPCClient, jupiterClient *JupiterClient, getSOLPrice func() (float64, error)) *Router {
+func NewRouterWithSOLPrice(rpcClient *blockchain.RPCClient, jupiterClient *JupiterClient, getSOLPrice func(context.Context) (float64, error)) *Router {
 	return &Router{
 		rpcClient:     rpcClient,
 		jupiterClient: jupiterClient,
@@ -110,7 +111,7 @@ func (r *Router) FetchPrice(token models.Token) (models.PriceData, error) {
 func (r *Router) QuoteToUSD(quoteToken string, priceInQuote float64) (float64, error) {
 	switch strings.ToLower(quoteToken) {
 	case "sol", "wsol":
-		solPrice, err := r.getSOLPrice()
+		solPrice, err := r.getSOLPrice(context.Background())
 		if err != nil {
 			return 0, fmt.Errorf("quote to USD: %w", err)
 		}

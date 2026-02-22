@@ -1,12 +1,15 @@
 package blockchain_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/dvrd/hound/internal/blockchain"
 	"github.com/dvrd/hound/internal/models"
@@ -24,7 +27,7 @@ func TestCallSuccess(t *testing.T) {
 	defer server.Close()
 
 	client := blockchain.NewRPCClient(server.URL, nil)
-	result, err := client.Call("getBalance", []interface{}{"address123"})
+	result, err := client.Call(context.Background(), "getBalance", []interface{}{"address123"})
 	if err != nil {
 		t.Fatalf("Call failed: %v", err)
 	}
@@ -62,7 +65,7 @@ func TestCallFailoverToBackup(t *testing.T) {
 	defer backup.Close()
 
 	client := blockchain.NewRPCClient(primary.URL, []string{backup.URL})
-	result, err := client.Call("getBalance", []interface{}{"address123"})
+	result, err := client.Call(context.Background(), "getBalance", []interface{}{"address123"})
 	if err != nil {
 		t.Fatalf("Call with failover failed: %v", err)
 	}
@@ -96,7 +99,7 @@ func TestCallAllEndpointsFail(t *testing.T) {
 	defer backup.Close()
 
 	client := blockchain.NewRPCClient(primary.URL, []string{backup.URL})
-	_, err := client.Call("getBalance", []interface{}{"address123"})
+	_, err := client.Call(context.Background(), "getBalance", []interface{}{"address123"})
 	if err == nil {
 		t.Fatal("expected error when all endpoints fail")
 	}
@@ -105,8 +108,12 @@ func TestCallAllEndpointsFail(t *testing.T) {
 	}
 }
 
-func TestCallRPCErrorDetected(t *testing.T) {
+// H10: RPC errors should NOT trigger endpoint rotation — return immediately.
+func TestCallRPCErrorNoRotation(t *testing.T) {
+	var hitCount atomic.Int32
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitCount.Add(1)
 		resp := blockchain.RPCResponse{
 			JSONRPC: "2.0",
 			ID:      1,
@@ -119,24 +126,47 @@ func TestCallRPCErrorDetected(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := blockchain.NewRPCClient(server.URL, nil)
-	_, err := client.Call("invalidMethod", nil)
+	// Give it a backup to prove it does NOT rotate
+	backup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitCount.Add(1)
+		t.Error("backup should NOT be hit for RPC errors")
+		resp := blockchain.RPCResponse{
+			JSONRPC: "2.0",
+			ID:      1,
+			Result:  json.RawMessage(`{}`),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer backup.Close()
+
+	client := blockchain.NewRPCClient(server.URL, []string{backup.URL})
+	_, err := client.Call(context.Background(), "invalidMethod", nil)
 	if err == nil {
 		t.Fatal("expected error for RPC error response")
 	}
-	// With no backup, it should wrap as ErrRPCConnectionFailed
-	if !errors.Is(err, models.ErrRPCConnectionFailed) {
-		t.Errorf("expected ErrRPCConnectionFailed wrapping RPC error, got: %v", err)
+
+	// Should be the RPCError directly, not wrapped in ErrRPCConnectionFailed
+	var rpcErr *blockchain.RPCError
+	if !errors.As(err, &rpcErr) {
+		t.Errorf("expected *RPCError, got: %T: %v", err, err)
+	}
+
+	// Only the primary should have been hit (no rotation)
+	if hitCount.Load() != 1 {
+		t.Errorf("expected 1 hit (no rotation), got %d", hitCount.Load())
 	}
 }
 
 func TestRequestIDIncrements(t *testing.T) {
 	var ids []int
+	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req blockchain.RPCRequest
 		json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
 		ids = append(ids, req.ID)
+		mu.Unlock()
 
 		resp := blockchain.RPCResponse{
 			JSONRPC: "2.0",
@@ -150,7 +180,7 @@ func TestRequestIDIncrements(t *testing.T) {
 	client := blockchain.NewRPCClient(server.URL, nil)
 
 	for i := 0; i < 3; i++ {
-		_, err := client.Call("test", nil)
+		_, err := client.Call(context.Background(), "test", nil)
 		if err != nil {
 			t.Fatalf("Call %d failed: %v", i, err)
 		}
@@ -166,5 +196,74 @@ func TestRequestIDIncrements(t *testing.T) {
 			t.Errorf("request IDs not increasing: %v", ids)
 			break
 		}
+	}
+}
+
+// H1: Verify concurrent calls don't deadlock and complete independently.
+func TestCallConcurrentNoDeadlock(t *testing.T) {
+	var hitCount atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hitCount.Add(1)
+		// Simulate some latency
+		time.Sleep(10 * time.Millisecond)
+		resp := blockchain.RPCResponse{
+			JSONRPC: "2.0",
+			ID:      1,
+			Result:  json.RawMessage(`{"value": 1}`),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := blockchain.NewRPCClient(server.URL, nil)
+
+	const numGoroutines = 10
+	var wg sync.WaitGroup
+	errs := make([]error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			_, errs[idx] = client.Call(context.Background(), "test", nil)
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d failed: %v", i, err)
+		}
+	}
+
+	if hitCount.Load() != numGoroutines {
+		t.Errorf("expected %d hits, got %d", numGoroutines, hitCount.Load())
+	}
+}
+
+// M2: Verify context cancellation aborts in-flight request.
+func TestCallContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate slow server
+		time.Sleep(5 * time.Second)
+		resp := blockchain.RPCResponse{
+			JSONRPC: "2.0",
+			ID:      1,
+			Result:  json.RawMessage(`{}`),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := blockchain.NewRPCClient(server.URL, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := client.Call(ctx, "test", nil)
+	if err == nil {
+		t.Fatal("expected error from cancelled context")
 	}
 }

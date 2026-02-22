@@ -1,6 +1,7 @@
 package blockchain
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,9 +42,9 @@ func SetOracleHTTPClient(c *http.Client) {
 }
 
 // GetSOLPriceCached returns the cached SOL/USD price, refreshing if stale (30s TTL).
-// Fallback chain: cache → Jupiter Price API → CoinGecko API.
+// Fallback chain: cache -> Jupiter Price API -> CoinGecko API.
 // Validates price is in $1-$10000 range.
-func GetSOLPriceCached() (float64, error) {
+func GetSOLPriceCached(ctx context.Context) (float64, error) {
 	solPriceCache.mu.Lock()
 	defer solPriceCache.mu.Unlock()
 
@@ -53,7 +54,7 @@ func GetSOLPriceCached() (float64, error) {
 	}
 
 	// Try Jupiter first
-	price, err := fetchSOLPriceJupiter()
+	price, err := fetchSOLPriceJupiter(ctx)
 	if err == nil {
 		solPriceCache.price = price
 		solPriceCache.fetchedAt = time.Now()
@@ -61,7 +62,7 @@ func GetSOLPriceCached() (float64, error) {
 	}
 
 	// Fallback to CoinGecko
-	price, err = fetchSOLPriceCoinGecko()
+	price, err = fetchSOLPriceCoinGecko(ctx)
 	if err == nil {
 		solPriceCache.price = price
 		solPriceCache.fetchedAt = time.Now()
@@ -80,8 +81,13 @@ func ResetSOLPriceCache() {
 }
 
 // fetchSOLPriceJupiter fetches SOL/USD from Jupiter Price API v3.
-func fetchSOLPriceJupiter() (float64, error) {
-	resp, err := oracleHTTPClient.Get(jupiterPriceURL)
+func fetchSOLPriceJupiter(ctx context.Context) (float64, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", jupiterPriceURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("jupiter price create request: %w", err)
+	}
+
+	resp, err := oracleHTTPClient.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("jupiter price request: %w", err)
 	}
@@ -123,8 +129,13 @@ func fetchSOLPriceJupiter() (float64, error) {
 }
 
 // fetchSOLPriceCoinGecko fetches SOL/USD from CoinGecko API.
-func fetchSOLPriceCoinGecko() (float64, error) {
-	resp, err := oracleHTTPClient.Get(coingeckoPriceURL)
+func fetchSOLPriceCoinGecko(ctx context.Context) (float64, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", coingeckoPriceURL, nil)
+	if err != nil {
+		return 0, fmt.Errorf("coingecko price create request: %w", err)
+	}
+
+	resp, err := oracleHTTPClient.Do(req)
 	if err != nil {
 		return 0, fmt.Errorf("coingecko price request: %w", err)
 	}

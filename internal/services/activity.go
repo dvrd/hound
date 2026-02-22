@@ -1,12 +1,17 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/dvrd/hound/internal/blockchain"
 	"github.com/dvrd/hound/internal/database"
 )
+
+// maxConcurrentTxFetches limits parallel GetTransaction calls to avoid rate limiting.
+const maxConcurrentTxFetches = 5
 
 // ActivityItem represents a unified transaction history entry.
 type ActivityItem struct {
@@ -37,8 +42,10 @@ func (s *ActivityService) GetActivity(rpcClient *blockchain.RPCClient, address s
 		return nil, fmt.Errorf("get activity: RPC client is nil")
 	}
 
+	ctx := context.Background()
+
 	// 1. Fetch signatures
-	sigs, err := blockchain.GetSignaturesForAddress(rpcClient, address, limit, before)
+	sigs, err := blockchain.GetSignaturesForAddress(ctx, rpcClient, address, limit, before)
 	if err != nil {
 		return nil, fmt.Errorf("get activity: %w", err)
 	}
@@ -47,20 +54,47 @@ func (s *ActivityService) GetActivity(rpcClient *blockchain.RPCClient, address s
 		return nil, nil
 	}
 
-	// 2. For each signature, fetch details and classify
-	items := make([]ActivityItem, 0, len(sigs))
-	for _, sig := range sigs {
-		detail, err := blockchain.GetTransaction(rpcClient, sig.Signature)
-		if err != nil {
-			// Skip transactions we can't fetch
-			continue
-		}
-
-		item := classifyTransaction(detail, address)
-		items = append(items, item)
+	// 2. Fan-out: fetch transaction details concurrently with bounded parallelism
+	type indexedResult struct {
+		index int
+		item  ActivityItem
+		ok    bool
 	}
 
-	// 3. Merge with local swap history
+	results := make([]indexedResult, len(sigs))
+	sem := make(chan struct{}, maxConcurrentTxFetches)
+	var wg sync.WaitGroup
+
+	for i, sig := range sigs {
+		wg.Add(1)
+		go func(idx int, signature string) {
+			defer wg.Done()
+
+			sem <- struct{}{}        // acquire semaphore
+			defer func() { <-sem }() // release semaphore
+
+			detail, err := blockchain.GetTransaction(ctx, rpcClient, signature)
+			if err != nil || detail == nil {
+				// Skip transactions we can't fetch (same as before, but concurrent)
+				return
+			}
+
+			item := classifyTransaction(detail, address)
+			results[idx] = indexedResult{index: idx, item: item, ok: true}
+		}(i, sig.Signature)
+	}
+
+	wg.Wait()
+
+	// 3. Collect successful results (preserving order)
+	items := make([]ActivityItem, 0, len(sigs))
+	for _, r := range results {
+		if r.ok {
+			items = append(items, r.item)
+		}
+	}
+
+	// 4. Merge with local swap history
 	if s.db != nil {
 		swapEntries, err := s.db.GetSwapHistory(address, limit)
 		if err == nil {
@@ -76,7 +110,7 @@ func (s *ActivityService) GetActivity(rpcClient *blockchain.RPCClient, address s
 		}
 	}
 
-	// 4. Sort by timestamp descending
+	// 5. Sort by timestamp descending
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].Timestamp > items[j].Timestamp
 	})

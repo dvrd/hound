@@ -1,6 +1,7 @@
 package dex_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -69,7 +70,7 @@ func TestRouterFetchPriceJupiterFallback(t *testing.T) {
 	defer server.Close()
 
 	jupClient := dex.NewJupiterClientWithHTTP(server.Client(), server.URL+"?ids=", server.URL+"?query=")
-	mockSOLPrice := func() (float64, error) { return 150.0, nil }
+	mockSOLPrice := func(_ context.Context) (float64, error) { return 150.0, nil }
 	router := dex.NewRouterWithSOLPrice(nil, jupClient, mockSOLPrice)
 
 	token := models.Token{
@@ -102,7 +103,7 @@ func TestRouterFetchPriceNoPools(t *testing.T) {
 	defer server.Close()
 
 	jupClient := dex.NewJupiterClientWithHTTP(server.Client(), server.URL+"?ids=", server.URL+"?query=")
-	mockSOLPrice := func() (float64, error) { return 150.0, nil }
+	mockSOLPrice := func(_ context.Context) (float64, error) { return 150.0, nil }
 	router := dex.NewRouterWithSOLPrice(nil, jupClient, mockSOLPrice)
 
 	token := models.Token{
@@ -121,7 +122,7 @@ func TestRouterFetchPriceNoPools(t *testing.T) {
 }
 
 func TestRouterQuoteToUSD(t *testing.T) {
-	mockSOLPrice := func() (float64, error) { return 150.0, nil }
+	mockSOLPrice := func(_ context.Context) (float64, error) { return 150.0, nil }
 	router := dex.NewRouterWithSOLPrice(nil, nil, mockSOLPrice)
 
 	tests := []struct {
@@ -150,7 +151,7 @@ func TestRouterQuoteToUSD(t *testing.T) {
 }
 
 func TestRouterQuoteToUSDUnknownToken(t *testing.T) {
-	mockSOLPrice := func() (float64, error) { return 150.0, nil }
+	mockSOLPrice := func(_ context.Context) (float64, error) { return 150.0, nil }
 	router := dex.NewRouterWithSOLPrice(nil, nil, mockSOLPrice)
 
 	_, err := router.QuoteToUSD("bonk", 1.0)

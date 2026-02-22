@@ -116,3 +116,59 @@ func TestGetBalancesForWalletEmpty(t *testing.T) {
 		t.Errorf("len = %d, want 0", len(got))
 	}
 }
+
+func TestUpdateBalanceTx(t *testing.T) {
+	db := mustOpenInMemory(t)
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+
+	// Insert a wallet first (foreign key)
+	insertTestWallet(t, db, "txTestAddr", "tx-test")
+
+	// Test commit path
+	tx, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("BeginTx: %v", err)
+	}
+	if err := db.UpdateBalanceTx(tx, "txTestAddr", "SOLmint", "SOL", 1.5, 150.0, 225.0); err != nil {
+		tx.Rollback()
+		t.Fatalf("UpdateBalanceTx: %v", err)
+	}
+	if err := db.UpdateBalanceTx(tx, "txTestAddr", "USDCmint", "USDC", 100.0, 1.0, 100.0); err != nil {
+		tx.Rollback()
+		t.Fatalf("UpdateBalanceTx: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	// Verify both balances persisted
+	balances, err := db.GetBalancesForWallet("txTestAddr")
+	if err != nil {
+		t.Fatalf("GetBalancesForWallet: %v", err)
+	}
+	if len(balances) != 2 {
+		t.Fatalf("expected 2 balances, got %d", len(balances))
+	}
+
+	// Test rollback path
+	tx2, err := db.BeginTx()
+	if err != nil {
+		t.Fatalf("BeginTx (2): %v", err)
+	}
+	if err := db.UpdateBalanceTx(tx2, "txTestAddr", "BONKmint", "BONK", 999.0, 0.001, 0.999); err != nil {
+		tx2.Rollback()
+		t.Fatalf("UpdateBalanceTx (rollback): %v", err)
+	}
+	tx2.Rollback()
+
+	// Verify BONK was NOT persisted
+	balances2, err := db.GetBalancesForWallet("txTestAddr")
+	if err != nil {
+		t.Fatalf("GetBalancesForWallet (2): %v", err)
+	}
+	if len(balances2) != 2 {
+		t.Fatalf("expected 2 balances after rollback, got %d", len(balances2))
+	}
+}

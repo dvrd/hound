@@ -1,6 +1,7 @@
 package blockchain_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -39,7 +40,7 @@ func TestGetSOLPriceCachedFromJupiter(t *testing.T) {
 	}
 	blockchain.SetOracleHTTPClient(&http.Client{Transport: transport})
 
-	price, err := blockchain.GetSOLPriceCached()
+	price, err := blockchain.GetSOLPriceCached(context.Background())
 	if err != nil {
 		t.Fatalf("GetSOLPriceCached failed: %v", err)
 	}
@@ -68,13 +69,13 @@ func TestGetSOLPriceCachedReturnsCached(t *testing.T) {
 	blockchain.SetOracleHTTPClient(&http.Client{Transport: transport})
 
 	// First call fetches
-	price1, err := blockchain.GetSOLPriceCached()
+	price1, err := blockchain.GetSOLPriceCached(context.Background())
 	if err != nil {
 		t.Fatalf("first call failed: %v", err)
 	}
 
 	// Second call should use cache
-	price2, err := blockchain.GetSOLPriceCached()
+	price2, err := blockchain.GetSOLPriceCached(context.Background())
 	if err != nil {
 		t.Fatalf("second call failed: %v", err)
 	}
@@ -111,7 +112,7 @@ func TestGetSOLPriceCachedFallbackToCoinGecko(t *testing.T) {
 	}
 	blockchain.SetOracleHTTPClient(&http.Client{Transport: transport})
 
-	price, err := blockchain.GetSOLPriceCached()
+	price, err := blockchain.GetSOLPriceCached(context.Background())
 	if err != nil {
 		t.Fatalf("GetSOLPriceCached with CoinGecko fallback failed: %v", err)
 	}
@@ -137,7 +138,7 @@ func TestGetSOLPriceCachedAllSourcesFail(t *testing.T) {
 	}
 	blockchain.SetOracleHTTPClient(&http.Client{Transport: transport})
 
-	_, err := blockchain.GetSOLPriceCached()
+	_, err := blockchain.GetSOLPriceCached(context.Background())
 	if err == nil {
 		t.Fatal("expected error when all sources fail")
 	}
@@ -164,7 +165,7 @@ func TestGetSOLPriceCachedInvalidPrice(t *testing.T) {
 	}
 	blockchain.SetOracleHTTPClient(&http.Client{Transport: transport})
 
-	_, err := blockchain.GetSOLPriceCached()
+	_, err := blockchain.GetSOLPriceCached(context.Background())
 	if err == nil {
 		t.Fatal("expected error for invalid price")
 	}

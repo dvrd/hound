@@ -1,6 +1,7 @@
 package database
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -18,6 +19,22 @@ func (d *Database) UpdateBalance(walletAddr, mint, symbol string, amount, usdPri
 	)
 	if err != nil {
 		return fmt.Errorf("updating balance for wallet %q mint %q: %w", walletAddr, mint, err)
+	}
+	return nil
+}
+
+// UpdateBalanceTx inserts or replaces a token balance within an existing transaction.
+// Use this with BeginTx() for atomic batch writes.
+func (d *Database) UpdateBalanceTx(tx *sql.Tx, walletAddr, mint, symbol string, amount, usdPrice, usdValue float64) error {
+	now := time.Now().Unix()
+
+	_, err := tx.Exec(
+		`INSERT OR REPLACE INTO balances (wallet_address, mint, symbol, amount, usd_price, usd_value, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		walletAddr, mint, symbol, amount, usdPrice, usdValue, now,
+	)
+	if err != nil {
+		return fmt.Errorf("updating balance (tx) for wallet %q mint %q: %w", walletAddr, mint, err)
 	}
 	return nil
 }

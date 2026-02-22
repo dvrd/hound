@@ -210,25 +210,35 @@ func (m *WalletManager) ResolveWallet(identifier string) (models.Wallet, error) 
 	return models.Wallet{}, &models.WalletNotFoundError{Identifier: identifier}
 }
 
-// PersistPortfolio saves portfolio balances to the database.
+// PersistPortfolio saves portfolio balances to the database atomically.
+// All balance writes happen in a single transaction — all-or-nothing.
 func (m *WalletManager) PersistPortfolio(portfolio models.PortfolioBalance) error {
+	tx, err := m.db.BeginTx()
+	if err != nil {
+		return fmt.Errorf("persisting portfolio: begin tx: %w", err)
+	}
+
 	// Save SOL balance
 	sol := portfolio.SOLBalance
-	if err := m.db.UpdateBalance(
-		portfolio.WalletAddress, sol.Mint, sol.Symbol,
+	if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, sol.Mint, sol.Symbol,
 		sol.Amount, sol.USDPrice, sol.USDValue,
 	); err != nil {
+		tx.Rollback()
 		return fmt.Errorf("persisting SOL balance: %w", err)
 	}
 
 	// Save token balances
 	for _, tb := range portfolio.TokenBalances {
-		if err := m.db.UpdateBalance(
-			portfolio.WalletAddress, tb.Mint, tb.Symbol,
+		if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, tb.Mint, tb.Symbol,
 			tb.Amount, tb.USDPrice, tb.USDValue,
 		); err != nil {
+			tx.Rollback()
 			return fmt.Errorf("persisting balance for %s: %w", tb.Symbol, err)
 		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("persisting portfolio: commit: %w", err)
 	}
 
 	return nil
