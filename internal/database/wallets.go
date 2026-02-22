@@ -49,7 +49,12 @@ func (d *Database) GetAllWallets() ([]models.Wallet, error) {
 			return nil, fmt.Errorf("scanning wallet row: %w", err)
 		}
 		w.IsPrimary = isPrimary != 0
-		w.WalletType = models.ParseWalletType(walletType)
+		wt, err := models.ParseWalletType(walletType)
+		if err != nil {
+			// Database contains unrecognized wallet type — default to Legacy for safety
+			wt = models.WalletTypeLegacy
+		}
+		w.WalletType = wt
 
 		wallets = append(wallets, w)
 	}
@@ -78,7 +83,11 @@ func (d *Database) GetPrimaryWallet() (models.Wallet, error) {
 	}
 
 	w.IsPrimary = isPrimary != 0
-	w.WalletType = models.ParseWalletType(walletType)
+	wt, err2 := models.ParseWalletType(walletType)
+	if err2 != nil {
+		wt = models.WalletTypeLegacy
+	}
+	w.WalletType = wt
 
 	return w, nil
 }
@@ -101,7 +110,11 @@ func (d *Database) GetWalletByAddress(addr string) (models.Wallet, error) {
 	}
 
 	w.IsPrimary = isPrimary != 0
-	w.WalletType = models.ParseWalletType(walletType)
+	wt, err2 := models.ParseWalletType(walletType)
+	if err2 != nil {
+		wt = models.WalletTypeLegacy
+	}
+	w.WalletType = wt
 
 	return w, nil
 }

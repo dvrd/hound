@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"time"
 
 	"github.com/dvrd/hound/internal/blockchain"
 	"github.com/dvrd/hound/internal/database"
@@ -217,4 +218,49 @@ func (s *TransferService) EstimateFee(createATA bool) uint64 {
 		baseFee += 2_039_280 // rent exemption for 165-byte token account
 	}
 	return baseFee
+}
+
+// AwaitConfirmation polls GetSignatureStatuses until the transaction is confirmed/finalized
+// or the timeout is reached. Returns nil on confirmation, ErrTransactionFailed if the tx
+// failed on-chain, or ErrConfirmationTimeout if polling times out.
+func AwaitConfirmation(ctx context.Context, rpcClient *blockchain.RPCClient, signature string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+
+	for {
+		if time.Now().After(deadline) {
+			return fmt.Errorf("await confirmation: %w", models.ErrConfirmationTimeout)
+		}
+
+		statuses, err := blockchain.GetSignatureStatuses(ctx, rpcClient, []string{signature})
+		if err != nil {
+			// Network error — keep polling, don't fail immediately
+			time.Sleep(pollInterval)
+			continue
+		}
+
+		if len(statuses) > 0 && statuses[0] != nil {
+			status := statuses[0]
+
+			// Check for on-chain error
+			if status.Err != nil {
+				return fmt.Errorf("await confirmation: %w", models.ErrTransactionFailed)
+			}
+
+			// Check confirmation level
+			if status.ConfirmationStatus != nil {
+				cs := *status.ConfirmationStatus
+				if cs == "confirmed" || cs == "finalized" {
+					return nil // Success!
+				}
+			}
+		}
+
+		// Not yet confirmed — wait and retry
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("await confirmation: %w", ctx.Err())
+		case <-time.After(pollInterval):
+		}
+	}
 }

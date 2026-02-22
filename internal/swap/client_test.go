@@ -312,3 +312,64 @@ func TestSwapClient_GetQuote_MultiRouteStep(t *testing.T) {
 		t.Errorf("expected requestId 'req-456' in raw response")
 	}
 }
+
+func TestSwapClient_GetQuote_CacheIncludesTaker(t *testing.T) {
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		fmt.Fprint(w, jupiterUltraResponse)
+	}))
+	defer server.Close()
+
+	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
+
+	_, err := client.GetQuote("mint1", "mint2", "1000", "takerA")
+	if err != nil {
+		t.Fatalf("first call failed: %v", err)
+	}
+
+	_, err = client.GetQuote("mint1", "mint2", "1000", "takerB")
+	if err != nil {
+		t.Fatalf("second call failed: %v", err)
+	}
+
+	if callCount != 2 {
+		t.Errorf("expected 2 server calls (different takers), got %d", callCount)
+	}
+
+	_, err = client.GetQuote("mint1", "mint2", "1000", "takerA")
+	if err != nil {
+		t.Fatalf("third call failed: %v", err)
+	}
+
+	if callCount != 2 {
+		t.Errorf("expected 2 server calls (taker A cached), got %d", callCount)
+	}
+}
+
+func TestSwapClient_GetQuote_InvalidAmounts(t *testing.T) {
+	badResp := `{
+		"requestId": "req-bad",
+		"inputMint": "mint1",
+		"outputMint": "mint2",
+		"inAmount": "not-a-number",
+		"outAmount": "150000000",
+		"swapMode": "ExactIn",
+		"slippageBps": 50,
+		"priceImpactPct": "0.01",
+		"routePlan": [],
+		"transaction": "AQAAAA==",
+		"prioritizationFeeLamports": 5000
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, badResp)
+	}))
+	defer server.Close()
+
+	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
+	_, err := client.GetQuote("mint1", "mint2", "1000", "taker")
+	if err == nil {
+		t.Fatal("expected error for invalid inAmount")
+	}
+}

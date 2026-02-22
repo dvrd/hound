@@ -46,3 +46,38 @@ func TestTypes_AccountMeta(t *testing.T) {
 		t.Error("IsWritable should be true")
 	}
 }
+
+func TestPubkeyFromBytes_Valid(t *testing.T) {
+	b := make([]byte, 32)
+	for i := range b {
+		b[i] = byte(i)
+	}
+	pk, err := PubkeyFromBytes(b)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if pk[0] != 0 || pk[31] != 31 {
+		t.Errorf("pubkey bytes mismatch")
+	}
+}
+
+func TestPubkeyFromBytes_TooShort(t *testing.T) {
+	_, err := PubkeyFromBytes(make([]byte, 16))
+	if err == nil {
+		t.Fatal("expected error for 16-byte input")
+	}
+}
+
+func TestPubkeyFromBytes_TooLong(t *testing.T) {
+	_, err := PubkeyFromBytes(make([]byte, 64))
+	if err == nil {
+		t.Fatal("expected error for 64-byte input")
+	}
+}
+
+func TestPubkeyFromBytes_Empty(t *testing.T) {
+	_, err := PubkeyFromBytes(nil)
+	if err == nil {
+		t.Fatal("expected error for nil input")
+	}
+}

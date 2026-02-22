@@ -77,6 +77,7 @@ func (m Model) copyToClipboard() tea.Cmd {
 func copyToClipboard(text string) error {
 	for _, cmd := range [][]string{
 		{"pbcopy"},
+		{"wl-copy"},
 		{"xclip", "-selection", "clipboard"},
 		{"xsel", "--clipboard", "--input"},
 		{"clip.exe"},

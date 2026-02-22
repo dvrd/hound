@@ -11,17 +11,30 @@ import (
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/swap"
+	"github.com/dvrd/hound/internal/transaction"
 )
 
 // makeTestTransaction builds a minimal valid Solana transaction for testing.
-// Format: 1 byte (num sigs=1) + 64 bytes (sig slot) + 32 bytes (message)
-func makeTestTransaction() string {
-	txBytes := make([]byte, 1+64+32)
-	txBytes[0] = 1
-	for i := 65; i < len(txBytes); i++ {
-		txBytes[i] = byte(i)
-	}
-	return base64.StdEncoding.EncodeToString(txBytes)
+// The fee payer must match the signer's public key for ValidateSwapTransaction.
+func makeTestTransaction(address string) string {
+	// Decode base58 address to get 32-byte pubkey
+	pubkey, _ := transaction.PubkeyFromBase58(address)
+
+	var tx []byte
+	tx = append(tx, 1)                   // 1 signature
+	tx = append(tx, make([]byte, 64)...) // empty sig slot
+	tx = append(tx, 1, 0, 1)             // header: 1 required sig, 0 readonly signed, 1 readonly unsigned
+	tx = append(tx, 2)                   // 2 accounts
+	tx = append(tx, pubkey[:]...)        // account 0: signer/fee payer
+	tx = append(tx, make([]byte, 32)...) // account 1: system program (all zeros)
+	tx = append(tx, make([]byte, 32)...) // blockhash
+	tx = append(tx, 1)                   // 1 instruction
+	tx = append(tx, 1)                   // programIdIndex = 1 (system program)
+	tx = append(tx, 1)                   // 1 account index
+	tx = append(tx, 0)                   // account index 0
+	tx = append(tx, 4)                   // data length 4
+	tx = append(tx, 0, 0, 0, 0)          // data
+	return base64.StdEncoding.EncodeToString(tx)
 }
 
 func TestSwapService_ExecuteSwap_ExpiredQuote(t *testing.T) {
@@ -69,7 +82,7 @@ func TestSwapService_ExecuteSwap_WrongPassword(t *testing.T) {
 	swapSvc := services.NewSwapService(swapClient, svc, db)
 
 	rawResp, _ := json.Marshal(map[string]interface{}{
-		"transaction": makeTestTransaction(),
+		"transaction": makeTestTransaction(address),
 		"requestId":   "req-123",
 	})
 
@@ -138,7 +151,7 @@ func TestSwapService_ExecuteSwap_SignsAndSubmits(t *testing.T) {
 	}
 
 	rawResp, _ := json.Marshal(map[string]interface{}{
-		"transaction": makeTestTransaction(),
+		"transaction": makeTestTransaction(address),
 		"requestId":   "req-123",
 	})
 

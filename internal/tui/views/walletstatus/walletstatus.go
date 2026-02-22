@@ -165,12 +165,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, ri.Focus()
 		case "a":
 			m.showAll = !m.showAll
+			m.clampCursor()
 		case "1":
 			m.sortMode = SortByValue
+			m.clampCursor()
 		case "2":
 			m.sortMode = SortBySymbol
+			m.clampCursor()
 		case "3":
 			m.sortMode = SortByBalance
+			m.clampCursor()
 		case "s":
 			return m, func() tea.Msg {
 				return tui.NavigateMsg{View: "send", Data: m.address}
@@ -226,6 +230,8 @@ func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		}
+		// M8: Update in-memory label so UI reflects change immediately
+		m.wallet.Label = newLabel
 		m.renaming = false
 		m.renameErr = nil
 		return m, nil
@@ -260,6 +266,16 @@ func (m Model) visibleTokens() []models.TokenBalance {
 	}
 
 	return tokens
+}
+
+// clampCursor ensures the cursor is within the bounds of visible tokens.
+func (m *Model) clampCursor() {
+	tokens := m.visibleTokens()
+	if len(tokens) == 0 {
+		m.cursor = 0
+	} else if m.cursor >= len(tokens) {
+		m.cursor = len(tokens) - 1
+	}
 }
 
 // View renders the wallet status.

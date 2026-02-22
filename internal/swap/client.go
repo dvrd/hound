@@ -49,14 +49,14 @@ func NewSwapClientWithHTTP(httpClient *http.Client, baseURL string) *SwapClient 
 }
 
 // cacheKey builds the cache key for a quote.
-func cacheKey(inputMint, outputMint, amount string) string {
-	return inputMint + ":" + outputMint + ":" + amount
+func cacheKey(inputMint, outputMint, amount, taker string) string {
+	return inputMint + ":" + outputMint + ":" + amount + ":" + taker
 }
 
 // GetQuote fetches a swap quote from Jupiter Ultra API.
 // Results are cached for 90 seconds (QuoteTTL).
 func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string) (models.SwapQuote, error) {
-	key := cacheKey(inputMint, outputMint, amount)
+	key := cacheKey(inputMint, outputMint, amount, taker)
 
 	// Check cache
 	c.cacheMu.RLock()
@@ -136,13 +136,22 @@ func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string
 
 	// Calculate rate
 	var rate float64
-	inAmt, _ := strconv.ParseFloat(raw.InAmount, 64)
-	outAmt, _ := strconv.ParseFloat(raw.OutAmount, 64)
+	inAmt, err := strconv.ParseFloat(raw.InAmount, 64)
+	if err != nil {
+		return models.SwapQuote{}, fmt.Errorf("swap quote: parse inAmount %q: %w", raw.InAmount, models.ErrInvalidResponse)
+	}
+	outAmt, err := strconv.ParseFloat(raw.OutAmount, 64)
+	if err != nil {
+		return models.SwapQuote{}, fmt.Errorf("swap quote: parse outAmount %q: %w", raw.OutAmount, models.ErrInvalidResponse)
+	}
 	if inAmt > 0 {
 		rate = outAmt / inAmt
 	}
 
-	priceImpact, _ := strconv.ParseFloat(raw.PriceImpact, 64)
+	priceImpact, err := strconv.ParseFloat(raw.PriceImpact, 64)
+	if err != nil {
+		return models.SwapQuote{}, fmt.Errorf("swap quote: parse priceImpact %q: %w", raw.PriceImpact, models.ErrInvalidResponse)
+	}
 	networkFee := float64(raw.PrioritizationFeeLamports) / 1_000_000_000.0
 
 	quote := models.SwapQuote{

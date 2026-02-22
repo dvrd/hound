@@ -90,7 +90,10 @@ func GetTokenAccountsByOwner(ctx context.Context, client *RPCClient, address str
 
 	accounts := make([]TokenAccount, 0, len(parsed.Value))
 	for _, v := range parsed.Value {
-		amount, _ := strconv.ParseUint(v.Account.Data.Parsed.Info.TokenAmount.Amount, 10, 64)
+		amount, err := strconv.ParseUint(v.Account.Data.Parsed.Info.TokenAmount.Amount, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("getTokenAccountsByOwner: parse amount %q: %w", v.Account.Data.Parsed.Info.TokenAmount.Amount, models.ErrRPCInvalidResponse)
+		}
 		accounts = append(accounts, TokenAccount{
 			Pubkey:   v.Pubkey,
 			Mint:     v.Account.Data.Parsed.Info.Mint,
@@ -166,7 +169,10 @@ func GetTokenAccountBalance(ctx context.Context, client *RPCClient, vaultAddr st
 		return 0, 0, 0, fmt.Errorf("getTokenAccountBalance: parse result: %w", models.ErrRPCInvalidResponse)
 	}
 
-	amt, _ := strconv.ParseUint(parsed.Value.Amount, 10, 64)
+	amt, err := strconv.ParseUint(parsed.Value.Amount, 10, 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("getTokenAccountBalance: parse amount %q: %w", parsed.Value.Amount, models.ErrRPCInvalidResponse)
+	}
 	return amt, parsed.Value.Decimals, parsed.Value.UIAmount, nil
 }
 
@@ -188,7 +194,10 @@ func GetTokenSupply(ctx context.Context, client *RPCClient, mintAddr string) (to
 		return 0, 0, fmt.Errorf("getTokenSupply: parse result: %w", models.ErrRPCInvalidResponse)
 	}
 
-	supply, _ := strconv.ParseUint(parsed.Value.Amount, 10, 64)
+	supply, err := strconv.ParseUint(parsed.Value.Amount, 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("getTokenSupply: parse amount %q: %w", parsed.Value.Amount, models.ErrRPCInvalidResponse)
+	}
 	return supply, parsed.Value.Decimals, nil
 }
 
@@ -214,7 +223,10 @@ func GetTokenLargestAccounts(ctx context.Context, client *RPCClient, mintAddr st
 
 	accounts := make([]AccountBalance, 0, len(parsed.Value))
 	for _, v := range parsed.Value {
-		amt, _ := strconv.ParseUint(v.Amount, 10, 64)
+		amt, err := strconv.ParseUint(v.Amount, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("getTokenLargestAccounts: parse amount %q for %s: %w", v.Amount, v.Address, models.ErrRPCInvalidResponse)
+		}
 		accounts = append(accounts, AccountBalance{
 			Address:  v.Address,
 			Amount:   amt,
@@ -237,14 +249,16 @@ type SignatureInfo struct {
 
 // TransactionDetail represents parsed transaction data from getTransaction.
 type TransactionDetail struct {
-	Signature    string
-	Slot         uint64
-	BlockTime    *int64
-	Fee          uint64
-	Instructions []ParsedInstruction
-	PreBalances  []uint64
-	PostBalances []uint64
-	Err          interface{}
+	Signature         string
+	Slot              uint64
+	BlockTime         *int64
+	Fee               uint64
+	Instructions      []ParsedInstruction
+	InnerInstructions []InnerInstructionSet
+	AccountKeys       []string
+	PreBalances       []uint64
+	PostBalances      []uint64
+	Err               interface{}
 }
 
 // ParsedInstruction represents a parsed instruction from a transaction.
@@ -253,6 +267,12 @@ type ParsedInstruction struct {
 	Program   string // "system", "spl-token", etc.
 	Type      string // "transfer", "transferChecked", etc.
 	Info      map[string]interface{}
+}
+
+// InnerInstructionSet represents inner instructions for a given top-level instruction index.
+type InnerInstructionSet struct {
+	Index        int
+	Instructions []ParsedInstruction
 }
 
 // GetLatestBlockhash returns the latest blockhash and last valid block height.
@@ -341,13 +361,27 @@ func GetTransaction(ctx context.Context, client *RPCClient, signature string) (*
 		Slot      uint64 `json:"slot"`
 		BlockTime *int64 `json:"blockTime"`
 		Meta      struct {
-			Fee          uint64      `json:"fee"`
-			PreBalances  []uint64    `json:"preBalances"`
-			PostBalances []uint64    `json:"postBalances"`
-			Err          interface{} `json:"err"`
+			Fee               uint64      `json:"fee"`
+			PreBalances       []uint64    `json:"preBalances"`
+			PostBalances      []uint64    `json:"postBalances"`
+			Err               interface{} `json:"err"`
+			InnerInstructions []struct {
+				Index        int `json:"index"`
+				Instructions []struct {
+					ProgramID string `json:"programId"`
+					Program   string `json:"program"`
+					Parsed    *struct {
+						Type string                 `json:"type"`
+						Info map[string]interface{} `json:"info"`
+					} `json:"parsed,omitempty"`
+				} `json:"instructions"`
+			} `json:"innerInstructions"`
 		} `json:"meta"`
 		Transaction struct {
 			Message struct {
+				AccountKeys []struct {
+					Pubkey string `json:"pubkey"`
+				} `json:"accountKeys"`
 				Instructions []struct {
 					ProgramID string `json:"programId"`
 					Program   string `json:"program"`
@@ -386,6 +420,28 @@ func GetTransaction(ctx context.Context, client *RPCClient, signature string) (*
 		detail.Instructions = append(detail.Instructions, pi)
 	}
 
+	// Extract account keys
+	for _, ak := range parsed.Transaction.Message.AccountKeys {
+		detail.AccountKeys = append(detail.AccountKeys, ak.Pubkey)
+	}
+
+	// Extract inner instructions
+	for _, inner := range parsed.Meta.InnerInstructions {
+		set := InnerInstructionSet{Index: inner.Index}
+		for _, ix := range inner.Instructions {
+			pi := ParsedInstruction{
+				ProgramID: ix.ProgramID,
+				Program:   ix.Program,
+			}
+			if ix.Parsed != nil {
+				pi.Type = ix.Parsed.Type
+				pi.Info = ix.Parsed.Info
+			}
+			set.Instructions = append(set.Instructions, pi)
+		}
+		detail.InnerInstructions = append(detail.InnerInstructions, set)
+	}
+
 	return detail, nil
 }
 
@@ -402,4 +458,35 @@ func GetMinimumBalanceForRentExemption(ctx context.Context, client *RPCClient, d
 	}
 
 	return lamports, nil
+}
+
+// SignatureStatus represents the status of a transaction signature.
+type SignatureStatus struct {
+	Slot               uint64      `json:"slot"`
+	Confirmations      *uint64     `json:"confirmations"`
+	ConfirmationStatus *string     `json:"confirmationStatus"` // "processed", "confirmed", "finalized"
+	Err                interface{} `json:"err"`
+}
+
+// GetSignatureStatuses returns the statuses of the given transaction signatures.
+// Returns a slice of *SignatureStatus (nil entries mean the signature was not found).
+func GetSignatureStatuses(ctx context.Context, client *RPCClient, signatures []string) ([]*SignatureStatus, error) {
+	params := []interface{}{
+		signatures,
+		map[string]bool{"searchTransactionHistory": true},
+	}
+
+	result, err := client.Call(ctx, "getSignatureStatuses", params)
+	if err != nil {
+		return nil, fmt.Errorf("getSignatureStatuses: %w", err)
+	}
+
+	var parsed struct {
+		Value []*SignatureStatus `json:"value"`
+	}
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		return nil, fmt.Errorf("getSignatureStatuses: parse result: %w", models.ErrRPCInvalidResponse)
+	}
+
+	return parsed.Value, nil
 }

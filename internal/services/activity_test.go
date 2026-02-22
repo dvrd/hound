@@ -108,6 +108,7 @@ func TestClassifyUnknown(t *testing.T) {
 				Info:      map[string]interface{}{},
 			},
 		},
+		AccountKeys:  []string{myAddr},
 		PreBalances:  []uint64{1_000_000_000},
 		PostBalances: []uint64{999_995_000},
 	}
@@ -128,6 +129,7 @@ func TestDirectionSent(t *testing.T) {
 		BlockTime:    &blockTime,
 		Fee:          5000,
 		Instructions: []blockchain.ParsedInstruction{},
+		AccountKeys:  []string{myAddr},
 		PreBalances:  []uint64{5_000_000_000},
 		PostBalances: []uint64{3_000_000_000},
 	}
@@ -149,6 +151,7 @@ func TestDirectionReceived(t *testing.T) {
 		BlockTime:    &blockTime,
 		Fee:          5000,
 		Instructions: []blockchain.ParsedInstruction{},
+		AccountKeys:  []string{myAddr},
 		PreBalances:  []uint64{1_000_000_000},
 		PostBalances: []uint64{3_000_000_000},
 	}
@@ -184,8 +187,9 @@ func TestMergeWithSwapHistory(t *testing.T) {
 				},
 			},
 		},
-		PreBalances:  []uint64{1_000_000_000},
-		PostBalances: []uint64{499_995_000},
+		AccountKeys:  []string{myAddr, "RecipientAddr"},
+		PreBalances:  []uint64{1_000_000_000, 0},
+		PostBalances: []uint64{499_995_000, 500_000_000},
 	}
 
 	item := classifyTransaction(detail, myAddr)
@@ -281,8 +285,8 @@ func TestGetActivityParallel(t *testing.T) {
 				result = json.RawMessage(fmt.Sprintf(`{
 					"slot": 100,
 					"blockTime": %d,
-					"meta": {"fee": 5000, "preBalances": [100], "postBalances": [95], "err": null},
-					"transaction": {"message": {"instructions": []}}
+					"meta": {"fee": 5000, "preBalances": [100], "postBalances": [95], "err": null, "innerInstructions": []},
+					"transaction": {"message": {"accountKeys": [{"pubkey": "testAddr"}], "instructions": []}}
 				}`, bt))
 			}
 		}

@@ -18,11 +18,12 @@ var (
 	ErrKeyNotFound       = errors.New("encrypted keypair not found")
 
 	// Swap errors
-	ErrQuoteExpired        = errors.New("swap quote expired")
-	ErrHighPriceImpact     = errors.New("price impact too high")
-	ErrInsufficientBalance = errors.New("insufficient balance")
-	ErrSlippageExceeded    = errors.New("slippage exceeded")
-	ErrInvalidTransaction  = errors.New("transaction validation failed")
+	ErrQuoteExpired         = errors.New("swap quote expired")
+	ErrHighPriceImpact      = errors.New("price impact too high")
+	ErrInsufficientBalance  = errors.New("insufficient balance")
+	ErrSlippageExceeded     = errors.New("slippage exceeded")
+	ErrUntrustedTransaction = errors.New("transaction contains untrusted programs or wrong fee payer")
+	ErrInvalidTransaction   = errors.New("transaction validation failed")
 
 	// Network errors
 	ErrRPCConnectionFailed = errors.New("cannot connect to Solana RPC")
@@ -60,6 +61,7 @@ var (
 	ErrInsufficientBalanceForRent = errors.New("insufficient balance for rent exemption")
 	ErrTransactionFailed          = errors.New("transaction failed on-chain")
 	ErrBlockhashExpired           = errors.New("blockhash expired — please retry")
+	ErrConfirmationTimeout        = errors.New("transaction confirmation timed out")
 )
 
 // WalletNotFoundError provides context about which wallet was not found.
@@ -109,6 +111,7 @@ func ExitCode(err error) int {
 		errors.Is(err, ErrHighPriceImpact),
 		errors.Is(err, ErrInsufficientBalance),
 		errors.Is(err, ErrSlippageExceeded),
+		errors.Is(err, ErrUntrustedTransaction),
 		errors.Is(err, ErrInvalidRecipient),
 		errors.Is(err, ErrSendToSelf),
 		errors.Is(err, ErrInsufficientBalanceForRent):
@@ -125,7 +128,8 @@ func ExitCode(err error) int {
 		errors.Is(err, ErrServerError),
 		errors.Is(err, ErrRPCConnectionFailed),
 		errors.Is(err, ErrOracleConnectionFailed),
-		errors.Is(err, ErrBlockhashExpired):
+		errors.Is(err, ErrBlockhashExpired),
+		errors.Is(err, ErrConfirmationTimeout):
 		return 69
 
 	// Internal software error
@@ -194,6 +198,9 @@ func UserMessage(err error) string {
 	case errors.Is(err, ErrInvalidTransaction):
 		return "Transaction validation failed.\nCommon causes:\n  - Quote expired (>90 seconds old)\n  - Insufficient SOL for network fees\n  - Route no longer available"
 
+	case errors.Is(err, ErrUntrustedTransaction):
+		return "Swap transaction rejected: contains untrusted programs or wrong fee payer.\nThis may indicate a compromised API response. Do NOT retry."
+
 	case errors.Is(err, ErrRPCConnectionFailed):
 		return "Cannot connect to Solana RPC.\nThe Solana network may be temporarily unavailable.\nCheck your internet connection or try a different RPC endpoint."
 
@@ -241,6 +248,9 @@ func UserMessage(err error) string {
 
 	case errors.Is(err, ErrBlockhashExpired):
 		return "Transaction expired. Please try again."
+
+	case errors.Is(err, ErrConfirmationTimeout):
+		return "Transaction may have been sent but confirmation timed out.\nCheck https://solscan.io for the transaction status."
 
 	default:
 		return err.Error()

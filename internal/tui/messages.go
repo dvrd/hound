@@ -40,3 +40,10 @@ type TransferSentMsg struct {
 	Signature string
 	Err       error
 }
+
+// TransferConfirmedMsg is sent when transaction confirmation polling completes.
+type TransferConfirmedMsg struct {
+	Signature string
+	Confirmed bool  // true if confirmed/finalized
+	Err       error // non-nil if tx failed on-chain or timed out
+}

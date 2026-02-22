@@ -1,12 +1,16 @@
 package services_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/dvrd/hound/internal/blockchain"
 	"github.com/dvrd/hound/internal/database"
@@ -191,5 +195,72 @@ func TestTransfer_EstimateFee(t *testing.T) {
 	feeWithATA := svc.EstimateFee(true)
 	if feeWithATA != 5000+2_039_280 {
 		t.Errorf("EstimateFee(true) = %d, want %d", feeWithATA, 5000+2_039_280)
+	}
+}
+
+func TestAwaitConfirmation_Confirmed(t *testing.T) {
+	var callCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req blockchain.RPCRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		count := callCount.Add(1)
+
+		var status string
+		if count >= 2 {
+			status = `{"slot":100,"confirmationStatus":"confirmed","err":null}`
+		} else {
+			status = "null"
+		}
+		resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"value":[%s]}}`, req.ID, status)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := blockchain.NewRPCClient(server.URL, nil)
+	err := services.AwaitConfirmation(context.Background(), client, "test-sig", 10*time.Second)
+	if err != nil {
+		t.Fatalf("expected confirmation, got error: %v", err)
+	}
+}
+
+func TestAwaitConfirmation_Failed(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req blockchain.RPCRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"value":[{"slot":100,"confirmationStatus":"confirmed","err":{"InstructionError":[0,"Custom"]}}]}}`, req.ID)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := blockchain.NewRPCClient(server.URL, nil)
+	err := services.AwaitConfirmation(context.Background(), client, "test-sig", 10*time.Second)
+	if err == nil {
+		t.Fatal("expected error for failed tx")
+	}
+	if !errors.Is(err, models.ErrTransactionFailed) {
+		t.Errorf("expected ErrTransactionFailed, got: %v", err)
+	}
+}
+
+func TestAwaitConfirmation_Timeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req blockchain.RPCRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		// Always return null (not found)
+		resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"value":[null]}}`, req.ID)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := blockchain.NewRPCClient(server.URL, nil)
+	err := services.AwaitConfirmation(context.Background(), client, "test-sig", 3*time.Second)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, models.ErrConfirmationTimeout) {
+		t.Errorf("expected ErrConfirmationTimeout, got: %v", err)
 	}
 }

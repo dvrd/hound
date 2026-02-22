@@ -29,19 +29,19 @@ func (wt WalletType) String() string {
 }
 
 // ParseWalletType converts a string to a WalletType.
-// Returns WalletTypeLegacy for unrecognized strings.
-func ParseWalletType(s string) WalletType {
+// Returns an error for unrecognized strings.
+func ParseWalletType(s string) (WalletType, error) {
 	switch s {
 	case "Legacy":
-		return WalletTypeLegacy
+		return WalletTypeLegacy, nil
 	case "BIP44_Standard":
-		return WalletTypeBIP44Standard
+		return WalletTypeBIP44Standard, nil
 	case "BIP44_Change":
-		return WalletTypeBIP44Change
+		return WalletTypeBIP44Change, nil
 	case "Solana_CLI":
-		return WalletTypeSolanaCLI
+		return WalletTypeSolanaCLI, nil
 	default:
-		return WalletTypeLegacy
+		return 0, fmt.Errorf("unknown wallet type: %q", s)
 	}
 }
 

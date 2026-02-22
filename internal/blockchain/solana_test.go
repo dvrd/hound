@@ -3,6 +3,7 @@ package blockchain_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -418,5 +419,38 @@ func TestGetMinimumBalanceForRentExemption(t *testing.T) {
 	}
 	if lamports != 2039280 {
 		t.Errorf("lamports = %d, want 2039280", lamports)
+	}
+}
+
+func TestGetSignatureStatuses(t *testing.T) {
+	confirmed := "confirmed"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req blockchain.RPCRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		if req.Method != "getSignatureStatuses" {
+			t.Errorf("unexpected method: %s", req.Method)
+		}
+		resp := fmt.Sprintf(`{"jsonrpc":"2.0","id":%d,"result":{"context":{"slot":100},"value":[{"slot":99,"confirmations":10,"confirmationStatus":"confirmed","err":null},null]}}`, req.ID)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := blockchain.NewRPCClient(server.URL, nil)
+	statuses, err := blockchain.GetSignatureStatuses(context.Background(), client, []string{"sig1", "sig2"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(statuses) != 2 {
+		t.Fatalf("expected 2 statuses, got %d", len(statuses))
+	}
+	if statuses[0] == nil {
+		t.Fatal("expected non-nil status for sig1")
+	}
+	if statuses[0].ConfirmationStatus == nil || *statuses[0].ConfirmationStatus != confirmed {
+		t.Errorf("expected confirmed status, got %v", statuses[0].ConfirmationStatus)
+	}
+	if statuses[1] != nil {
+		t.Errorf("expected nil status for sig2, got %+v", statuses[1])
 	}
 }

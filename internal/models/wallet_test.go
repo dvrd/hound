@@ -30,20 +30,32 @@ func TestWalletTypeString(t *testing.T) {
 
 func TestParseWalletType(t *testing.T) {
 	tests := []struct {
-		input string
-		want  models.WalletType
+		input   string
+		want    models.WalletType
+		wantErr bool
 	}{
-		{"Legacy", models.WalletTypeLegacy},
-		{"BIP44_Standard", models.WalletTypeBIP44Standard},
-		{"BIP44_Change", models.WalletTypeBIP44Change},
-		{"Solana_CLI", models.WalletTypeSolanaCLI},
-		{"unknown", models.WalletTypeLegacy},
-		{"", models.WalletTypeLegacy},
+		{"Legacy", models.WalletTypeLegacy, false},
+		{"BIP44_Standard", models.WalletTypeBIP44Standard, false},
+		{"BIP44_Change", models.WalletTypeBIP44Change, false},
+		{"Solana_CLI", models.WalletTypeSolanaCLI, false},
+		{"unknown", 0, true},
+		{"", 0, true},
+		{"bip44_standard", 0, true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got := models.ParseWalletType(tt.input)
+			got, err := models.ParseWalletType(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("ParseWalletType(%q) expected error, got nil", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Errorf("ParseWalletType(%q) unexpected error: %v", tt.input, err)
+				return
+			}
 			if got != tt.want {
 				t.Errorf("ParseWalletType(%q) = %v, want %v", tt.input, got, tt.want)
 			}
@@ -61,7 +73,10 @@ func TestParseWalletTypeRoundTrip(t *testing.T) {
 
 	for _, wt := range types {
 		t.Run(wt.String(), func(t *testing.T) {
-			parsed := models.ParseWalletType(wt.String())
+			parsed, err := models.ParseWalletType(wt.String())
+			if err != nil {
+				t.Fatalf("round-trip error: %v", err)
+			}
 			if parsed != wt {
 				t.Errorf("round-trip failed: %v → %q → %v", wt, wt.String(), parsed)
 			}

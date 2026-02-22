@@ -76,6 +76,9 @@ type Model struct {
 	spinner        components.SpinnerModel
 	err            error
 
+	// Legacy warning confirmation
+	legacyWarning bool
+
 	// Choice step
 	choiceOptions []string
 	choiceCursor  int
@@ -326,6 +329,23 @@ func (m Model) updateShowMnemonic(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateWalletType(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// If showing legacy warning, handle confirmation
+	if m.legacyWarning {
+		switch msg.String() {
+		case "y", "Y":
+			m.walletType = models.WalletTypeLegacy
+			m.legacyWarning = false
+			m.step = StepAccountIndex
+			m.accountInput.Focus()
+			return m, m.accountInput.Focus()
+		case "n", "N", "esc":
+			m.legacyWarning = false
+			m.err = nil
+			return m, nil
+		}
+		return m, nil
+	}
+
 	switch msg.String() {
 	case "up", "k":
 		if m.typeCursor > 0 {
@@ -344,7 +364,9 @@ func (m Model) updateWalletType(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case 2:
 			m.walletType = models.WalletTypeSolanaCLI
 		case 3:
-			m.walletType = models.WalletTypeLegacy
+			// Show legacy warning instead of proceeding
+			m.legacyWarning = true
+			return m, nil
 		}
 		m.step = StepAccountIndex
 		m.accountInput.Focus()
@@ -505,6 +527,12 @@ func (m Model) View() string {
 		b.WriteString("\n" + tui.StyleMuted.Render("Press Enter to confirm you have saved your recovery phrase"))
 
 	case StepWalletType:
+		if m.legacyWarning {
+			b.WriteString(tui.StyleWarning.Render("⚠ Legacy wallets cannot be recovered in other wallets") + "\n")
+			b.WriteString(tui.StyleWarning.Render("  (Phantom, Solflare, etc.). Use BIP44 Standard instead.") + "\n\n")
+			b.WriteString("Continue with Legacy derivation? (y/n)\n")
+			return b.String()
+		}
 		b.WriteString("Select wallet type:\n\n")
 		for i, choice := range m.typeChoices {
 			cursor := "  "

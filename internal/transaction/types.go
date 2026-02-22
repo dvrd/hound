@@ -30,10 +30,14 @@ func PubkeyFromBase58(s string) (Pubkey, error) {
 }
 
 // PubkeyFromBytes creates a Pubkey from a byte slice.
-func PubkeyFromBytes(b []byte) Pubkey {
+// Returns an error if the slice is not exactly 32 bytes.
+func PubkeyFromBytes(b []byte) (Pubkey, error) {
+	if len(b) != 32 {
+		return Pubkey{}, fmt.Errorf("pubkey: expected 32 bytes, got %d", len(b))
+	}
 	var pk Pubkey
 	copy(pk[:], b)
-	return pk
+	return pk, nil
 }
 
 // PubkeyFromPublicKey creates a Pubkey from an ed25519 public key.

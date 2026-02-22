@@ -13,7 +13,7 @@ import (
 
 func testPortfolio() models.PortfolioBalance {
 	return models.PortfolioBalance{
-		WalletAddress: "SenderAddr1111111111111111111111111111111111",
+		WalletAddress: "SenderAddr111111111111111111111111111111111",
 		SOLBalance: models.TokenBalance{
 			Mint:     "So11111111111111111111111111111111111111112",
 			Symbol:   "SOL",
@@ -32,7 +32,7 @@ func testPortfolio() models.PortfolioBalance {
 				USDValue: 100.0,
 			},
 			{
-				Mint:     "ZeroBalanceMint11111111111111111111111111111",
+				Mint:     "ZeroMint11111111111111111111111111111111111",
 				Symbol:   "ZERO",
 				Amount:   0,
 				Decimals: 6,
@@ -44,7 +44,7 @@ func testPortfolio() models.PortfolioBalance {
 
 func newTestModel() send.Model {
 	return send.New(
-		"SenderAddr1111111111111111111111111111111111",
+		"SenderAddr111111111111111111111111111111111",
 		nil, // no transfer service in tests
 		nil, // no rpc client in tests
 		testPortfolio(),
@@ -141,7 +141,7 @@ func TestRecipientSelfSend(t *testing.T) {
 	m = updated.(send.Model)
 
 	// Type own address
-	selfAddr := "SenderAddr1111111111111111111111111111111111"
+	selfAddr := "SenderAddr111111111111111111111111111111111"
 	for _, r := range selfAddr {
 		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 		m = updated.(send.Model)
@@ -294,19 +294,13 @@ func TestTransferSentMsg_Success(t *testing.T) {
 	updated, _ := m.Update(tui.TransferSentMsg{Signature: "5abc123def456"})
 	m = updated.(send.Model)
 
-	if m.CurrentStep() != send.StepResult {
-		t.Errorf("step after TransferSentMsg = %d, want StepResult", m.CurrentStep())
+	if m.CurrentStep() != send.StepConfirming {
+		t.Errorf("step after TransferSentMsg = %d, want StepConfirming", m.CurrentStep())
 	}
 
 	view := m.View()
-	if !strings.Contains(view, "5abc123def456") {
-		t.Error("result should contain signature")
-	}
-	if !strings.Contains(view, "solscan.io") {
-		t.Error("result should contain explorer link")
-	}
-	if !strings.Contains(view, "Sent") {
-		t.Error("result should indicate success")
+	if !strings.Contains(view, "Confirming") {
+		t.Error("confirming step should show confirming text")
 	}
 }
 
@@ -315,10 +309,10 @@ func TestTransferSentMsg_Error(t *testing.T) {
 
 	// Send TransferSentMsg with error
 	updated, _ := m.Update(tui.TransferSentMsg{Err: tui.ErrorMsg{Err: nil}.Err})
-	// nil error means success path
+	// nil error means success path — goes to confirming
 	m = updated.(send.Model)
-	if m.CurrentStep() != send.StepResult {
-		t.Errorf("step = %d, want StepResult", m.CurrentStep())
+	if m.CurrentStep() != send.StepConfirming {
+		t.Errorf("step = %d, want StepConfirming", m.CurrentStep())
 	}
 }
 
@@ -359,6 +353,7 @@ func TestStepName(t *testing.T) {
 		{send.StepReview, "Review"},
 		{send.StepPassword, "Password"},
 		{send.StepSending, "Sending"},
+		{send.StepConfirming, "Confirming"},
 		{send.StepResult, "Result"},
 	}
 
@@ -375,8 +370,12 @@ func TestStepName(t *testing.T) {
 func TestResultStep_AnyKeyNavigatesBack(t *testing.T) {
 	m := newTestModel()
 
-	// Go to result step via TransferSentMsg
+	// Go to confirming step via TransferSentMsg
 	updated, _ := m.Update(tui.TransferSentMsg{Signature: "abc"})
+	m = updated.(send.Model)
+
+	// Go to result step via TransferConfirmedMsg
+	updated, _ = m.Update(tui.TransferConfirmedMsg{Signature: "abc", Confirmed: true})
 	m = updated.(send.Model)
 
 	// Any key should navigate back
@@ -387,5 +386,34 @@ func TestResultStep_AnyKeyNavigatesBack(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(tui.NavigateBackMsg); !ok {
 		t.Errorf("any key on result should return NavigateBackMsg, got %T", msg)
+	}
+}
+
+func TestTransferConfirmedMsg_Success(t *testing.T) {
+	m := newTestModel()
+
+	// Go to confirming step via TransferSentMsg
+	updated, _ := m.Update(tui.TransferSentMsg{Signature: "5abc123def456"})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepConfirming {
+		t.Fatalf("step = %d, want StepConfirming", m.CurrentStep())
+	}
+
+	// Send TransferConfirmedMsg
+	updated, _ = m.Update(tui.TransferConfirmedMsg{Signature: "5abc123def456", Confirmed: true})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepResult {
+		t.Errorf("step after TransferConfirmedMsg = %d, want StepResult", m.CurrentStep())
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "Confirmed") {
+		t.Error("result should indicate confirmation")
+	}
+	if !strings.Contains(view, "5abc123def456") {
+		t.Error("result should contain signature")
+	}
+	if !strings.Contains(view, "solscan.io") {
+		t.Error("result should contain explorer link")
 	}
 }

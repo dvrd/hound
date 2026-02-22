@@ -137,17 +137,19 @@ func classifyTransaction(detail *blockchain.TransactionDetail, address string) A
 		item.Status = "failed"
 	}
 
-	// Classify based on instructions
+	// Classify based on top-level instructions
 	for _, ix := range detail.Instructions {
-		switch {
-		case ix.Program == "system" && ix.Type == "transfer":
-			item.Type = "sol_transfer"
-			classifySOLTransfer(&item, ix, address, detail)
+		if classified := classifyInstruction(&item, ix, address, detail); classified {
 			return item
-		case ix.Program == "spl-token" && (ix.Type == "transfer" || ix.Type == "transferChecked"):
-			item.Type = "spl_transfer"
-			classifySPLTransfer(&item, ix, address)
-			return item
+		}
+	}
+
+	// M3: Also check inner instructions (CPI transfers)
+	for _, innerSet := range detail.InnerInstructions {
+		for _, ix := range innerSet.Instructions {
+			if classified := classifyInstruction(&item, ix, address, detail); classified {
+				return item
+			}
 		}
 	}
 
@@ -160,6 +162,21 @@ func classifyTransaction(detail *blockchain.TransactionDetail, address string) A
 	classifyDirectionFromBalances(&item, detail, address)
 
 	return item
+}
+
+// classifyInstruction attempts to classify a single instruction. Returns true if classified.
+func classifyInstruction(item *ActivityItem, ix blockchain.ParsedInstruction, address string, detail *blockchain.TransactionDetail) bool {
+	switch {
+	case ix.Program == "system" && ix.Type == "transfer":
+		item.Type = "sol_transfer"
+		classifySOLTransfer(item, ix, address, detail)
+		return true
+	case ix.Program == "spl-token" && (ix.Type == "transfer" || ix.Type == "transferChecked"):
+		item.Type = "spl_transfer"
+		classifySPLTransfer(item, ix, address, detail)
+		return true
+	}
+	return false
 }
 
 // classifySOLTransfer determines direction and amount for a SOL transfer.
@@ -181,17 +198,24 @@ func classifySOLTransfer(item *ActivityItem, ix blockchain.ParsedInstruction, ad
 }
 
 // classifySPLTransfer determines direction and amount for an SPL transfer.
-func classifySPLTransfer(item *ActivityItem, ix blockchain.ParsedInstruction, address string) {
+func classifySPLTransfer(item *ActivityItem, ix blockchain.ParsedInstruction, address string, detail *blockchain.TransactionDetail) {
 	authority, _ := ix.Info["authority"].(string)
 	source, _ := ix.Info["source"].(string)
 	destination, _ := ix.Info["destination"].(string)
 
-	if authority == address || source == address {
+	// Fix 7: Use authority field for direction detection.
+	// For SPL transfers, source/destination are ATA addresses, not wallet addresses.
+	// The authority field tells us who initiated the transfer.
+	if authority == address {
 		item.Direction = "sent"
 		item.Counterparty = TruncateAddress(destination)
 	} else {
+		// Not the authority — likely a receive. Fall through to balance-based
+		// classification for accuracy, but set counterparty from source.
 		item.Direction = "received"
 		item.Counterparty = TruncateAddress(source)
+		// Double-check with balance-based classification
+		classifyDirectionFromBalances(item, detail, address)
 	}
 
 	// Try to get amount from tokenAmount or amount
@@ -206,15 +230,29 @@ func classifySPLTransfer(item *ActivityItem, ix blockchain.ParsedInstruction, ad
 
 // classifyDirectionFromBalances determines direction from pre/post balance changes.
 func classifyDirectionFromBalances(item *ActivityItem, detail *blockchain.TransactionDetail, address string) {
-	if len(detail.PreBalances) > 0 && len(detail.PostBalances) > 0 {
-		// The first account is typically the fee payer
-		pre := detail.PreBalances[0]
-		post := detail.PostBalances[0]
-		if post < pre {
-			item.Direction = "sent"
-		} else if post > pre {
-			item.Direction = "received"
+	if len(detail.PreBalances) == 0 || len(detail.PostBalances) == 0 {
+		return
+	}
+
+	// Fix 6: Find the wallet's index in account keys instead of always using index 0
+	idx := -1
+	for i, key := range detail.AccountKeys {
+		if key == address {
+			idx = i
+			break
 		}
+	}
+
+	if idx < 0 || idx >= len(detail.PreBalances) || idx >= len(detail.PostBalances) {
+		return // address not found in account keys
+	}
+
+	pre := detail.PreBalances[idx]
+	post := detail.PostBalances[idx]
+	if post < pre {
+		item.Direction = "sent"
+	} else if post > pre {
+		item.Direction = "received"
 	}
 }
 

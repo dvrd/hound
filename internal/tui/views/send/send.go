@@ -1,15 +1,18 @@
 package send
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dvrd/hound/internal/blockchain"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
+	"github.com/dvrd/hound/internal/transaction"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/components"
 )
@@ -18,16 +21,17 @@ import (
 type Step int
 
 const (
-	StepSelectToken Step = iota // 0 — cursor selection of SOL or SPL token
-	StepRecipient               // 1 — text input for recipient address
-	StepAmount                  // 2 — text input for amount
-	StepReview                  // 3 — summary, enter to confirm
-	StepPassword                // 4 — masked password input
-	StepSending                 // 5 — spinner + async transfer
-	StepResult                  // 6 — success/error display
+	StepSelectToken Step = iota // 0
+	StepRecipient               // 1
+	StepAmount                  // 2
+	StepReview                  // 3
+	StepPassword                // 4
+	StepSending                 // 5
+	StepConfirming              // 6
+	StepResult                  // 7
 )
 
-const totalSteps = 6
+const totalSteps = 7
 
 // StepName returns the display name for a step.
 func (s Step) Name() string {
@@ -44,6 +48,8 @@ func (s Step) Name() string {
 		return "Password"
 	case StepSending:
 		return "Sending"
+	case StepConfirming:
+		return "Confirming"
 	case StepResult:
 		return "Result"
 	default:
@@ -67,6 +73,9 @@ type Model struct {
 	createATA      bool // whether recipient ATA needs creation
 	estimatedFee   uint64
 	signature      string
+	confirmed      bool
+	confirmErr     error
+	confirmSpinner components.SpinnerModel
 	spinner        components.SpinnerModel
 	err            error
 
@@ -116,6 +125,7 @@ func New(walletAddr string, transferSvc *services.TransferService, rpcClient *bl
 		amountInput:    ai,
 		passwordInput:  pi,
 		spinner:        components.NewSpinner("Sending transaction..."),
+		confirmSpinner: components.NewSpinner("Confirming transaction..."),
 		walletAddr:     walletAddr,
 		transferSvc:    transferSvc,
 		rpcClient:      rpcClient,
@@ -143,6 +153,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.signature = msg.Signature
+		m.step = StepConfirming
+		m.confirmSpinner = components.NewSpinner("Confirming transaction...")
+		return m, tea.Batch(m.confirmSpinner.Init(), m.doConfirmation())
+
+	case tui.TransferConfirmedMsg:
+		m.confirmed = msg.Confirmed
+		m.confirmErr = msg.Err
 		m.step = StepResult
 		return m, nil
 
@@ -183,10 +200,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// Update spinner during sending
+	// Update spinner during sending or confirming
 	if m.step == StepSending {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+	}
+	if m.step == StepConfirming {
+		var cmd tea.Cmd
+		m.confirmSpinner, cmd = m.confirmSpinner.Update(msg)
 		return m, cmd
 	}
 
@@ -239,9 +261,9 @@ func (m Model) updateRecipient(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = fmt.Errorf("recipient address cannot be empty")
 			return m, nil
 		}
-		// Validate: base58 length (32-44 chars)
-		if len(addr) < 32 || len(addr) > 44 {
-			m.err = fmt.Errorf("invalid address: must be 32-44 characters")
+		// M1: Validate base58 address
+		if _, err := transaction.PubkeyFromBase58(addr); err != nil {
+			m.err = fmt.Errorf("invalid Solana address")
 			return m, nil
 		}
 		// Validate: not self
@@ -372,6 +394,31 @@ func (m Model) doTransfer(password string) tea.Cmd {
 	}
 }
 
+func (m Model) doConfirmation() tea.Cmd {
+	return func() tea.Msg {
+		if m.rpcClient == nil {
+			return tui.TransferConfirmedMsg{
+				Signature: m.signature,
+				Confirmed: false,
+				Err:       fmt.Errorf("RPC client not available"),
+			}
+		}
+		ctx := context.Background()
+		err := services.AwaitConfirmation(ctx, m.rpcClient, m.signature, 30*time.Second)
+		if err != nil {
+			return tui.TransferConfirmedMsg{
+				Signature: m.signature,
+				Confirmed: false,
+				Err:       err,
+			}
+		}
+		return tui.TransferConfirmedMsg{
+			Signature: m.signature,
+			Confirmed: true,
+		}
+	}
+}
+
 // maxSendable returns the maximum amount that can be sent in base units.
 // For SOL, it subtracts the estimated fee. For SPL tokens, it's the full balance.
 func (m Model) maxSendable() uint64 {
@@ -485,12 +532,21 @@ func (m Model) View() string {
 	case StepSending:
 		b.WriteString(m.spinner.View() + "\n")
 
+	case StepConfirming:
+		b.WriteString(m.confirmSpinner.View() + "\n\n")
+		b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("Signature: %s", truncateAddr(m.signature))) + "\n")
+
 	case StepResult:
 		if m.err != nil {
 			b.WriteString(tui.StyleError.Render("Transaction Failed") + "\n\n")
 			b.WriteString(m.err.Error() + "\n")
+		} else if m.confirmErr != nil {
+			b.WriteString(tui.StyleWarning.Render("Transaction Sent \u2014 Confirmation Uncertain") + "\n\n")
+			b.WriteString(fmt.Sprintf("Signature: %s\n", m.signature))
+			b.WriteString(fmt.Sprintf("Explorer:  https://solscan.io/tx/%s\n\n", m.signature))
+			b.WriteString(tui.StyleMuted.Render("The transaction was sent but confirmation timed out.\nCheck the explorer link above for the final status.") + "\n")
 		} else {
-			b.WriteString(tui.StyleSuccess.Render("Transaction Sent!") + "\n\n")
+			b.WriteString(tui.StyleSuccess.Render("Transaction Confirmed!") + "\n\n")
 			b.WriteString(fmt.Sprintf("Signature: %s\n", m.signature))
 			b.WriteString(fmt.Sprintf("Explorer:  https://solscan.io/tx/%s\n", m.signature))
 		}

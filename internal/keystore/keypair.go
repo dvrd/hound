@@ -43,6 +43,10 @@ func DeriveKeypairBIP44(words []string, walletType models.WalletType, accountInd
 	}, nil
 }
 
+// Deprecated: Use DeriveKeypairBIP44 instead. Legacy derivation (SHA-256 of mnemonic)
+// is not compatible with other wallets (Phantom, Solflare, etc.) and funds cannot be
+// recovered using standard wallet software.
+//
 // DeriveKeypairLegacy derives an Ed25519 keypair using the legacy SHA-256 method.
 // Joins words with spaces, SHA-256 hashes the result to get a 32-byte seed, then
 // derives an Ed25519 keypair.

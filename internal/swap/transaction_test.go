@@ -15,10 +15,29 @@ import (
 )
 
 func TestSignTransaction(t *testing.T) {
-	// Generate a test keypair
 	_, privKey, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		t.Fatalf("GenerateKey failed: %v", err)
+	}
+	pubKey := privKey.Public().(ed25519.PublicKey)
+
+	// Build a valid transaction that passes ValidateSwapTransaction
+	buildValidTx := func() []byte {
+		var tx []byte
+		tx = append(tx, 1)                   // 1 signature
+		tx = append(tx, make([]byte, 64)...) // empty sig slot
+		tx = append(tx, 1, 0, 1)             // header: 1 required sig, 0 readonly signed, 1 readonly unsigned
+		tx = append(tx, 2)                   // 2 accounts
+		tx = append(tx, pubKey...)           // account 0: signer
+		tx = append(tx, make([]byte, 32)...) // account 1: system program (all zeros)
+		tx = append(tx, make([]byte, 32)...) // blockhash
+		tx = append(tx, 1)                   // 1 instruction
+		tx = append(tx, 1)                   // programIdIndex = 1 (system program)
+		tx = append(tx, 1)                   // 1 account index
+		tx = append(tx, 0)                   // account index 0
+		tx = append(tx, 4)                   // data length 4
+		tx = append(tx, 0, 0, 0, 0)          // data
+		return tx
 	}
 
 	tests := []struct {
@@ -28,18 +47,8 @@ func TestSignTransaction(t *testing.T) {
 		errIs   error
 	}{
 		{
-			name: "valid transaction",
-			txBytes: func() []byte {
-				// 1 byte (num sigs = 1) + 64 bytes (empty sig) + some message bytes
-				tx := make([]byte, 1+64+32)
-				tx[0] = 1 // 1 signature slot
-				// Leave signature as zeros
-				// Fill message with some data
-				for i := 65; i < len(tx); i++ {
-					tx[i] = byte(i)
-				}
-				return tx
-			}(),
+			name:    "valid transaction",
+			txBytes: buildValidTx(),
 		},
 		{
 			name:    "too short",
@@ -50,8 +59,8 @@ func TestSignTransaction(t *testing.T) {
 		{
 			name: "wrong signature count",
 			txBytes: func() []byte {
-				tx := make([]byte, 1+128+32) // 2 sig slots
-				tx[0] = 2                    // 2 signature slots
+				tx := make([]byte, 1+128+32)
+				tx[0] = 2
 				return tx
 			}(),
 			wantErr: true,
@@ -62,7 +71,6 @@ func TestSignTransaction(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			txBase64 := base64.StdEncoding.EncodeToString(tt.txBytes)
-
 			signedBase64, err := swap.SignTransaction(txBase64, privKey)
 			if tt.wantErr {
 				if err == nil {
@@ -77,23 +85,16 @@ func TestSignTransaction(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
-			// Decode signed transaction
 			signedBytes, err := base64.StdEncoding.DecodeString(signedBase64)
 			if err != nil {
 				t.Fatalf("decode signed tx: %v", err)
 			}
-
-			// Verify structure preserved
 			if len(signedBytes) != len(tt.txBytes) {
 				t.Errorf("signed tx length %d != original %d", len(signedBytes), len(tt.txBytes))
 			}
-
-			// Verify first byte unchanged
 			if signedBytes[0] != 1 {
 				t.Errorf("first byte changed: %d", signedBytes[0])
 			}
-
-			// Verify signature is not all zeros
 			allZero := true
 			for _, b := range signedBytes[1:65] {
 				if b != 0 {
@@ -104,16 +105,12 @@ func TestSignTransaction(t *testing.T) {
 			if allZero {
 				t.Error("signature is all zeros after signing")
 			}
-
-			// Verify signature is valid
-			pubKey := privKey.Public().(ed25519.PublicKey)
+			pubKeyBytes := privKey.Public().(ed25519.PublicKey)
 			message := signedBytes[65:]
 			sig := signedBytes[1:65]
-			if !ed25519.Verify(pubKey, message, sig) {
+			if !ed25519.Verify(pubKeyBytes, message, sig) {
 				t.Error("signature verification failed")
 			}
-
-			// Verify message bytes unchanged
 			for i := 65; i < len(signedBytes); i++ {
 				if signedBytes[i] != tt.txBytes[i] {
 					t.Errorf("message byte %d changed: %d != %d", i, signedBytes[i], tt.txBytes[i])
@@ -253,4 +250,91 @@ func TestSubmitTransaction_InvalidJSON(t *testing.T) {
 	if !errors.Is(err, models.ErrInvalidResponse) {
 		t.Errorf("expected ErrInvalidResponse, got: %v", err)
 	}
+}
+
+func TestValidateSwapTransaction(t *testing.T) {
+	signerPubkey := make([]byte, 32)
+	for i := range signerPubkey {
+		signerPubkey[i] = byte(i + 1)
+	}
+
+	systemProgram := [32]byte{}
+
+	computeBudget := [32]byte{3, 6, 70, 111, 229, 33, 23, 50, 255, 236, 173, 186, 114, 195, 155, 231, 188, 140, 229, 187, 197, 247, 18, 107, 44, 67, 155, 58, 64, 0, 0, 0}
+
+	buildTx := func(feePayer []byte, programIdx uint8) []byte {
+		var tx []byte
+		tx = append(tx, 1)
+		tx = append(tx, make([]byte, 64)...)
+		tx = append(tx, 1, 0, 2)
+		tx = append(tx, 3)
+		tx = append(tx, feePayer...)
+		tx = append(tx, systemProgram[:]...)
+		tx = append(tx, computeBudget[:]...)
+		tx = append(tx, make([]byte, 32)...)
+		tx = append(tx, 1)
+		tx = append(tx, programIdx)
+		tx = append(tx, 1)
+		tx = append(tx, 0)
+		tx = append(tx, 4)
+		tx = append(tx, 0, 0, 0, 0)
+		return tx
+	}
+
+	t.Run("valid transaction passes", func(t *testing.T) {
+		tx := buildTx(signerPubkey, 1)
+		err := swap.ValidateSwapTransaction(tx, signerPubkey)
+		if err != nil {
+			t.Fatalf("expected no error, got: %v", err)
+		}
+	})
+
+	t.Run("wrong fee payer rejected", func(t *testing.T) {
+		wrongSigner := make([]byte, 32)
+		wrongSigner[0] = 0xFF
+		tx := buildTx(signerPubkey, 1)
+		err := swap.ValidateSwapTransaction(tx, wrongSigner)
+		if err == nil {
+			t.Fatal("expected error for wrong fee payer")
+		}
+		if !errors.Is(err, models.ErrUntrustedTransaction) {
+			t.Errorf("expected ErrUntrustedTransaction, got: %v", err)
+		}
+	})
+
+	t.Run("unknown program rejected", func(t *testing.T) {
+		var tx []byte
+		tx = append(tx, 1)
+		tx = append(tx, make([]byte, 64)...)
+		tx = append(tx, 1, 0, 3)
+		tx = append(tx, 4)
+		tx = append(tx, signerPubkey...)
+		tx = append(tx, systemProgram[:]...)
+		tx = append(tx, computeBudget[:]...)
+		unknownProgram := make([]byte, 32)
+		unknownProgram[0] = 0xDE
+		unknownProgram[1] = 0xAD
+		tx = append(tx, unknownProgram...)
+		tx = append(tx, make([]byte, 32)...)
+		tx = append(tx, 1)
+		tx = append(tx, 3)
+		tx = append(tx, 1)
+		tx = append(tx, 0)
+		tx = append(tx, 4)
+		tx = append(tx, 0, 0, 0, 0)
+		err := swap.ValidateSwapTransaction(tx, signerPubkey)
+		if err == nil {
+			t.Fatal("expected error for unknown program")
+		}
+		if !errors.Is(err, models.ErrUntrustedTransaction) {
+			t.Errorf("expected ErrUntrustedTransaction, got: %v", err)
+		}
+	})
+
+	t.Run("too short transaction", func(t *testing.T) {
+		err := swap.ValidateSwapTransaction(make([]byte, 10), signerPubkey)
+		if err == nil {
+			t.Fatal("expected error for short tx")
+		}
+	})
 }
