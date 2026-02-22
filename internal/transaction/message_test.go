@@ -1,6 +1,9 @@
 package transaction
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestMessage_SimpleSOLTransfer(t *testing.T) {
 	sender, _ := PubkeyFromBase58("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
@@ -112,5 +115,27 @@ func TestMessage_MultipleInstructions(t *testing.T) {
 	// 2 compiled instructions
 	if len(msg.Instructions) != 2 {
 		t.Errorf("Instructions count = %d, want 2", len(msg.Instructions))
+	}
+}
+
+func TestMessage_DeterministicSerialization(t *testing.T) {
+	sender, _ := PubkeyFromBase58("7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU")
+	recipient1, _ := PubkeyFromBase58("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
+	recipient2, _ := PubkeyFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+	var blockhash Pubkey
+
+	ix1 := SystemTransfer(sender, recipient1, 100)
+	ix2 := SystemTransfer(sender, recipient2, 200)
+
+	// Build the same message 100 times and verify identical serialization
+	var reference []byte
+	for i := 0; i < 100; i++ {
+		msg := NewMessage(sender, []Instruction{ix1, ix2}, blockhash)
+		serialized := msg.Serialize()
+		if i == 0 {
+			reference = serialized
+		} else if !bytes.Equal(serialized, reference) {
+			t.Fatalf("iteration %d: serialization differs from reference (non-deterministic ordering)", i)
+		}
 	}
 }

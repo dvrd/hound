@@ -147,6 +147,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg {
 				return tui.NavigateMsg{View: "swap", Data: addr}
 			}
+		case "S":
+			if len(m.wallets) > 0 {
+				addr := m.wallets[m.cursor].Address
+				return m, func() tea.Msg {
+					return tui.NavigateMsg{View: "send", Data: addr}
+				}
+			}
+		case "R":
+			if len(m.wallets) > 0 {
+				addr := m.wallets[m.cursor].Address
+				return m, func() tea.Msg {
+					return tui.NavigateMsg{View: "receive", Data: addr}
+				}
+			}
 		case "q":
 			return m, tea.Quit
 		case "r":
@@ -245,7 +259,7 @@ func (m Model) View() string {
 
 	// Status bar
 	b.WriteString("\n")
-	b.WriteString(tui.StyleStatusBar.Render("[i]mport [s]tatus [d]elete [t]okens [w]swap [h]istory [r]efresh [q]uit"))
+	b.WriteString(tui.StyleStatusBar.Render("[i]mport [s]tatus [d]elete [t]okens [S]end [R]eceive [w]swap [h]istory [r]efresh [q]uit"))
 
 	return b.String()
 }

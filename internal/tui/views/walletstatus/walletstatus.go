@@ -171,6 +171,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.sortMode = SortBySymbol
 		case "3":
 			m.sortMode = SortByBalance
+		case "s":
+			return m, func() tea.Msg {
+				return tui.NavigateMsg{View: "send", Data: m.address}
+			}
+		case "c":
+			return m, func() tea.Msg {
+				return tui.NavigateMsg{View: "receive", Data: m.address}
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -340,7 +348,7 @@ func (m Model) View() string {
 		showAllLabel = "[a]ll*"
 	}
 	b.WriteString(tui.StyleStatusBar.Render(
-		fmt.Sprintf("[r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)))
+		fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)))
 
 	return b.String()
 }

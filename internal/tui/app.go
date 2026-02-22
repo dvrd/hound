@@ -179,12 +179,15 @@ func (a App) navigateBack() (tea.Model, tea.Cmd) {
 	a.viewStack = a.viewStack[:last]
 
 	// Pass current size
-	var cmd tea.Cmd
-	a.currentView, cmd = a.currentView.Update(tea.WindowSizeMsg{
+	var sizeCmd tea.Cmd
+	a.currentView, sizeCmd = a.currentView.Update(tea.WindowSizeMsg{
 		Width: a.width, Height: a.height,
 	})
 
-	return a, cmd
+	// Re-init the view so it refreshes its data
+	initCmd := a.currentView.Init()
+
+	return a, tea.Batch(sizeCmd, initCmd)
 }
 
 // View renders the app.

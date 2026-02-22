@@ -26,6 +26,7 @@ type Model struct {
 	activitySvc   *services.ActivityService
 	rpcClient     *blockchain.RPCClient
 	lastSignature string // pagination cursor
+	noMorePages   bool
 	loading       bool
 	spinner       components.SpinnerModel
 	width         int
@@ -76,10 +77,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.Err
 			return m, nil
 		}
-		m.items = msg.Items
-		m.cursor = 0
-		if len(m.items) > 0 {
-			m.lastSignature = m.items[len(m.items)-1].Signature
+		if len(msg.Items) == 0 {
+			m.noMorePages = true
+			return m, nil
+		}
+		isFirstLoad := len(m.items) == 0
+		m.items = append(m.items, msg.Items...)
+		if isFirstLoad {
+			m.cursor = 0
+		}
+		m.lastSignature = m.items[len(m.items)-1].Signature
+		if len(msg.Items) < pageSize {
+			m.noMorePages = true
 		}
 		return m, nil
 
@@ -102,7 +111,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "n":
 			// Load more (next page)
-			if len(m.items) >= pageSize && m.lastSignature != "" {
+			if !m.noMorePages && m.lastSignature != "" {
 				m.loading = true
 				m.spinner = components.NewSpinner("Loading more...")
 				return m, tea.Batch(m.spinner.Init(), m.loadActivity())
@@ -232,7 +241,11 @@ func (m Model) View() string {
 
 	// Status bar
 	b.WriteString("\n")
-	b.WriteString(tui.StyleStatusBar.Render("[n]ext page [j/k]navigate [esc]back"))
+	if m.noMorePages {
+		b.WriteString(tui.StyleStatusBar.Render("[j/k]navigate [esc]back"))
+	} else {
+		b.WriteString(tui.StyleStatusBar.Render("[n]ext page [j/k]navigate [esc]back"))
+	}
 
 	return b.String()
 }

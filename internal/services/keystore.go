@@ -141,6 +141,7 @@ func (s *KeystoreService) UnlockKeypair(
 	if err != nil {
 		return nil, fmt.Errorf("unlock keypair: decrypt: %w", models.ErrCryptoFailed)
 	}
+	defer keystore.ZeroBytes(plaintext)
 
 	// 5. Reconstruct ed25519 key from 32-byte seed
 	privKey := ed25519.NewKeyFromSeed(plaintext)

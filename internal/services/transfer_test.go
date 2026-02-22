@@ -104,6 +104,10 @@ func TestTransfer_SendSOL_Success(t *testing.T) {
 
 		var result interface{}
 		switch req.Method {
+		case "getBalance":
+			result = map[string]interface{}{
+				"value": 10_000_000_000, // 10 SOL — plenty for the transfer
+			}
 		case "getLatestBlockhash":
 			result = map[string]interface{}{
 				"value": map[string]interface{}{
@@ -134,6 +138,45 @@ func TestTransfer_SendSOL_Success(t *testing.T) {
 	}
 	if sig != expectedSig {
 		t.Errorf("signature = %q, want %q", sig, expectedSig)
+	}
+}
+
+func TestTransfer_SendSOL_InsufficientBalance(t *testing.T) {
+	_, transferSvc, addr := setupTransferTest(t)
+
+	recipient := "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req blockchain.RPCRequest
+		json.NewDecoder(r.Body).Decode(&req)
+
+		var result interface{}
+		switch req.Method {
+		case "getBalance":
+			result = map[string]interface{}{
+				"value": 1000, // Only 1000 lamports — not enough
+			}
+		default:
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
+		resp := map[string]interface{}{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"result":  result,
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	client := blockchain.NewRPCClient(server.URL, nil)
+	_, err := transferSvc.SendSOL(client, addr, recipient, 1_000_000_000, "MyStr0ng!Pass#1")
+	if err == nil {
+		t.Fatal("expected error for insufficient balance")
+	}
+	if !errors.Is(err, models.ErrInsufficientBalance) {
+		t.Errorf("expected ErrInsufficientBalance, got: %v", err)
 	}
 }
 

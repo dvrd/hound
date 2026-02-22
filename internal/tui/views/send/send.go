@@ -281,7 +281,7 @@ func (m Model) updateAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// Convert to base units
 		decimals := m.selectedToken.Decimals
-		baseUnits := uint64(amountFloat * math.Pow10(decimals))
+		baseUnits := uint64(math.Round(amountFloat * math.Pow10(decimals)))
 
 		// Check balance
 		maxBalance := m.maxSendable()
@@ -368,7 +368,7 @@ func (m Model) doTransfer(password string) tea.Cmd {
 // For SOL, it subtracts the estimated fee. For SPL tokens, it's the full balance.
 func (m Model) maxSendable() uint64 {
 	decimals := m.selectedToken.Decimals
-	baseBalance := uint64(m.selectedToken.Amount * math.Pow10(decimals))
+	baseBalance := uint64(math.Round(m.selectedToken.Amount * math.Pow10(decimals)))
 
 	if m.isSOL {
 		fee := m.estimateFee()
@@ -381,13 +381,15 @@ func (m Model) maxSendable() uint64 {
 }
 
 // estimateFee returns the estimated fee in lamports.
+// For SPL tokens, always assumes ATA creation (worst-case estimate).
 func (m Model) estimateFee() uint64 {
+	needsATA := !m.isSOL
 	if m.transferSvc != nil {
-		return m.transferSvc.EstimateFee(m.createATA)
+		return m.transferSvc.EstimateFee(needsATA)
 	}
 	// Fallback: base fee
 	fee := uint64(5000)
-	if m.createATA {
+	if needsATA {
 		fee += 2_039_280
 	}
 	return fee

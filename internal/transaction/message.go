@@ -1,5 +1,10 @@
 package transaction
 
+import (
+	"bytes"
+	"sort"
+)
+
 // NewMessage builds a Solana Message from a fee payer, instructions, and recent blockhash.
 // It deduplicates accounts, sorts them into the correct order, and compiles instructions.
 func NewMessage(feePayer Pubkey, instructions []Instruction, recentBlockhash Pubkey) Message {
@@ -77,6 +82,17 @@ func NewMessage(feePayer Pubkey, instructions []Instruction, recentBlockhash Pub
 			readonlyNonSigners = append(readonlyNonSigners, info.pubkey)
 		}
 	}
+
+	// Sort each group by pubkey bytes for deterministic ordering
+	sortPubkeys := func(keys []Pubkey) {
+		sort.Slice(keys, func(i, j int) bool {
+			return bytes.Compare(keys[i][:], keys[j][:]) < 0
+		})
+	}
+	sortPubkeys(writableSigners)
+	sortPubkeys(readonlySigners)
+	sortPubkeys(writableNonSigners)
+	sortPubkeys(readonlyNonSigners)
 
 	// Build ordered account keys: fee payer first
 	accountKeys := make([]Pubkey, 0, len(accountMap))
