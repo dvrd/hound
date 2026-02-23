@@ -342,15 +342,16 @@ func (m Model) View() string {
 	if w <= 0 {
 		w = 80
 	}
-	colSym := max(6, w*13/100)
-	colBal := max(8, w*15/100)
-	colPrice := max(8, w*13/100)
-	colVal := max(8, w*15/100)
-	colChg := max(6, w*10/100)
+	colSym := max(6, w*11/100)
+	colName := max(10, w*18/100)
+	colBal := max(8, w*13/100)
+	colPrice := max(8, w*12/100)
+	colVal := max(8, w*12/100)
+	colChg := max(6, w*8/100)
 
 	if len(tokens) > 0 {
-		headerFmt := fmt.Sprintf("%%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colBal, colPrice, colVal, colChg)
-		header := fmt.Sprintf(headerFmt, "Symbol", "Balance", "Price", "Value", "24h")
+		headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
+		header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Balance", "Price", "Value", "24h")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
 
 		// Cap visible rows
@@ -379,11 +380,12 @@ func (m Model) View() string {
 			}
 		}
 
-		rowFmt := fmt.Sprintf("%%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colBal, colPrice, colVal, colChg)
+		rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
 		for i := startIdx; i < endIdx; i++ {
 			t := tokens[i]
 			row := fmt.Sprintf(rowFmt,
 				truncate(t.Symbol, colSym),
+				truncate(t.Name, colName),
 				wallet.FormatBalance(t.Amount),
 				wallet.FormatPrice(t.USDPrice),
 				wallet.FormatPrice(t.USDValue),

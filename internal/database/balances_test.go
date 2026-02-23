@@ -28,15 +28,15 @@ func TestUpdateAndGetBalances(t *testing.T) {
 
 	// Insert multiple balances
 	balances := []struct {
-		mint, symbol         string
+		mint, symbol, name   string
 		amount, price, value float64
 	}{
-		{"mint_sol", "SOL", 10.0, 150.0, 1500.0},
-		{"mint_usdc", "USDC", 500.0, 1.0, 500.0},
-		{"mint_bonk", "BONK", 1000000.0, 0.000028, 28.0},
+		{"mint_sol", "SOL", "Solana", 10.0, 150.0, 1500.0},
+		{"mint_usdc", "USDC", "USD Coin", 500.0, 1.0, 500.0},
+		{"mint_bonk", "BONK", "Bonk", 1000000.0, 0.000028, 28.0},
 	}
 	for _, b := range balances {
-		if err := db.UpdateBalance("wallet1", b.mint, b.symbol, b.amount, b.price, b.value); err != nil {
+		if err := db.UpdateBalance("wallet1", b.mint, b.symbol, b.name, b.amount, b.price, b.value); err != nil {
 			t.Fatalf("UpdateBalance(%s): %v", b.symbol, err)
 		}
 	}
@@ -73,12 +73,12 @@ func TestUpdateBalanceUpsert(t *testing.T) {
 	insertTestWallet(t, db, "wallet1", "Test Wallet")
 
 	// Insert initial balance
-	if err := db.UpdateBalance("wallet1", "mint_sol", "SOL", 10.0, 150.0, 1500.0); err != nil {
+	if err := db.UpdateBalance("wallet1", "mint_sol", "SOL", "Solana", 10.0, 150.0, 1500.0); err != nil {
 		t.Fatalf("UpdateBalance (insert): %v", err)
 	}
 
 	// Update same balance
-	if err := db.UpdateBalance("wallet1", "mint_sol", "SOL", 20.0, 175.0, 3500.0); err != nil {
+	if err := db.UpdateBalance("wallet1", "mint_sol", "SOL", "Solana", 20.0, 175.0, 3500.0); err != nil {
 		t.Fatalf("UpdateBalance (update): %v", err)
 	}
 
@@ -131,11 +131,11 @@ func TestUpdateBalanceTx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx: %v", err)
 	}
-	if err := db.UpdateBalanceTx(tx, "txTestAddr", "SOLmint", "SOL", 1.5, 150.0, 225.0); err != nil {
+	if err := db.UpdateBalanceTx(tx, "txTestAddr", "SOLmint", "SOL", "Solana", 1.5, 150.0, 225.0); err != nil {
 		tx.Rollback()
 		t.Fatalf("UpdateBalanceTx: %v", err)
 	}
-	if err := db.UpdateBalanceTx(tx, "txTestAddr", "USDCmint", "USDC", 100.0, 1.0, 100.0); err != nil {
+	if err := db.UpdateBalanceTx(tx, "txTestAddr", "USDCmint", "USDC", "USD Coin", 100.0, 1.0, 100.0); err != nil {
 		tx.Rollback()
 		t.Fatalf("UpdateBalanceTx: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestUpdateBalanceTx(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BeginTx (2): %v", err)
 	}
-	if err := db.UpdateBalanceTx(tx2, "txTestAddr", "BONKmint", "BONK", 999.0, 0.001, 0.999); err != nil {
+	if err := db.UpdateBalanceTx(tx2, "txTestAddr", "BONKmint", "BONK", "Bonk", 999.0, 0.001, 0.999); err != nil {
 		tx2.Rollback()
 		t.Fatalf("UpdateBalanceTx (rollback): %v", err)
 	}

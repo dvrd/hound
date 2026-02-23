@@ -238,10 +238,10 @@ func TestGetCachedPortfolioFromDB(t *testing.T) {
 
 	// Insert some balances into the DB
 	addr := "AAAA1111BBBB2222CCCC3333DDDD4444EEEE5555FFFF"
-	if err := db.UpdateBalance(addr, "So11111111111111111111111111111111111111112", "SOL", 5.0, 150.0, 750.0); err != nil {
+	if err := db.UpdateBalance(addr, "So11111111111111111111111111111111111111112", "SOL", "Solana", 5.0, 150.0, 750.0); err != nil {
 		t.Fatalf("UpdateBalance SOL: %v", err)
 	}
-	if err := db.UpdateBalance(addr, "USDC_MINT", "USDC", 100.0, 1.0, 100.0); err != nil {
+	if err := db.UpdateBalance(addr, "USDC_MINT", "USDC", "USD Coin", 100.0, 1.0, 100.0); err != nil {
 		t.Fatalf("UpdateBalance USDC: %v", err)
 	}
 

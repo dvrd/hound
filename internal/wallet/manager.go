@@ -220,7 +220,7 @@ func (m *WalletManager) PersistPortfolio(portfolio models.PortfolioBalance) erro
 
 	// Save SOL balance
 	sol := portfolio.SOLBalance
-	if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, sol.Mint, sol.Symbol,
+	if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, sol.Mint, sol.Symbol, sol.Name,
 		sol.Amount, sol.USDPrice, sol.USDValue,
 	); err != nil {
 		tx.Rollback()
@@ -229,7 +229,7 @@ func (m *WalletManager) PersistPortfolio(portfolio models.PortfolioBalance) erro
 
 	// Save token balances
 	for _, tb := range portfolio.TokenBalances {
-		if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, tb.Mint, tb.Symbol,
+		if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, tb.Mint, tb.Symbol, tb.Name,
 			tb.Amount, tb.USDPrice, tb.USDValue,
 		); err != nil {
 			tx.Rollback()

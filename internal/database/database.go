@@ -67,6 +67,8 @@ func (d *Database) Migrate() error {
 		// H7: Track Argon2 parameter version
 		`ALTER TABLE encrypted_keypairs ADD COLUMN argon2_version INTEGER DEFAULT 1`,
 		`ALTER TABLE hyperliquid_wallets ADD COLUMN argon2_version INTEGER DEFAULT 1`,
+		// Token name display: add name column to balances
+		`ALTER TABLE balances ADD COLUMN name TEXT`,
 	}
 
 	for _, m := range migrations {
@@ -181,6 +183,7 @@ CREATE TABLE IF NOT EXISTS balances (
     wallet_address TEXT NOT NULL,
     mint TEXT NOT NULL,
     symbol TEXT,
+    name TEXT,
     amount REAL NOT NULL,
     usd_price REAL NOT NULL,
     usd_value REAL NOT NULL,

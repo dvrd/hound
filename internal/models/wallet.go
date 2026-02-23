@@ -75,6 +75,7 @@ type Wallet struct {
 type TokenBalance struct {
 	Mint      string  // Token mint address
 	Symbol    string  // "SOL", "USDC", etc.
+	Name      string  // Full token name, e.g. "Jupiter", "Bonk"
 	Amount    float64 // Decimal-adjusted balance
 	Decimals  int
 	USDPrice  float64 // Price per token

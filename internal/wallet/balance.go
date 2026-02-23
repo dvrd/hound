@@ -54,6 +54,7 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 	solBalance := models.TokenBalance{
 		Mint:     blockchain.SOLMint,
 		Symbol:   "SOL",
+		Name:     "Solana",
 		Amount:   solAmount,
 		Decimals: 9,
 		USDPrice: solPrice,
@@ -74,6 +75,7 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 		}
 
 		var symbol string
+		var name string
 		var usdPrice float64
 		var change24h float64
 		decimals := ta.Decimals
@@ -82,6 +84,7 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 		token, err := f.db.GetTokenByContractAddress(ta.Mint)
 		if err == nil {
 			symbol = token.Symbol
+			name = token.Name
 			decimals = models.GetTokenDecimals(token)
 
 			// Fetch price via price fetcher
@@ -111,6 +114,7 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 		tokenBalances = append(tokenBalances, models.TokenBalance{
 			Mint:      ta.Mint,
 			Symbol:    symbol,
+			Name:      name,
 			Amount:    amount,
 			Decimals:  decimals,
 			USDPrice:  usdPrice,

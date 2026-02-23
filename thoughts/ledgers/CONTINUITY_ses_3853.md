@@ -1,110 +1,124 @@
 ---
 session: ses_3853
-updated: 2026-02-20T15:05:29.933Z
+updated: 2026-02-23T16:25:18.588Z
 ---
-
-
 
 # Session Summary
 
 ## Goal
-Full port of Hound (Solana wallet management/accounting tool) from Odin to Go + Bubble Tea TUI, with backward-compatible SQLite database, same encryption params, and all views wired up for end-to-end interactive use.
+Add token full names to the walletstatus view (alongside symbols) so the user can identify what each holding is, and keep the TUI fully responsive to window resize.
 
 ## Constraints & Preferences
-- SQLite database at `~/.config/hound/hound.db` must remain backward-compatible with existing Odin version (same schema, same encryption params)
-- Same Argon2id parameters (19456 KB memory, 2 iterations, 1 parallelism) for keypair encryption
-- Same AES-256-GCM nonce (12 bytes) and tag (16 bytes) sizes — Go appends tag to ciphertext but Odin stores them separately, so adapter logic splits/joins
-- No CGO — pure Go deps only (`modernc.org/sqlite`, not `mattn/go-sqlite3`)
-- Sensitive data (seeds, passwords, private keys) must be zeroed after use
-- Go project lives in `go/` subdirectory alongside existing Odin code with its own `go.mod`
-- Wallet list is the home screen (accounting-first experience, cached balances on startup)
-- `--json` flag bypasses Bubble Tea for pipe-friendly output
+- No CGO — pure Go deps only (`modernc.org/sqlite`)
+- TUI only — Bubble Tea interactive views
+- Go module: `github.com/dvrd/hound`, Go 1.25.6
+- All 24 test packages must pass
+- `tea.WithAltScreen()` is used — `tea.ClearScreen` required on resize for full repaint
+- Min supported terminal width: 60 columns
+- Version in `VERSION` file, currently `0.23.0`
 
 ## Progress
 ### Done
-- [x] Phase 1: Go module setup, all model files (errors.go, wallet.go, token.go, swap.go), config.go — 6 files + 5 test files
-- [x] Phase 2: Database layer — database.go, tokens.go, pools.go, wallets.go, balances.go, keypairs.go, swap_history.go, hyperliquid.go — 8 files + 8 test files
-- [x] Phase 3: Keystore — secure.go, argon2.go, aes.go, bip39.go, bip32.go, keypair.go, password.go — 7 files + 7 test files
-- [x] Phase 4: Keystore service — services/keystore.go (ImportKeypair, UnlockKeypair, UpdatePassword) + test
-- [x] Phase 5: Blockchain clients — blockchain/rpc.go, solana.go, oracle.go + dex/dexscreener.go, jupiter.go, pool.go, router.go — all with tests
-- [x] Phase 6: Wallet operations — wallet/balance.go, wallet/manager.go + tests
-- [x] Phase 7: Services layer — services/price.go (PriceService with fallback chain), services/pool.go (DiscoverAndStorePools), services/token_info.go (FetchExtendedTokenInfo) + tests
-- [x] Phase 8: Swap layer — swap/client.go (Jupiter Ultra API quotes with caching), swap/transaction.go (SignTransaction, SubmitTransaction), services/swap.go (ExecuteSwap orchestrator) + tests
-- [x] Phase 9: TUI components — theme.go, messages.go, components/spinner.go, error.go, confirm.go, help.go + tests
-- [x] Phase 10: TUI core views — tui/app.go (root model with ViewFactory pattern, navigation stack), views/walletlist/, walletimport/, walletstatus/, walletdelete/ + tests
-- [x] Phase 11: TUI extended views — views/tokenlist/, tokenfetch/, tokenadd/, swapview/, history/ + tests
-- [x] Phase 12: CLI entry — cmd/hound/main.go (Cobra with --json flag), tui/json_output.go + tests
-- [x] Phase 13 partial: Taskfile.yml updated with 7 `go:*` tasks (build, test, test:verbose, run, lint, tidy, clean)
-- [x] ViewFactory wiring in main.go — all 10 view names mapped to constructors with full dependency injection
-- [x] Removed global `q` quit from App model — `q` now handled by individual views (walletlist has it), preventing quit during text input in import/swap wizards
-- [x] Added keybindings to walletlist: `t` → token-list, `h` → history, `w` → swap, `q` → quit
-- [x] Fixed app_test.go `TestApp_QuitOnQ` → renamed to `TestApp_QDelegatedToView` to match new behavior
-- [x] Final verification: `go build ./...` ✅, `go test ./... -count=1 -short -timeout 60s` ✅ (21 packages pass), `go vet ./...` ✅, binary at `bin/hound-go` (16MB)
+- [x] **Responsive TUI** — committed `df87fda`: app forwards inner dims, 5 input views cap widths, 4 table views use proportional columns + sliding window + scroll indicators
+- [x] **Height overflow fix** — committed `1adb5d9`: `App.View()` now uses `innerWidth()`/`innerHeight()` instead of raw terminal dims, preventing 4-row chrome overflow
+- [x] **Full repaint on resize** — committed `75f6983`: `tea.ClearScreen` added to `WindowSizeMsg` handler in `app.go` so alternate screen redraws correctly when terminal grows upward
+- [x] **`TokenBalance.Name` field added** — `internal/models/wallet.go`: added `Name string` field between `Symbol` and `Amount`
+- [x] **Balance fetcher populates Name** — `internal/wallet/balance.go`: added `var name string`, set `name = token.Name` in the DB lookup branch, set `Name: "Solana"` for SOL balance, included `Name: name` in `TokenBalance` struct literal
+- [x] **DB schema updated** — `internal/database/database.go`: added `name TEXT` column to `balances` table in schema constant
+- [x] **DB migration added** — `internal/database/database.go`: added `ALTER TABLE balances ADD COLUMN name TEXT` to `Migrate()` migrations slice
+- [x] **`balances.go` CRUD updated** — `UpdateBalance` and `UpdateBalanceTx` now take `name string` parameter (4th arg, after symbol); SQL inserts include `name`; `GetBalancesForWallet` SELECTs `COALESCE(name, '')` and scans into `b.Name`
+- [x] **`manager.go` callers fixed** — both `UpdateBalanceTx` calls now pass `sol.Name` / `tb.Name`
+- [x] **`manager_test.go` callers fixed** — both `UpdateBalance` calls now pass `"Solana"` / `"USD Coin"` as name
+- [x] **`balances_test.go` callers fixed** — all 5 call sites updated: struct has `name` field, all `UpdateBalance`/`UpdateBalanceTx` calls pass name strings
+- [x] **`walletstatus` View() updated** — added `colName := max(10, w*18/100)` column, updated header format string to 6 columns (`%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds`), updated row format string and row rendering to include `truncate(t.Name, colName)`, adjusted other column width percentages (sym 11%, name 18%, bal 13%, price 12%, val 12%, chg 8%)
+- [x] **`go build ./...` passes** — no errors
 
 ### In Progress
-- (none — all implementation phases complete)
+- [ ] **`go test ./...`** — build passes but full test suite hasn't been run yet after all the name changes
 
 ### Blocked
 - (none)
 
 ## Key Decisions
-- **`go/` subdirectory**: Keeps Go project alongside Odin code, separate `go.mod`, allows running both during migration
-- **Same SQLite schema**: Zero migration — existing Odin databases work with Go version and vice versa
-- **AES-GCM tag adapter**: Go's `cipher.AEAD.Seal()` appends tag to ciphertext; the adapter in `keystore/aes.go` splits last 16 bytes as tag for DB storage and rejoins on decrypt
-- **ViewFactory pattern**: `tui.ViewFactory func(name string, data interface{}) tea.Model` avoids circular imports between `tui` and `tui/views/*` packages. Factory is created in `main.go` where all view packages are imported, passed as variadic option to `NewApp()`
-- **`q` quit delegated to views**: Removed global `q` → `tea.Quit` from `App.Update()` so it doesn't interfere with text input in import wizard, swap view, token add, etc. Only `ctrl+c` is universal quit at App level. List-style views (walletlist, tokenlist, etc.) handle `q` locally.
-- **`deps` struct in main.go**: Replaced the flat `initDeps()` return values with a `deps` struct holding all services (db, walletMgr, keystoreSvc, rpcClient, dexscreener, jupiter, swapClient, swapSvc, tokenInfoSvc) for cleaner factory injection
-- **DEX on-chain decoders deferred**: Orca Whirlpool, Raydium AMM/CLMM, Meteora DLMM binary parsers are stubbed — router falls through to Jupiter API. Can be added later as optimization.
-- **`modernc.org/sqlite` limitation**: Doesn't support concurrent queries on same connection — tokens CRUD collects rows first, closes cursor, then loads pools in separate pass
-- **SQLite driver name**: `"sqlite"` (not `"sqlite3"`) with `modernc.org/sqlite`
+- **Name column placement**: Between Symbol and Balance — most useful for identification, mirrors how Phantom/Solflare display tokens
+- **`COALESCE(name, '')`** in SELECT: handles existing rows without a name column (pre-migration) gracefully — returns empty string instead of NULL, no scan error
+- **Column widths adjusted**: sym 13%→11%, added name 18%, bal 15%→13%, price 13%→12%, val 15%→12%, chg 10%→8% — total ~74% leaving ~26% for spacing
+- **`tea.ClearScreen` on every WindowSizeMsg**: Required because `WithAltScreen()` doesn't auto-repaint newly exposed area when terminal grows upward
+- **`innerWidth()`/`innerHeight()` in `App.View()`**: StyleApp chrome (Padding(1,2) + RoundedBorder) = 6 cols + 4 rows; using raw dims caused output to always be 4 rows too tall
 
 ## Next Steps
-1. **Smoke test the TUI** — run `./bin/hound-go` and verify the wallet list screen renders, navigation works (press `i` to get to import wizard, `esc` to go back)
-2. **End-to-end wallet import test** — import a wallet via the TUI import wizard, verify it appears in the wallet list with cached $0.00 balance, then press `s` to view portfolio (will attempt RPC call)
-3. **Cross-compatibility test** (Phase 13 remaining) — create `go/tests/compat_test.go` with a golden Odin-created `hound.db` fixture to verify Go can read/decrypt keypairs encrypted by the Odin version
-4. **DEX on-chain decoders** (optional optimization) — implement Orca Whirlpool, Raydium AMM V4/CLMM, Meteora DLMM binary account decoders in `dex/decoders/` package to reduce reliance on Jupiter API for pricing
-5. **Services test speed** — the `internal/services` package takes ~14s due to DexScreener retry tests with exponential backoff; consider reducing retry delays in test mode
+1. **Run `go test ./...`** — verify all 24 packages pass with the name changes
+2. **Commit** the token name feature with a descriptive message
+3. **Rebuild binary** — `task build` — so the live DB migration runs on next launch and the Name column appears in walletstatus
 
 ## Critical Context
-- **54 source files, 51 test files, 21 packages** — all compiling, all tests passing
-- **Go module**: `github.com/dvrd/hound` at `/Users/kakurega/dev/projects/hound/go`
-- **Key deps**: `bubbletea v1.3.10`, `lipgloss v1.1.0`, `bubbles v1.0.0`, `cobra v1.10.2`, `modernc.org/sqlite v1.46.1`, `golang.org/x/crypto v0.48.0`, `go-bip39 v1.1.0`, `base58 v1.2.0`
-- **Binary**: `bin/hound-go` (16MB), built with `go build -o ../bin/hound-go ./cmd/hound` from `go/` dir
-- **ViewFactory mapping** in `cmd/hound/main.go` `makeViewFactory()`: `"wallet-list"` → walletlist.New, `"wallet-import"` → walletimport.New, `"wallet-status"` → walletstatus.New (data=address string), `"wallet-delete"` → walletdelete.New (data=models.Wallet), `"token-list"` → tokenlist.New, `"token-fetch"` → tokenfetch.New (data=mintOrSymbol string), `"token-add"` → tokenadd.New, `"swap"` → swapview.New (data=wallet address, falls back to primary), `"history"` → history.New (data=wallet address)
-- **Navigation flow**: App starts with `"wallet-list"` view → keybindings route to other views → `esc` pops from view stack → empty stack + esc = `tea.Quit`
-- **Existing Odin codebase**: ~100+ `.odin` files at `/Users/kakurega/dev/projects/hound/src/`
-- **Design doc**: `/Users/kakurega/dev/projects/hound/thoughts/shared/designs/2026-02-20-go-bubbletea-port-design.md`
-- **Implementation plan**: `/Users/kakurega/dev/projects/hound/thoughts/shared/plans/2026-02-20-go-bubbletea-port.md`
+
+### Files changed this session (name feature, not yet committed):
+- `internal/models/wallet.go` — `TokenBalance` struct: `Name string` field added after `Symbol`
+- `internal/wallet/balance.go` — `FetchPortfolioBalance`: `var name string`, `name = token.Name`, `Name: "Solana"` on SOL, `Name: name` in loop struct literal
+- `internal/database/database.go` — schema: `name TEXT` in balances table; `Migrate()`: new migration entry
+- `internal/database/balances.go` — `UpdateBalance(walletAddr, mint, symbol, name string, ...)`, `UpdateBalanceTx(tx, walletAddr, mint, symbol, name string, ...)`, `GetBalancesForWallet` SELECTs `COALESCE(name, '')` + scans `&b.Name`
+- `internal/wallet/manager.go` — `PersistPortfolio`: passes `sol.Name`/`tb.Name` to `UpdateBalanceTx`
+- `internal/wallet/manager_test.go` — two `UpdateBalance` calls: added `"Solana"`, `"USD Coin"`
+- `internal/database/balances_test.go` — struct field `name` added; 5 call sites updated with name strings
+- `internal/tui/views/walletstatus/walletstatus.go` — View(): 6-column table with Name column
+
+### Git log (recent commits):
+```
+75f6983 fix: force full repaint on terminal resize with tea.ClearScreen
+1adb5d9 fix: use inner dimensions in App.View() to prevent 4-row overflow
+df87fda feat: make TUI responsive to terminal size — proportional columns, capped rows, adaptive inputs
+96f7121 docs: add responsive TUI layout design
+7a2475e fix: validate password strength at entry step, not at import time
+30629d3 feat: apply Batch 4 'Make It Complete' — all 14 remaining audit fixes
+```
+
+### `UpdateBalance` signature (new):
+```go
+func (d *Database) UpdateBalance(walletAddr, mint, symbol, name string, amount, usdPrice, usdValue float64) error
+func (d *Database) UpdateBalanceTx(tx *sql.Tx, walletAddr, mint, symbol, name string, amount, usdPrice, usdValue float64) error
+```
+
+### walletstatus column layout (new):
+```
+Symbol(11%)  Name(18%)  Balance(13%)  Price(12%)  Value(12%)  24h(8%)
+```
+
+### `TokenBalance` struct (new):
+```go
+type TokenBalance struct {
+    Mint      string
+    Symbol    string
+    Name      string  // ← new
+    Amount    float64
+    Decimals  int
+    USDPrice  float64
+    USDValue  float64
+    Change24h float64
+}
+```
 
 ## File Operations
 ### Read
-- `/Users/kakurega/dev/projects/hound/go/cmd/hound/main.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/app.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/app_test.go` (lines 70-99)
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/messages.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/theme.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/views/walletlist/walletlist.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/views/walletstatus/walletstatus.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/models/wallet.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/models/token.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/models/swap.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/wallet/manager.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/wallet/balance.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/services/keystore.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/services/price.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/services/pool.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/services/token_info.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/services/swap.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/swap/client.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/dex/router.go`
-- `/Users/kakurega/dev/projects/hound/go/internal/dex/jupiter.go`
-- `/Users/kakurega/dev/projects/hound/thoughts/shared/plans/2026-02-20-go-bubbletea-port.md`
+- `/Users/kakurega/dev/projects/hound/internal/tui/app.go`
+- `/Users/kakurega/dev/projects/hound/internal/models/wallet.go` (offset 75)
+- `/Users/kakurega/dev/projects/hound/internal/wallet/balance.go` (offset 48)
+- `/Users/kakurega/dev/projects/hound/internal/database/database.go` (offset 178, 180)
+- `/Users/kakurega/dev/projects/hound/internal/database/balances.go`
+- `/Users/kakurega/dev/projects/hound/internal/wallet/manager.go` (offset 218)
+- `/Users/kakurega/dev/projects/hound/internal/wallet/manager_test.go` (offset 238)
+- `/Users/kakurega/dev/projects/hound/internal/database/balances_test.go` (offset 30)
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletstatus/walletstatus.go` (offset 340)
+- `/Users/kakurega/dev/projects/hound/cmd/hound/main.go` (offset 210)
+- `/Users/kakurega/dev/projects/hound/thoughts/shared/designs/2026-02-23-responsive-tui-design.md`
 
 ### Modified
-- `/Users/kakurega/dev/projects/hound/go/cmd/hound/main.go` — rewrote with `deps` struct, `makeViewFactory()` wiring all 10 views, updated JSON runner functions to use `deps`
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/app.go` — removed `case "q": return a, tea.Quit` from global key handler, added comment explaining delegation to views
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/app_test.go` — renamed `TestApp_QuitOnQ` to `TestApp_QDelegatedToView`, updated assertions
-- `/Users/kakurega/dev/projects/hound/go/internal/tui/views/walletlist/walletlist.go` — added `case "t"` (token-list), `"h"` (history), `"w"` (swap), `"q"` (tea.Quit) keybindings; updated status bar text
-- `/Users/kakurega/dev/projects/hound/go/go.mod` — `go mod tidy` added `github.com/atotto/clipboard` transitive dep
-- `/Users/kakurega/dev/projects/hound/Taskfile.yml` — added 7 `go:*` tasks (lines 142-184)
-- All files created by subagents in prior session (Phase 1-9) still intact and passing
+- `/Users/kakurega/dev/projects/hound/internal/tui/app.go` — `tea.ClearScreen` on WindowSizeMsg; `innerWidth()`/`innerHeight()` in View()
+- `/Users/kakurega/dev/projects/hound/internal/models/wallet.go` — `Name string` added to `TokenBalance`
+- `/Users/kakurega/dev/projects/hound/internal/wallet/balance.go` — `name` var, `token.Name`, `Name: "Solana"`, `Name: name`
+- `/Users/kakurega/dev/projects/hound/internal/database/database.go` — `name TEXT` in schema + migration
+- `/Users/kakurega/dev/projects/hound/internal/database/balances.go` — `name` param in all 3 functions
+- `/Users/kakurega/dev/projects/hound/internal/wallet/manager.go` — `sol.Name`/`tb.Name` in `UpdateBalanceTx` calls
+- `/Users/kakurega/dev/projects/hound/internal/wallet/manager_test.go` — name args added
+- `/Users/kakurega/dev/projects/hound/internal/database/balances_test.go` — name args added to all call sites
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletstatus/walletstatus.go` — 6-column table with Name
