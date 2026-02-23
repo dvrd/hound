@@ -402,8 +402,8 @@ func (m Model) updateAccountIndex(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updatePassword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "enter" {
 		pw := m.passwordInput.Value()
-		if len(pw) < 12 {
-			m.err = fmt.Errorf("password must be at least 12 characters")
+		if err := keystore.ValidatePasswordStrength(pw); err != nil {
+			m.err = err
 			return m, nil
 		}
 		m.password = pw
@@ -549,8 +549,9 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleMuted.Render("Press Enter to continue"))
 
 	case StepPassword:
-		b.WriteString("Set encryption password (12+ characters):\n\n")
+		b.WriteString("Set encryption password:\n\n")
 		b.WriteString(m.passwordInput.View() + "\n\n")
+		b.WriteString(tui.StyleMuted.Render("12+ chars, uppercase, lowercase, digit, special char") + "\n")
 		b.WriteString(tui.StyleMuted.Render("Press Enter to continue"))
 
 	case StepConfirmPassword:
