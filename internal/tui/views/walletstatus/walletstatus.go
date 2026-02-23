@@ -78,9 +78,9 @@ func New(walletMgr *wallet.WalletManager, address string, db *database.Database)
 	}
 }
 
-// Init starts loading the portfolio.
+// Init starts loading the portfolio with a live network fetch.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Init(), m.loadPortfolio(), m.scheduleRefresh())
+	return tea.Batch(m.spinner.Init(), m.refreshPortfolio(), m.scheduleRefresh())
 }
 
 func (m Model) loadPortfolio() tea.Cmd {

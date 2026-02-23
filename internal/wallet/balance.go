@@ -17,11 +17,25 @@ type PriceFetcher interface {
 	FetchPrice(token models.Token) (models.PriceData, error)
 }
 
+// TokenMetadata holds minimal metadata for an unknown token resolved from an external source.
+type TokenMetadata struct {
+	Symbol   string
+	Name     string
+	Decimals int
+}
+
+// MetadataFetcher resolves token metadata (symbol, name, decimals) by mint address.
+// Used as a fallback when the token is not in the local DB.
+type MetadataFetcher interface {
+	LookupTokenMetadata(mintAddr string) (TokenMetadata, error)
+}
+
 // BalanceFetcher fetches on-chain balances and assembles portfolios.
 type BalanceFetcher struct {
-	rpcClient    *blockchain.RPCClient
-	priceFetcher PriceFetcher
-	db           *database.Database
+	rpcClient       *blockchain.RPCClient
+	priceFetcher    PriceFetcher
+	metadataFetcher MetadataFetcher
+	db              *database.Database
 }
 
 // NewBalanceFetcher creates a new BalanceFetcher.
@@ -31,6 +45,12 @@ func NewBalanceFetcher(rpcClient *blockchain.RPCClient, priceFetcher PriceFetche
 		priceFetcher: priceFetcher,
 		db:           db,
 	}
+}
+
+// WithMetadataFetcher attaches a metadata fetcher used to resolve unknown tokens.
+func (f *BalanceFetcher) WithMetadataFetcher(mf MetadataFetcher) *BalanceFetcher {
+	f.metadataFetcher = mf
+	return f
 }
 
 // FetchPortfolioBalance fetches the complete portfolio for a wallet address.
@@ -96,11 +116,31 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 				}
 			}
 		} else if errors.Is(err, models.ErrTokenNotFound) {
-			// Unknown token: use truncated mint as symbol
-			if len(ta.Mint) >= 8 {
-				symbol = ta.Mint[:4] + "..." + ta.Mint[len(ta.Mint)-4:]
-			} else {
-				symbol = ta.Mint
+			// Unknown token: try to resolve metadata from external source (e.g. Jupiter).
+			if f.metadataFetcher != nil {
+				if meta, metaErr := f.metadataFetcher.LookupTokenMetadata(ta.Mint); metaErr == nil {
+					symbol = meta.Symbol
+					name = meta.Name
+					if meta.Decimals > 0 {
+						decimals = meta.Decimals
+					}
+					// Cache in DB so subsequent fetches skip the network call.
+					_ = f.db.InsertToken(models.Token{
+						Symbol:          symbol,
+						Name:            name,
+						ContractAddress: ta.Mint,
+						Chain:           "solana",
+						Decimals:        decimals,
+					})
+				}
+			}
+			// Fall back to truncated mint if metadata is still unknown.
+			if symbol == "" {
+				if len(ta.Mint) >= 8 {
+					symbol = ta.Mint[:4] + "..." + ta.Mint[len(ta.Mint)-4:]
+				} else {
+					symbol = ta.Mint
+				}
 			}
 		} else {
 			// Unexpected DB error, skip this token

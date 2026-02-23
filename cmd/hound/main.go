@@ -96,7 +96,8 @@ func initDeps() (*deps, error) {
 	jupiterClient := dex.NewJupiterClient()
 	dexscreenerClient := dex.NewDexScreenerClient()
 	router := dex.NewRouter(rpcClient, jupiterClient)
-	balanceFetcher := wallet.NewBalanceFetcher(rpcClient, router, db)
+	balanceFetcher := wallet.NewBalanceFetcher(rpcClient, router, db).
+		WithMetadataFetcher(jupiterMetadataAdapter{jupiterClient})
 	walletMgr := wallet.NewWalletManager(db, balanceFetcher)
 	keystoreSvc := &services.KeystoreService{}
 	swapClient := swap.NewSwapClient()
@@ -407,4 +408,21 @@ func runHistoryJSON() error {
 	}
 
 	return tui.PrintJSON(result)
+}
+
+// jupiterMetadataAdapter adapts dex.JupiterClient to the wallet.MetadataFetcher interface.
+type jupiterMetadataAdapter struct {
+	client *dex.JupiterClient
+}
+
+func (a jupiterMetadataAdapter) LookupTokenMetadata(mintAddr string) (wallet.TokenMetadata, error) {
+	meta, err := a.client.LookupTokenMetadata(mintAddr)
+	if err != nil {
+		return wallet.TokenMetadata{}, err
+	}
+	return wallet.TokenMetadata{
+		Symbol:   meta.Symbol,
+		Name:     meta.Name,
+		Decimals: meta.Decimals,
+	}, nil
 }
