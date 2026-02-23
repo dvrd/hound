@@ -64,6 +64,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		maxW := m.width - 4
+		if maxW < 10 {
+			maxW = 10
+		}
+		m.confirmInput.Width = min(50, maxW)
 		return m, nil
 
 	case tea.KeyMsg:

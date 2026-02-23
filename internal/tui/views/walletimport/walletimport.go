@@ -159,6 +159,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.resizeInputs()
 		return m, nil
 
 	case tui.WalletImportedMsg:
@@ -513,12 +514,16 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleWarning.Render("Write down these words and store them safely!") + "\n")
 		b.WriteString(tui.StyleWarning.Render("You will NOT be able to see them again.") + "\n\n")
 		b.WriteString("Your recovery phrase:\n\n")
-		// Display words in a 3-column grid
+		// Display words in an adaptive grid (2 cols if narrow, 3 cols otherwise)
+		cols := 3
+		if m.width > 0 && m.width < 50 {
+			cols = 2
+		}
 		for i, word := range m.words {
-			col := i % 3
+			col := i % cols
 			num := fmt.Sprintf("%2d. %-12s", i+1, word)
 			b.WriteString(tui.StyleBold.Render(num))
-			if col == 2 || i == len(m.words)-1 {
+			if col == cols-1 || i == len(m.words)-1 {
 				b.WriteString("\n")
 			} else {
 				b.WriteString("  ")
@@ -622,4 +627,17 @@ func (m Model) Words() []string {
 func (m *Model) SetSize(w, h int) {
 	m.width = w
 	m.height = h
+}
+
+// resizeInputs adjusts input widths to fit the available width.
+func (m *Model) resizeInputs() {
+	maxW := m.width - 4
+	if maxW < 10 {
+		maxW = 10
+	}
+	m.seedInput.SetWidth(min(60, maxW))
+	m.accountInput.Width = min(10, maxW)
+	m.passwordInput.Width = min(40, maxW)
+	m.confirmPwInput.Width = min(40, maxW)
+	m.labelInput.Width = min(30, maxW)
 }

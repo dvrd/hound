@@ -144,6 +144,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.resizeInputs()
 		return m, nil
 
 	case tui.TransferSentMsg:
@@ -570,4 +571,15 @@ func (m Model) TokenCursor() int {
 func (m *Model) SetSize(w, h int) {
 	m.width = w
 	m.height = h
+}
+
+// resizeInputs adjusts text input widths to fit the available width.
+func (m *Model) resizeInputs() {
+	maxW := m.width - 4
+	if maxW < 10 {
+		maxW = 10
+	}
+	m.recipientInput.Width = min(50, maxW)
+	m.amountInput.Width = min(30, maxW)
+	m.passwordInput.Width = min(40, maxW)
 }

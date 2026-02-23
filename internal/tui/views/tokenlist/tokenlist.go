@@ -143,11 +143,49 @@ func (m Model) View() string {
 	if len(m.tokens) == 0 {
 		b.WriteString(tui.StyleMuted.Render("No tokens found. Press [a] to add one.") + "\n")
 	} else {
-		header := fmt.Sprintf("%-10s %-20s %6s %14s %s",
-			"Symbol", "Name", "Pools", "Liquidity", "")
+		// Proportional column widths
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		colSym := max(6, w*13/100)
+		colName := max(10, w*25/100)
+		colPools := max(5, w*8/100)
+		colLiq := max(10, w*18/100)
+
+		headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%s", colSym, colName, colPools, colLiq)
+		header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Pools", "Liquidity", "")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
 
-		for i, tr := range m.tokens {
+		// Cap visible rows
+		maxRows := len(m.tokens)
+		if m.height > 0 {
+			visible := m.height - 6
+			if visible < 1 {
+				visible = 1
+			}
+			if visible < maxRows {
+				maxRows = visible
+			}
+		}
+
+		// Determine visible window around cursor
+		startIdx := 0
+		if m.cursor >= maxRows {
+			startIdx = m.cursor - maxRows + 1
+		}
+		endIdx := startIdx + maxRows
+		if endIdx > len(m.tokens) {
+			endIdx = len(m.tokens)
+			startIdx = endIdx - maxRows
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+
+		rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%dd %%%ds %%s", colSym, colName, colPools, colLiq)
+		for i := startIdx; i < endIdx; i++ {
+			tr := m.tokens[i]
 			autoDiscovered := ""
 			for _, p := range tr.Token.Pools {
 				if p.DiscoveredAt > 0 {
@@ -156,9 +194,9 @@ func (m Model) View() string {
 				}
 			}
 
-			row := fmt.Sprintf("%-10s %-20s %6d %14s %s",
-				truncate(tr.Token.Symbol, 10),
-				truncate(tr.Token.Name, 20),
+			row := fmt.Sprintf(rowFmt,
+				truncate(tr.Token.Symbol, colSym),
+				truncate(tr.Token.Name, colName),
 				tr.PoolStats.PoolCount,
 				wallet.FormatLargeNumber(tr.PoolStats.TotalLiquidity),
 				autoDiscovered,
@@ -169,6 +207,12 @@ func (m Model) View() string {
 			} else {
 				b.WriteString(tui.StyleTableRow.Render(row) + "\n")
 			}
+		}
+
+		// Scroll indicator
+		if len(m.tokens) > maxRows {
+			hidden := len(m.tokens) - maxRows
+			b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden)) + "\n")
 		}
 	}
 

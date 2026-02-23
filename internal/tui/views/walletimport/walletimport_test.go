@@ -270,3 +270,14 @@ func TestImportingStep_ViewContainsSpinner(t *testing.T) {
 	m := newTestModel()
 	_ = m.View() // Should not panic
 }
+
+func TestWalletImport_ResponsiveInputWidths(t *testing.T) {
+	m := walletimport.New(nil, nil)
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+}

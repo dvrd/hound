@@ -201,7 +201,43 @@ func (m Model) View() string {
 	if len(m.items) == 0 {
 		b.WriteString(tui.StyleMuted.Render("No transaction history found.") + "\n")
 	} else {
-		for i, item := range m.items {
+		// Proportional column widths
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		colDesc := max(15, w*38/100)
+		colTime := max(8, w*19/100)
+		colStatus := max(8, w*15/100)
+
+		// Cap visible rows
+		maxRows := len(m.items)
+		if m.height > 0 {
+			visible := m.height - 6
+			if visible < 1 {
+				visible = 1
+			}
+			if visible < maxRows {
+				maxRows = visible
+			}
+		}
+
+		// Determine visible window around cursor
+		startIdx := 0
+		if m.cursor >= maxRows {
+			startIdx = m.cursor - maxRows + 1
+		}
+		endIdx := startIdx + maxRows
+		if endIdx > len(m.items) {
+			endIdx = len(m.items)
+			startIdx = endIdx - maxRows
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+
+		for i := startIdx; i < endIdx; i++ {
+			item := m.items[i]
 			icon := directionStyledIcon(item.Direction, item.Type)
 			line := formatActivityLine(item)
 			timeStr := FormatRelativeTime(item.Timestamp)
@@ -223,12 +259,12 @@ func (m Model) View() string {
 				statusStr = tui.StyleError.Render(item.Status)
 			}
 
-			row := fmt.Sprintf("%s %-30s %-15s %-12s %s",
+			rowFmt := fmt.Sprintf("%%s %%-%ds %%-%ds %%-%ds", colDesc, colTime, colStatus)
+			row := fmt.Sprintf(rowFmt,
 				icon,
-				truncate(line+counterparty, 30),
+				truncate(line+counterparty, colDesc),
 				tui.StyleMuted.Render(timeStr),
 				statusStr,
-				"",
 			)
 
 			if i == m.cursor {
@@ -236,6 +272,12 @@ func (m Model) View() string {
 			} else {
 				b.WriteString(tui.StyleTableRow.Render(row) + "\n")
 			}
+		}
+
+		// Scroll indicator
+		if len(m.items) > maxRows {
+			hidden := len(m.items) - maxRows
+			b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden)) + "\n")
 		}
 	}
 

@@ -148,3 +148,14 @@ func TestLoadingView(t *testing.T) {
 		t.Error("view should contain 'Add Token'")
 	}
 }
+
+func TestTokenAdd_ResponsiveInputWidths(t *testing.T) {
+	m := tokenadd.New(nil)
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+}

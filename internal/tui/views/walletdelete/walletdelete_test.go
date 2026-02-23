@@ -201,3 +201,15 @@ func TestIsDeleting_InitiallyFalse(t *testing.T) {
 		t.Error("should not be deleting initially")
 	}
 }
+
+func TestWalletDelete_ResponsiveInputWidth(t *testing.T) {
+	w := models.Wallet{Address: "abc123", Label: "test"}
+	m := walletdelete.New(w, nil, 2)
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+}

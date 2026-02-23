@@ -221,3 +221,25 @@ func TestLoadingView(t *testing.T) {
 		t.Error("loading view should contain title")
 	}
 }
+
+func TestTokenList_ResponsiveView_Narrow(t *testing.T) {
+	m := tokenlist.New(nil)
+
+	tokens := make([]tokenlist.TokenRow, 20)
+	for i := range tokens {
+		tokens[i] = tokenlist.TokenRow{
+			Token: models.Token{Symbol: fmt.Sprintf("TK%d", i), Name: fmt.Sprintf("Token %d", i)},
+		}
+	}
+	model, _ := m.Update(tokenlist.TokensLoadedMsg{Tokens: tokens})
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 12})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+	if !strings.Contains(view, "more") {
+		t.Error("should show scroll indicator when tokens exceed visible rows")
+	}
+}

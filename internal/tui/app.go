@@ -86,7 +86,10 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.ready = true
 		if a.currentView != nil {
 			var cmd tea.Cmd
-			a.currentView, cmd = a.currentView.Update(msg)
+			a.currentView, cmd = a.currentView.Update(tea.WindowSizeMsg{
+				Width:  a.innerWidth(),
+				Height: a.innerHeight(),
+			})
 			cmds = append(cmds, cmd)
 		}
 		return a, tea.Batch(cmds...)
@@ -161,7 +164,7 @@ func (a App) navigate(msg NavigateMsg) (tea.Model, tea.Cmd) {
 	// Pass size to new view
 	var cmd tea.Cmd
 	a.currentView, cmd = a.currentView.Update(tea.WindowSizeMsg{
-		Width: a.width, Height: a.height,
+		Width: a.innerWidth(), Height: a.innerHeight(),
 	})
 
 	initCmd := a.currentView.Init()
@@ -181,13 +184,33 @@ func (a App) navigateBack() (tea.Model, tea.Cmd) {
 	// Pass current size
 	var sizeCmd tea.Cmd
 	a.currentView, sizeCmd = a.currentView.Update(tea.WindowSizeMsg{
-		Width: a.width, Height: a.height,
+		Width: a.innerWidth(), Height: a.innerHeight(),
 	})
 
 	// Re-init the view so it refreshes its data
 	initCmd := a.currentView.Init()
 
 	return a, tea.Batch(sizeCmd, initCmd)
+}
+
+// innerWidth returns the usable content width after subtracting App chrome.
+// StyleApp has Padding(1,2) = 4 cols + RoundedBorder = 2 cols = 6 total.
+func (a App) innerWidth() int {
+	w := a.width - 6
+	if w < 20 {
+		return 20
+	}
+	return w
+}
+
+// innerHeight returns the usable content height after subtracting App chrome.
+// StyleApp has Padding(1,2) = 2 rows + RoundedBorder = 2 rows = 4 total.
+func (a App) innerHeight() int {
+	h := a.height - 4
+	if h < 5 {
+		return 5
+	}
+	return h
 }
 
 // View renders the app.

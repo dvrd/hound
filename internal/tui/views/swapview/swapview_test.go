@@ -317,3 +317,14 @@ func TestInputPhaseView(t *testing.T) {
 		t.Error("input phase should contain 'Amount'")
 	}
 }
+
+func TestSwap_ResponsiveInputWidths(t *testing.T) {
+	m := swapview.New("addr123", nil, nil, false)
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+}

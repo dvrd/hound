@@ -143,6 +143,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.renaming {
+			maxW := m.width - 10
+			if maxW < 10 {
+				maxW = 10
+			}
+			m.renameInput.Width = min(30, maxW)
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -159,7 +166,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			ri := textinput.New()
 			ri.Placeholder = "New wallet name"
 			ri.CharLimit = 32
-			ri.Width = 30
+			maxW := m.width - 10
+			if maxW < 10 {
+				maxW = 10
+			}
+			ri.Width = min(30, maxW)
 			ri.Focus()
 			m.renameInput = ri
 			return m, ri.Focus()
@@ -325,16 +336,54 @@ func (m Model) View() string {
 		tui.FormatChange(sol.Change24h))
 	b.WriteString(solLine + "\n\n")
 
-	// Token table
+	// Token table with proportional columns
 	tokens := m.visibleTokens()
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	colSym := max(6, w*13/100)
+	colBal := max(8, w*15/100)
+	colPrice := max(8, w*13/100)
+	colVal := max(8, w*15/100)
+	colChg := max(6, w*10/100)
+
 	if len(tokens) > 0 {
-		header := fmt.Sprintf("%-10s %12s %10s %12s %8s",
-			"Symbol", "Balance", "Price", "Value", "24h")
+		headerFmt := fmt.Sprintf("%%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colBal, colPrice, colVal, colChg)
+		header := fmt.Sprintf(headerFmt, "Symbol", "Balance", "Price", "Value", "24h")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
 
-		for i, t := range tokens {
-			row := fmt.Sprintf("%-10s %12s %10s %12s %8s",
-				truncate(t.Symbol, 10),
+		// Cap visible rows
+		maxRows := len(tokens)
+		if m.height > 0 {
+			visible := m.height - 10
+			if visible < 1 {
+				visible = 1
+			}
+			if visible < maxRows {
+				maxRows = visible
+			}
+		}
+
+		// Determine visible window around cursor
+		startIdx := 0
+		if m.cursor >= maxRows {
+			startIdx = m.cursor - maxRows + 1
+		}
+		endIdx := startIdx + maxRows
+		if endIdx > len(tokens) {
+			endIdx = len(tokens)
+			startIdx = endIdx - maxRows
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+
+		rowFmt := fmt.Sprintf("%%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colBal, colPrice, colVal, colChg)
+		for i := startIdx; i < endIdx; i++ {
+			t := tokens[i]
+			row := fmt.Sprintf(rowFmt,
+				truncate(t.Symbol, colSym),
 				wallet.FormatBalance(t.Amount),
 				wallet.FormatPrice(t.USDPrice),
 				wallet.FormatPrice(t.USDValue),
@@ -345,6 +394,12 @@ func (m Model) View() string {
 			} else {
 				b.WriteString(tui.StyleTableRow.Render(row) + "\n")
 			}
+		}
+
+		// Scroll indicator
+		if len(tokens) > maxRows {
+			hidden := len(tokens) - maxRows
+			b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden)) + "\n")
 		}
 	} else {
 		b.WriteString(tui.StyleMuted.Render("No tokens found") + "\n")
@@ -358,13 +413,18 @@ func (m Model) View() string {
 	}
 	b.WriteString(tui.StyleMuted.Render(sortLine) + "\n")
 
-	// Status bar
+	// Status bar — abbreviated if narrow
 	showAllLabel := "[a]ll"
 	if m.showAll {
 		showAllLabel = "[a]ll*"
 	}
-	b.WriteString(tui.StyleStatusBar.Render(
-		fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)))
+	if m.width > 0 && m.width < 80 {
+		b.WriteString(tui.StyleStatusBar.Render(
+			fmt.Sprintf("[s]end [c]rcv [r]ef [R]en %s [1][2][3] [esc]", showAllLabel)))
+	} else {
+		b.WriteString(tui.StyleStatusBar.Render(
+			fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)))
+	}
 
 	return b.String()
 }

@@ -321,3 +321,42 @@ func TestStatusBarContainsRename(t *testing.T) {
 		t.Error("status bar should contain [R]ename")
 	}
 }
+
+func TestWalletStatus_ResponsiveView_Narrow(t *testing.T) {
+	m := walletstatus.New(nil, "addr123", nil)
+
+	model, _ := m.Update(tui.PortfolioRefreshedMsg{
+		Portfolio: models.PortfolioBalance{
+			TotalUSD:   100.0,
+			SOLBalance: models.TokenBalance{Symbol: "SOL", Amount: 1.0},
+		},
+	})
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 15})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+	if !strings.Contains(view, "[s]end [c]rcv") {
+		t.Error("narrow view should use abbreviated status bar")
+	}
+}
+
+func TestWalletStatus_ResponsiveView_Wide(t *testing.T) {
+	m := walletstatus.New(nil, "addr123", nil)
+
+	model, _ := m.Update(tui.PortfolioRefreshedMsg{
+		Portfolio: models.PortfolioBalance{
+			TotalUSD:   100.0,
+			SOLBalance: models.TokenBalance{Symbol: "SOL", Amount: 1.0},
+		},
+	})
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	view := model.(tea.Model).View()
+	if !strings.Contains(view, "[s]end re[c]eive") {
+		t.Error("wide view should use full status bar")
+	}
+}

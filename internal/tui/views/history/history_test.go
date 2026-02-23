@@ -287,3 +287,29 @@ func TestSwapItemDisplay(t *testing.T) {
 		t.Error("View should contain 'Swapped' for swap items")
 	}
 }
+
+func TestHistory_ResponsiveView_Narrow(t *testing.T) {
+	m := history.New("addr123", nil, nil)
+
+	items := make([]services.ActivityItem, 30)
+	for i := range items {
+		items[i] = services.ActivityItem{
+			Type:      "sol_transfer",
+			Direction: "sent",
+			Amount:    "1 SOL",
+			Status:    "confirmed",
+			Signature: fmt.Sprintf("sig%d", i),
+		}
+	}
+	model, _ := m.Update(history.ActivityLoadedMsg{Items: items})
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 15})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+	if !strings.Contains(view, "more") {
+		t.Error("should show scroll indicator when items exceed visible rows")
+	}
+}

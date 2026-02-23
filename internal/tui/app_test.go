@@ -284,3 +284,84 @@ func TestApp_MultipleNavigations(t *testing.T) {
 		t.Errorf("ViewStackDepth = %d, want 0", a.ViewStackDepth())
 	}
 }
+
+func TestApp_ForwardsInnerDimensions(t *testing.T) {
+	var capturedWidth, capturedHeight int
+	capturingFactory := func(name string, data interface{}) tea.Model {
+		return &capturingView{onSize: func(w, h int) {
+			capturedWidth = w
+			capturedHeight = h
+		}}
+	}
+
+	app := tui.NewApp(nil, nil, nil, config.Config{}, capturingFactory)
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	_ = model
+
+	if capturedWidth != 94 {
+		t.Errorf("inner width = %d, want 94", capturedWidth)
+	}
+	if capturedHeight != 36 {
+		t.Errorf("inner height = %d, want 36", capturedHeight)
+	}
+}
+
+func TestApp_ForwardsInnerDimensions_Small(t *testing.T) {
+	var capturedWidth, capturedHeight int
+	capturingFactory := func(name string, data interface{}) tea.Model {
+		return &capturingView{onSize: func(w, h int) {
+			capturedWidth = w
+			capturedHeight = h
+		}}
+	}
+
+	app := tui.NewApp(nil, nil, nil, config.Config{}, capturingFactory)
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 20, Height: 6})
+	_ = model
+
+	if capturedWidth != 20 {
+		t.Errorf("inner width = %d, want 20", capturedWidth)
+	}
+	if capturedHeight != 5 {
+		t.Errorf("inner height = %d, want 5", capturedHeight)
+	}
+}
+
+func TestApp_NavigateForwardsInnerDimensions(t *testing.T) {
+	var capturedWidth, capturedHeight int
+	capturingFactory := func(name string, data interface{}) tea.Model {
+		return &capturingView{onSize: func(w, h int) {
+			capturedWidth = w
+			capturedHeight = h
+		}}
+	}
+
+	app := tui.NewApp(nil, nil, nil, config.Config{}, capturingFactory)
+	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	a := model.(tui.App)
+
+	capturedWidth = 0
+	capturedHeight = 0
+	model, _ = a.Update(tui.NavigateMsg{View: "wallet-import"})
+	_ = model
+
+	if capturedWidth != 74 {
+		t.Errorf("navigate inner width = %d, want 74", capturedWidth)
+	}
+	if capturedHeight != 20 {
+		t.Errorf("navigate inner height = %d, want 20", capturedHeight)
+	}
+}
+
+type capturingView struct {
+	onSize func(w, h int)
+}
+
+func (v *capturingView) Init() tea.Cmd { return nil }
+func (v *capturingView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if wsm, ok := msg.(tea.WindowSizeMsg); ok && v.onSize != nil {
+		v.onSize(wsm.Width, wsm.Height)
+	}
+	return v, nil
+}
+func (v *capturingView) View() string { return "capturing" }

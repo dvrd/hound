@@ -417,3 +417,33 @@ func TestTransferConfirmedMsg_Success(t *testing.T) {
 		t.Error("result should contain explorer link")
 	}
 }
+
+func TestSend_ResponsiveInputWidths(t *testing.T) {
+	portfolio := models.PortfolioBalance{
+		SOLBalance: models.TokenBalance{Symbol: "SOL", Amount: 1.0, Decimals: 9},
+	}
+	m := send.New("addr123", nil, nil, portfolio)
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
+	_ = model
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+}
+
+func TestSend_ResponsiveInputWidths_Wide(t *testing.T) {
+	portfolio := models.PortfolioBalance{
+		SOLBalance: models.TokenBalance{Symbol: "SOL", Amount: 1.0, Decimals: 9},
+	}
+	m := send.New("addr123", nil, nil, portfolio)
+
+	model, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	_ = model
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at wide width")
+	}
+}

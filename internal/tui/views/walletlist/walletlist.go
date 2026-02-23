@@ -218,13 +218,51 @@ func (m Model) View() string {
 	if len(m.wallets) == 0 {
 		b.WriteString(tui.StyleMuted.Render("No wallets found. Press [i] to import one.") + "\n")
 	} else {
+		// Compute proportional column widths
+		w := m.width
+		if w <= 0 {
+			w = 80
+		}
+		colLabel := max(6, w*15/100)
+		colAddr := max(8, w*18/100)
+		colType := max(8, w*20/100)
+		colBal := max(8, w*12/100)
+
 		// Table header
-		header := fmt.Sprintf("  %-3s %-12s %-15s %-16s %10s",
-			"", "Label", "Address", "Type", "Balance")
+		headerFmt := fmt.Sprintf("  %%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
+		header := fmt.Sprintf(headerFmt, "Label", "Address", "Type", "Balance")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
 
+		// Cap visible rows
+		maxRows := len(m.wallets)
+		if m.height > 0 {
+			visible := m.height - 8
+			if visible < 1 {
+				visible = 1
+			}
+			if visible < maxRows {
+				maxRows = visible
+			}
+		}
+
+		// Determine visible window around cursor
+		startIdx := 0
+		if m.cursor >= maxRows {
+			startIdx = m.cursor - maxRows + 1
+		}
+		endIdx := startIdx + maxRows
+		if endIdx > len(m.wallets) {
+			endIdx = len(m.wallets)
+			startIdx = endIdx - maxRows
+			if startIdx < 0 {
+				startIdx = 0
+			}
+		}
+
 		// Table rows
-		for i, w := range m.wallets {
+		rowFmt := fmt.Sprintf("%%s%%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
+		for i := startIdx; i < endIdx; i++ {
+			w := m.wallets[i]
 			primary := "  "
 			if w.IsPrimary {
 				primary = tui.StylePrimaryBadge.Render("* ")
@@ -238,14 +276,20 @@ func (m Model) View() string {
 				balance = wallet.FormatPrice(p.TotalUSD)
 			}
 
-			row := fmt.Sprintf("%s%-12s %-15s %-16s %10s",
-				primary, truncate(w.Label, 12), addr, typeBadge, balance)
+			row := fmt.Sprintf(rowFmt,
+				primary, truncate(w.Label, colLabel), addr, typeBadge, balance)
 
 			if i == m.cursor {
 				b.WriteString(tui.StyleTableRowSelected.Render("> "+row) + "\n")
 			} else {
 				b.WriteString(tui.StyleTableRow.Render("  "+row) + "\n")
 			}
+		}
+
+		// Scroll indicator
+		if len(m.wallets) > maxRows {
+			hidden := len(m.wallets) - maxRows
+			b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden)) + "\n")
 		}
 
 		// Footer: total USD
@@ -257,9 +301,13 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleBold.Render(fmt.Sprintf("  Total: %s", wallet.FormatPrice(totalUSD))) + "\n")
 	}
 
-	// Status bar
+	// Status bar — abbreviated if narrow
 	b.WriteString("\n")
-	b.WriteString(tui.StyleStatusBar.Render("[i]mport [s]tatus [d]elete [t]okens [S]end [R]eceive [w]swap [h]istory [r]efresh [q]uit"))
+	if m.width > 0 && m.width < 80 {
+		b.WriteString(tui.StyleStatusBar.Render("[i]mp [s]tat [d]el [t]ok [S]end [R]ecv [w]swap [h]ist [r]ef [q]uit"))
+	} else {
+		b.WriteString(tui.StyleStatusBar.Render("[i]mport [s]tatus [d]elete [t]okens [S]end [R]eceive [w]swap [h]istory [r]efresh [q]uit"))
+	}
 
 	return b.String()
 }

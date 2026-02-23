@@ -1,6 +1,7 @@
 package walletlist_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -358,5 +359,66 @@ func TestReceiveKeyNavigatesToReceive(t *testing.T) {
 	}
 	if nav.Data != "7xKXabc1234567890abcdef9mPq" {
 		t.Errorf("NavigateMsg.Data = %v, want wallet address", nav.Data)
+	}
+}
+
+func TestWalletList_ResponsiveView_Narrow(t *testing.T) {
+	m := walletlist.New(nil, nil)
+	model, _ := m.Update(walletlist.WalletsLoadedMsg{
+		Wallets: []models.Wallet{
+			{Address: "abc123def456ghi789", Label: "Main", IsPrimary: true},
+			{Address: "xyz987wvu654tsr321", Label: "Secondary"},
+		},
+		Portfolios: map[string]models.PortfolioBalance{},
+	})
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 15})
+
+	view := model.(tea.Model).View()
+	if view == "" {
+		t.Error("View should not be empty at narrow width")
+	}
+	if !strings.Contains(view, "[i]mp") {
+		t.Error("narrow view should use abbreviated status bar")
+	}
+}
+
+func TestWalletList_ResponsiveView_Wide(t *testing.T) {
+	m := walletlist.New(nil, nil)
+	model, _ := m.Update(walletlist.WalletsLoadedMsg{
+		Wallets: []models.Wallet{
+			{Address: "abc123def456ghi789", Label: "Main", IsPrimary: true},
+		},
+		Portfolios: map[string]models.PortfolioBalance{},
+	})
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+
+	view := model.(tea.Model).View()
+	if !strings.Contains(view, "[i]mport") {
+		t.Error("wide view should use full status bar")
+	}
+}
+
+func TestWalletList_CappedVisibleRows(t *testing.T) {
+	wallets := make([]models.Wallet, 20)
+	for i := range wallets {
+		wallets[i] = models.Wallet{
+			Address: fmt.Sprintf("addr%d", i),
+			Label:   fmt.Sprintf("Wallet %d", i),
+		}
+	}
+
+	m := walletlist.New(nil, nil)
+	model, _ := m.Update(walletlist.WalletsLoadedMsg{
+		Wallets:    wallets,
+		Portfolios: map[string]models.PortfolioBalance{},
+	})
+
+	model, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 12})
+
+	view := model.(tea.Model).View()
+	if !strings.Contains(view, "more") {
+		t.Error("should show scroll indicator when list exceeds visible rows")
 	}
 }
