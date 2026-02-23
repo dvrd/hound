@@ -242,13 +242,14 @@ func (a App) View() string {
 		content = content + "\n\n" + helpContent
 	}
 
-	// Apply app style with constraints
+	// Apply app style with constraints.
+	// Use inner dimensions so content + chrome (padding+border) = terminal size exactly.
 	style := StyleApp
 	if a.width > 0 {
-		style = style.Width(a.width)
+		style = style.Width(a.innerWidth())
 	}
 	if a.height > 0 {
-		style = style.Height(a.height)
+		style = style.Height(a.innerHeight())
 	}
 
 	return style.Render(content)
