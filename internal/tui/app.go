@@ -84,6 +84,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.ready = true
+		// Force full repaint so the alternate screen redraws correctly
+		// when the terminal grows (e.g. dragging the top edge up).
+		cmds = append(cmds, tea.ClearScreen)
 		if a.currentView != nil {
 			var cmd tea.Cmd
 			a.currentView, cmd = a.currentView.Update(tea.WindowSizeMsg{
