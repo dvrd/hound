@@ -301,8 +301,8 @@ func TestApp_ForwardsInnerDimensions(t *testing.T) {
 	if capturedWidth != 94 {
 		t.Errorf("inner width = %d, want 94", capturedWidth)
 	}
-	if capturedHeight != 36 {
-		t.Errorf("inner height = %d, want 36", capturedHeight)
+	if capturedHeight != 35 {
+		t.Errorf("inner height = %d, want 35", capturedHeight)
 	}
 }
 
@@ -348,8 +348,8 @@ func TestApp_NavigateForwardsInnerDimensions(t *testing.T) {
 	if capturedWidth != 74 {
 		t.Errorf("navigate inner width = %d, want 74", capturedWidth)
 	}
-	if capturedHeight != 20 {
-		t.Errorf("navigate inner height = %d, want 20", capturedHeight)
+	if capturedHeight != 19 {
+		t.Errorf("navigate inner height = %d, want 19", capturedHeight)
 	}
 }
 

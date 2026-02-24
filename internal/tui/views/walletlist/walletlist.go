@@ -301,15 +301,15 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleBold.Render(fmt.Sprintf("  Total: %s", wallet.FormatPrice(totalUSD))) + "\n")
 	}
 
-	// Status bar — abbreviated if narrow
-	b.WriteString("\n")
-	if m.width > 0 && m.width < 80 {
-		b.WriteString(tui.StyleStatusBar.Render("[i]mp [s]tat [d]el [t]ok [S]end [R]ecv [w]swap [h]ist [r]ef [q]uit"))
-	} else {
-		b.WriteString(tui.StyleStatusBar.Render("[i]mport [s]tatus [d]elete [t]okens [S]end [R]eceive [w]swap [h]istory [r]efresh [q]uit"))
-	}
-
 	return b.String()
+}
+
+// Footer implements tui.FooterProvider — returns the pinned status bar text.
+func (m Model) Footer() string {
+	if m.width > 0 && m.width < 80 {
+		return "[i]mp [s]tat [d]el [t]ok [S]end [R]ecv [w]swap [h]ist [r]ef [q]uit"
+	}
+	return "[i]mport [s]tatus [d]elete [t]okens [S]end [R]eceive [w]swap [h]istory [r]efresh [q]uit"
 }
 
 // TruncateAddress shows first 4 + "..." + last 4 chars.

@@ -161,8 +161,9 @@ func TestTokenInfoLoadedMsg_Error(t *testing.T) {
 	if !strings.Contains(view, "Error") {
 		t.Error("View should show error when TokenInfoLoadedMsg has error")
 	}
-	if !strings.Contains(view, "[esc]back") {
-		t.Error("Error view should still show [esc]back")
+	footer := model.Footer()
+	if !strings.Contains(footer, "[esc]back") {
+		t.Error("Error view should still show [esc]back in footer")
 	}
 }
 
@@ -175,9 +176,9 @@ func TestWindowSizeMsg(t *testing.T) {
 
 func TestViewStatusBar(t *testing.T) {
 	m := loadedModel()
-	view := m.View()
-	if !strings.Contains(view, "[esc]back") {
-		t.Error("View should contain [esc]back in status bar")
+	footer := m.Footer()
+	if !strings.Contains(footer, "[esc]back") {
+		t.Error("Footer should contain [esc]back in status bar")
 	}
 }
 

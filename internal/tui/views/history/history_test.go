@@ -102,9 +102,9 @@ func TestDirectionIcons(t *testing.T) {
 
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel()
-	view := m.View()
-	if !strings.Contains(view, "[esc]back") {
-		t.Error("View should contain [esc]back in status bar")
+	footer := m.Footer()
+	if !strings.Contains(footer, "[esc]back") {
+		t.Error("Footer should contain [esc]back in status bar")
 	}
 }
 

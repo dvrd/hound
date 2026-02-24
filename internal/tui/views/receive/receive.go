@@ -113,9 +113,13 @@ func (m Model) View() string {
 	}
 
 	b.WriteString(tui.StyleMuted.Render("Send SOL or SPL tokens to this address") + "\n\n")
-	b.WriteString(tui.StyleStatusBar.Render("[c]opy [esc]back"))
 
 	return b.String()
+}
+
+// Footer returns the pinned footer keybinding line for the App chrome.
+func (m Model) Footer() string {
+	return "[c]opy [esc]back"
 }
 
 // IsCopied returns whether the address was copied for testing.

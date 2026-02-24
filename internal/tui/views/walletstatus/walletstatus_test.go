@@ -96,12 +96,12 @@ func TestViewContainsTokens(t *testing.T) {
 
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel()
-	view := m.View()
-	if !strings.Contains(view, "[r]efresh") {
-		t.Error("View should contain [r]efresh in status bar")
+	footer := m.Footer()
+	if !strings.Contains(footer, "[r]efresh") {
+		t.Error("Footer should contain [r]efresh in status bar")
 	}
-	if !strings.Contains(view, "[esc]back") {
-		t.Error("View should contain [esc]back in status bar")
+	if !strings.Contains(footer, "[esc]back") {
+		t.Error("Footer should contain [esc]back in status bar")
 	}
 }
 
@@ -259,9 +259,9 @@ func TestShowAllLabel(t *testing.T) {
 	// Toggle showAll on
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(walletstatus.Model)
-	view := model.View()
-	if !strings.Contains(view, "[a]ll*") {
-		t.Error("View should show [a]ll* when showAll is active")
+	footer := model.Footer()
+	if !strings.Contains(footer, "[a]ll*") {
+		t.Error("Footer should show [a]ll* when showAll is active")
 	}
 }
 
@@ -316,9 +316,9 @@ func TestRenameViewContainsInput(t *testing.T) {
 
 func TestStatusBarContainsRename(t *testing.T) {
 	m := loadedModel()
-	view := m.View()
-	if !strings.Contains(view, "[R]ename") {
-		t.Error("status bar should contain [R]ename")
+	footer := m.Footer()
+	if !strings.Contains(footer, "[R]ename") {
+		t.Error("Footer should contain [R]ename")
 	}
 }
 
@@ -338,7 +338,8 @@ func TestWalletStatus_ResponsiveView_Narrow(t *testing.T) {
 	if view == "" {
 		t.Error("View should not be empty at narrow width")
 	}
-	if !strings.Contains(view, "[s]end [c]rcv") {
+	footer := model.(interface{ Footer() string }).Footer()
+	if !strings.Contains(footer, "[s]end [c]rcv") {
 		t.Error("narrow view should use abbreviated status bar")
 	}
 }
@@ -355,8 +356,8 @@ func TestWalletStatus_ResponsiveView_Wide(t *testing.T) {
 
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
-	view := model.(tea.Model).View()
-	if !strings.Contains(view, "[s]end re[c]eive") {
+	footer := model.(interface{ Footer() string }).Footer()
+	if !strings.Contains(footer, "[s]end re[c]eive") {
 		t.Error("wide view should use full status bar")
 	}
 }

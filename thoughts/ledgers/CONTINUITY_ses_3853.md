@@ -1,124 +1,158 @@
 ---
 session: ses_3853
-updated: 2026-02-23T16:25:18.588Z
+updated: 2026-02-24T09:21:33.172Z
 ---
 
 # Session Summary
 
 ## Goal
-Add token full names to the walletstatus view (alongside symbols) so the user can identify what each holding is, and keep the TUI fully responsive to window resize.
+Fix two UX bugs (empty names column, empty walletstatus on enter) and implement two UX improvements (pinned footer statusbar, portfolio preloading at startup) so the walletstatus view is instant and always shows data.
 
 ## Constraints & Preferences
 - No CGO — pure Go deps only (`modernc.org/sqlite`)
 - TUI only — Bubble Tea interactive views
 - Go module: `github.com/dvrd/hound`, Go 1.25.6
-- All 24 test packages must pass
-- `tea.WithAltScreen()` is used — `tea.ClearScreen` required on resize for full repaint
-- Min supported terminal width: 60 columns
-- Version in `VERSION` file, currently `0.23.0`
+- All 23 test packages must pass
+- `tea.WithAltScreen()` used — `tea.ClearScreen` on resize
+- **Render is priority**: never blank the screen when data exists; loading states are secondary
 
 ## Progress
 ### Done
-- [x] **Responsive TUI** — committed `df87fda`: app forwards inner dims, 5 input views cap widths, 4 table views use proportional columns + sliding window + scroll indicators
-- [x] **Height overflow fix** — committed `1adb5d9`: `App.View()` now uses `innerWidth()`/`innerHeight()` instead of raw terminal dims, preventing 4-row chrome overflow
-- [x] **Full repaint on resize** — committed `75f6983`: `tea.ClearScreen` added to `WindowSizeMsg` handler in `app.go` so alternate screen redraws correctly when terminal grows upward
-- [x] **`TokenBalance.Name` field added** — `internal/models/wallet.go`: added `Name string` field between `Symbol` and `Amount`
-- [x] **Balance fetcher populates Name** — `internal/wallet/balance.go`: added `var name string`, set `name = token.Name` in the DB lookup branch, set `Name: "Solana"` for SOL balance, included `Name: name` in `TokenBalance` struct literal
-- [x] **DB schema updated** — `internal/database/database.go`: added `name TEXT` column to `balances` table in schema constant
-- [x] **DB migration added** — `internal/database/database.go`: added `ALTER TABLE balances ADD COLUMN name TEXT` to `Migrate()` migrations slice
-- [x] **`balances.go` CRUD updated** — `UpdateBalance` and `UpdateBalanceTx` now take `name string` parameter (4th arg, after symbol); SQL inserts include `name`; `GetBalancesForWallet` SELECTs `COALESCE(name, '')` and scans into `b.Name`
-- [x] **`manager.go` callers fixed** — both `UpdateBalanceTx` calls now pass `sol.Name` / `tb.Name`
-- [x] **`manager_test.go` callers fixed** — both `UpdateBalance` calls now pass `"Solana"` / `"USD Coin"` as name
-- [x] **`balances_test.go` callers fixed** — all 5 call sites updated: struct has `name` field, all `UpdateBalance`/`UpdateBalanceTx` calls pass name strings
-- [x] **`walletstatus` View() updated** — added `colName := max(10, w*18/100)` column, updated header format string to 6 columns (`%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds`), updated row format string and row rendering to include `truncate(t.Name, colName)`, adjusted other column width percentages (sym 11%, name 18%, bal 13%, price 12%, val 12%, chg 8%)
-- [x] **`go build ./...` passes** — no errors
+- [x] **Bug: walletstatus empty on enter** — `Init()` now calls `refreshPortfolio()` (live fetch) instead of `loadPortfolio()` (cache-only) — commit `82e54ce`
+- [x] **Bug: token names empty** — added `MetadataFetcher` interface + `WithMetadataFetcher()` to `BalanceFetcher`; when mint not in local DB → calls Jupiter `LookupTokenMetadata`, caches result in `tokens` table — commit `82e54ce`
+- [x] **Bug: portfolio wiped during refresh** — added `hasData bool` field to `walletstatus.Model`; `View()` only shows spinner-only on first load (`!hasData`); on background refresh shows table + inline spinner below sort line — commit `86bd0ed`
+- [x] **Footer: `FooterProvider` interface defined** in `internal/tui/app.go`:
+  ```go
+  type FooterProvider interface { Footer() string }
+  ```
+- [x] **Footer: `App.innerHeight()` updated** — subtracts 5 rows total (4 chrome + 1 footer) instead of 4
+- [x] **Footer: `App.View()` rewritten** — uses `lipgloss.JoinVertical` to compose scrollable content area (`Height(innerHeight())`) + pinned footer row; error bar overrides footer when shown; footer styled with `Foreground(ColorSubtext).Width(innerWidth())`
+- [x] **Footer: `walletstatus` migrated** — `StyleStatusBar` removed from `View()`; `Footer() string` method added returning the keybinding line (width-adaptive)
+- [x] **Footer: `walletlist` migrated** — same pattern; `Footer() string` added
+- [x] **Footer: `history` migrated** — `Footer() string` returns `[n]ext page` variant or plain based on `m.noMorePages`
+- [x] **Footer: `tokenlist` migrated** — `Footer() string` returns `"[enter]details [a]dd [esc]back"`
 
 ### In Progress
-- [ ] **`go test ./...`** — build passes but full test suite hasn't been run yet after all the name changes
+- [ ] **Footer: `receive` and `tokenfetch` not yet migrated** — still have `b.WriteString(tui.StyleStatusBar.Render(...))` in their `View()` methods:
+  - `receive.go:116` → `b.WriteString(tui.StyleStatusBar.Render("[c]opy [esc]back"))`
+  - `tokenfetch.go:111` → `b.WriteString(tui.StyleStatusBar.Render("[esc]back"))` (error branch)
+  - `tokenfetch.go:166` → `b.WriteString(tui.StyleStatusBar.Render("[esc]back"))` (main content)
+- [ ] **Precarga: `RefreshAllPortfolios` at startup** — not yet implemented; `runTUI()` in `main.go` needs a goroutine before `p.Run()`, and `walletstatus.Init()` needs to switch back to `loadPortfolio()` (cache-first)
+- [ ] **`go test ./...` not yet run** after the footer changes
+- [ ] **`go build ./...` not yet verified** after the footer changes
 
 ### Blocked
 - (none)
 
 ## Key Decisions
-- **Name column placement**: Between Symbol and Balance — most useful for identification, mirrors how Phantom/Solflare display tokens
-- **`COALESCE(name, '')`** in SELECT: handles existing rows without a name column (pre-migration) gracefully — returns empty string instead of NULL, no scan error
-- **Column widths adjusted**: sym 13%→11%, added name 18%, bal 15%→13%, price 13%→12%, val 15%→12%, chg 10%→8% — total ~74% leaving ~26% for spacing
-- **`tea.ClearScreen` on every WindowSizeMsg**: Required because `WithAltScreen()` doesn't auto-repaint newly exposed area when terminal grows upward
-- **`innerWidth()`/`innerHeight()` in `App.View()`**: StyleApp chrome (Padding(1,2) + RoundedBorder) = 6 cols + 4 rows; using raw dims caused output to always be 4 rows too tall
+- **`FooterProvider` interface in `tui` package, not in each view**: avoids import cycles; `App` does a type assertion `if fp, ok := a.currentView.(FooterProvider)` — views that don't implement it get no footer
+- **Footer text returned raw (unstyled) from `Footer()`**: `App.View()` applies `footerStyle` (`Foreground(ColorSubtext).Width(innerWidth())`) centrally — consistent styling across all views without duplication
+- **`innerHeight() = height - 4 - 1`**: chrome is 4 rows (`Padding(1,2)` = 2 + `RoundedBorder` = 2), footer is 1 row inside the border; `App.View()` passes `Height(innerHeight()+1)` to `StyleApp` so border wraps content+footer together
+- **`JoinVertical` layout**: `lipgloss.NewStyle().Height(innerHeight()).Width(w).Render(content)` for scrollable area + `footerStyle.Render(footer)` — lipgloss clips content at exactly `innerHeight()` rows, footer always at bottom
+- **Preloading strategy**: `go d.walletMgr.RefreshAllPortfolios()` goroutine in `runTUI()` before `p.Run()`; `walletstatus.Init()` switches back to `loadPortfolio()` (cache-first: `GetCachedPortfolio` → DB fallback); `RefreshAllPortfolios()` already exists in `manager.go`
+- **Error bar overrides footer**: when `a.errorShown`, the error styled with `Background(ColorError)` replaces the footer string entirely — same 1-row slot
 
 ## Next Steps
-1. **Run `go test ./...`** — verify all 24 packages pass with the name changes
-2. **Commit** the token name feature with a descriptive message
-3. **Rebuild binary** — `task build` — so the live DB migration runs on next launch and the Name column appears in walletstatus
+1. **Migrate `receive.go`**: remove `b.WriteString(tui.StyleStatusBar.Render("[c]opy [esc]back"))` from `View()` (line 116); add `func (m Model) Footer() string { return "[c]opy [esc]back" }`
+2. **Migrate `tokenfetch.go`**: remove both `b.WriteString(tui.StyleStatusBar.Render("[esc]back"))` calls (lines 111 and 166); add `func (m Model) Footer() string { return "[esc]back" }`
+3. **`go build ./...`** — verify no compile errors from footer refactor
+4. **`go test ./...`** — run full suite; fix any test expecting old status bar in `View()` output
+5. **Precarga in `runTUI()`** (`cmd/hound/main.go` ~line 200): add `go d.walletMgr.RefreshAllPortfolios()` before `p.Run()`
+6. **Switch `walletstatus.Init()` back to `loadPortfolio()`** (`internal/tui/views/walletstatus/walletstatus.go` line 83): change `m.refreshPortfolio()` → `m.loadPortfolio()` so it reads from the preloaded cache instantly; keep `m.scheduleRefresh()` for background updates
+7. **Commit all**: `feat: pinned footer via FooterProvider interface + portfolio preloading at startup`
+8. **`task build`** — rebuild binary
 
 ## Critical Context
 
-### Files changed this session (name feature, not yet committed):
-- `internal/models/wallet.go` — `TokenBalance` struct: `Name string` field added after `Symbol`
-- `internal/wallet/balance.go` — `FetchPortfolioBalance`: `var name string`, `name = token.Name`, `Name: "Solana"` on SOL, `Name: name` in loop struct literal
-- `internal/database/database.go` — schema: `name TEXT` in balances table; `Migrate()`: new migration entry
-- `internal/database/balances.go` — `UpdateBalance(walletAddr, mint, symbol, name string, ...)`, `UpdateBalanceTx(tx, walletAddr, mint, symbol, name string, ...)`, `GetBalancesForWallet` SELECTs `COALESCE(name, '')` + scans `&b.Name`
-- `internal/wallet/manager.go` — `PersistPortfolio`: passes `sol.Name`/`tb.Name` to `UpdateBalanceTx`
-- `internal/wallet/manager_test.go` — two `UpdateBalance` calls: added `"Solana"`, `"USD Coin"`
-- `internal/database/balances_test.go` — struct field `name` added; 5 call sites updated with name strings
-- `internal/tui/views/walletstatus/walletstatus.go` — View(): 6-column table with Name column
-
-### Git log (recent commits):
-```
-75f6983 fix: force full repaint on terminal resize with tea.ClearScreen
-1adb5d9 fix: use inner dimensions in App.View() to prevent 4-row overflow
-df87fda feat: make TUI responsive to terminal size — proportional columns, capped rows, adaptive inputs
-96f7121 docs: add responsive TUI layout design
-7a2475e fix: validate password strength at entry step, not at import time
-30629d3 feat: apply Batch 4 'Make It Complete' — all 14 remaining audit fixes
-```
-
-### `UpdateBalance` signature (new):
+### `App.View()` new layout logic (written but not yet verified to compile):
 ```go
-func (d *Database) UpdateBalance(walletAddr, mint, symbol, name string, amount, usdPrice, usdValue float64) error
-func (d *Database) UpdateBalanceTx(tx *sql.Tx, walletAddr, mint, symbol, name string, amount, usdPrice, usdValue float64) error
-```
-
-### walletstatus column layout (new):
-```
-Symbol(11%)  Name(18%)  Balance(13%)  Price(12%)  Value(12%)  24h(8%)
-```
-
-### `TokenBalance` struct (new):
-```go
-type TokenBalance struct {
-    Mint      string
-    Symbol    string
-    Name      string  // ← new
-    Amount    float64
-    Decimals  int
-    USDPrice  float64
-    USDValue  float64
-    Change24h float64
+// Extract footer
+var footer string
+if fp, ok := a.currentView.(FooterProvider); ok {
+    footer = fp.Footer()
 }
+// Error overrides footer
+if a.errorShown && a.errorMsg != "" {
+    errStyle := lipgloss.NewStyle().Background(ColorError).Foreground(...).Width(a.innerWidth())
+    footer = errStyle.Render(a.errorMsg)
+}
+// Compose
+style := StyleApp.Width(w).Height(a.innerHeight() + 1)
+inner := lipgloss.JoinVertical(lipgloss.Left,
+    lipgloss.NewStyle().Height(a.innerHeight()).Width(w).Render(content),
+    footerStyle.Render(footer),
+)
+return style.Render(inner)
+```
+
+### `innerHeight()` formula:
+```go
+func (a App) innerHeight() int {
+    h := a.height - 4 - 1  // chrome(4) + footer(1)
+    if h < 5 { return 5 }
+    return h
+}
+```
+
+### `RefreshAllPortfolios()` already exists in `internal/wallet/manager.go`:
+- Calls `db.GetAllWallets()` → iterates → calls `RefreshPortfolio(w.Address)` for each
+- Sequential (not concurrent), best-effort (continues on per-wallet error)
+- Writes results into `m.portfolioCache[address]` under write lock
+
+### `walletstatus.Init()` target state after preloading:
+```go
+func (m Model) Init() tea.Cmd {
+    return tea.Batch(m.spinner.Init(), m.loadPortfolio(), m.scheduleRefresh())
+}
+// loadPortfolio() calls GetCachedPortfolio → cache hit if preload finished → instant
+// scheduleRefresh() fires live refresh every 30s in background
+```
+
+### Views still with inline statusbar (need Footer() migration):
+- `internal/tui/views/receive/receive.go` line 116
+- `internal/tui/views/tokenfetch/tokenfetch.go` lines 111, 166
+
+### Views already migrated to `Footer()`:
+- `walletstatus`, `walletlist`, `history`, `tokenlist`
+
+### `jupiterMetadataAdapter` in `cmd/hound/main.go` (tail of file):
+```go
+type jupiterMetadataAdapter struct { client *dex.JupiterClient }
+func (a jupiterMetadataAdapter) LookupTokenMetadata(mintAddr string) (wallet.TokenMetadata, error) {
+    meta, err := a.client.LookupTokenMetadata(mintAddr)
+    if err != nil { return wallet.TokenMetadata{}, err }
+    return wallet.TokenMetadata{Symbol: meta.Symbol, Name: meta.Name, Decimals: meta.Decimals}, nil
+}
+```
+
+### Commit history (recent):
+```
+86bd0ed fix: keep portfolio visible during background refresh
+82e54ce fix: load portfolio on enter and resolve token names from Jupiter
+43a22f5 feat: add token full name to walletstatus and balances DB
+75f6983 fix: force full repaint on terminal resize with tea.ClearScreen
 ```
 
 ## File Operations
 ### Read
+- `/Users/kakurega/dev/projects/hound/cmd/hound/main.go`
 - `/Users/kakurega/dev/projects/hound/internal/tui/app.go`
-- `/Users/kakurega/dev/projects/hound/internal/models/wallet.go` (offset 75)
-- `/Users/kakurega/dev/projects/hound/internal/wallet/balance.go` (offset 48)
-- `/Users/kakurega/dev/projects/hound/internal/database/database.go` (offset 178, 180)
-- `/Users/kakurega/dev/projects/hound/internal/database/balances.go`
-- `/Users/kakurega/dev/projects/hound/internal/wallet/manager.go` (offset 218)
-- `/Users/kakurega/dev/projects/hound/internal/wallet/manager_test.go` (offset 238)
-- `/Users/kakurega/dev/projects/hound/internal/database/balances_test.go` (offset 30)
-- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletstatus/walletstatus.go` (offset 340)
-- `/Users/kakurega/dev/projects/hound/cmd/hound/main.go` (offset 210)
-- `/Users/kakurega/dev/projects/hound/thoughts/shared/designs/2026-02-23-responsive-tui-design.md`
+- `/Users/kakurega/dev/projects/hound/internal/tui/theme.go`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/history/history.go`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/receive/receive.go`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/tokenfetch/tokenfetch.go`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/tokenlist/tokenlist.go`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletlist/walletlist.go`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletstatus/walletstatus.go`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletstatus/walletstatus_test.go`
+- `/Users/kakurega/dev/projects/hound/internal/wallet/balance.go`
+- `/Users/kakurega/dev/projects/hound/internal/wallet/manager.go`
 
 ### Modified
-- `/Users/kakurega/dev/projects/hound/internal/tui/app.go` — `tea.ClearScreen` on WindowSizeMsg; `innerWidth()`/`innerHeight()` in View()
-- `/Users/kakurega/dev/projects/hound/internal/models/wallet.go` — `Name string` added to `TokenBalance`
-- `/Users/kakurega/dev/projects/hound/internal/wallet/balance.go` — `name` var, `token.Name`, `Name: "Solana"`, `Name: name`
-- `/Users/kakurega/dev/projects/hound/internal/database/database.go` — `name TEXT` in schema + migration
-- `/Users/kakurega/dev/projects/hound/internal/database/balances.go` — `name` param in all 3 functions
-- `/Users/kakurega/dev/projects/hound/internal/wallet/manager.go` — `sol.Name`/`tb.Name` in `UpdateBalanceTx` calls
-- `/Users/kakurega/dev/projects/hound/internal/wallet/manager_test.go` — name args added
-- `/Users/kakurega/dev/projects/hound/internal/database/balances_test.go` — name args added to all call sites
-- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletstatus/walletstatus.go` — 6-column table with Name
+- `/Users/kakurega/dev/projects/hound/internal/tui/app.go` — `FooterProvider` interface, `innerHeight()` -5, `View()` rewritten with `JoinVertical`
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/history/history.go` — statusbar removed from `View()`, `Footer()` added
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/tokenlist/tokenlist.go` — statusbar removed from `View()`, `Footer()` added
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletlist/walletlist.go` — statusbar removed from `View()`, `Footer()` added
+- `/Users/kakurega/dev/projects/hound/internal/tui/views/walletstatus/walletstatus.go` — statusbar removed from `View()`, `Footer()` added; `hasData` field; inline spinner during background refresh
+- `/Users/kakurega/dev/projects/hound/internal/wallet/balance.go` — `MetadataFetcher` interface + `WithMetadataFetcher()` + Jupiter fallback in `ErrTokenNotFound` branch
+- `/Users/kakurega/dev/projects/hound/cmd/hound/main.go` — `jupiterMetadataAdapter` type + wired to `balanceFetcher`

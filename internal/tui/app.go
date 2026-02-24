@@ -17,6 +17,13 @@ import (
 // The data parameter carries context (e.g., wallet address for "wallet-status").
 type ViewFactory func(name string, data interface{}) tea.Model
 
+// FooterProvider is implemented by views that want to render a pinned footer.
+// The App extracts the footer and renders it at the bottom of the screen,
+// separate from the scrollable content area.
+type FooterProvider interface {
+	Footer() string
+}
+
 // errorDismissMsg is sent when the error bar should auto-dismiss.
 type errorDismissMsg struct{}
 
@@ -206,10 +213,12 @@ func (a App) innerWidth() int {
 	return w
 }
 
-// innerHeight returns the usable content height after subtracting App chrome.
+// innerHeight returns the usable content height after subtracting App chrome
+// and the 1-row pinned footer.
 // StyleApp has Padding(1,2) = 2 rows + RoundedBorder = 2 rows = 4 total.
+// An additional 1 row is reserved for the footer bar.
 func (a App) innerHeight() int {
-	h := a.height - 4
+	h := a.height - 4 - 1 // chrome (4) + footer (1)
 	if h < 5 {
 		return 5
 	}
@@ -229,33 +238,54 @@ func (a App) View() string {
 		content = "Hound TUI — Coming soon. Press q to quit."
 	}
 
-	// Overlay error bar at bottom
-	if a.errorShown && a.errorMsg != "" {
-		errStyle := lipgloss.NewStyle().
-			Background(ColorError).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true).
-			Padding(0, 1)
-		content = content + "\n" + errStyle.Render(a.errorMsg)
-	}
-
 	// Overlay help
 	if a.helpVisible {
 		helpContent := renderHelp()
 		content = content + "\n\n" + helpContent
 	}
 
-	// Apply app style with constraints.
-	// Use inner dimensions so content + chrome (padding+border) = terminal size exactly.
-	style := StyleApp
-	if a.width > 0 {
-		style = style.Width(a.innerWidth())
-	}
-	if a.height > 0 {
-		style = style.Height(a.innerHeight())
+	// Extract footer from view if it implements FooterProvider.
+	// The footer is rendered pinned to the bottom of the content area,
+	// separate from the scrollable content.
+	var footer string
+	if fp, ok := a.currentView.(FooterProvider); ok {
+		footer = fp.Footer()
 	}
 
-	return style.Render(content)
+	// Error bar overrides the footer when shown.
+	if a.errorShown && a.errorMsg != "" {
+		errStyle := lipgloss.NewStyle().
+			Background(ColorError).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Bold(true).
+			Padding(0, 1).
+			Width(a.innerWidth())
+		footer = errStyle.Render(a.errorMsg)
+	}
+
+	// Apply app style with constraints.
+	// innerHeight() already reserves 1 row for the footer.
+	style := StyleApp
+	w := a.innerWidth()
+	if a.width > 0 {
+		style = style.Width(w)
+	}
+	if a.height > 0 {
+		// +1 because StyleApp wraps content+footer together; footer row is inside the border.
+		style = style.Height(a.innerHeight() + 1)
+	}
+
+	// Build inner layout: scrollable content area + pinned footer.
+	footerStyle := lipgloss.NewStyle().
+		Foreground(ColorSubtext).
+		Width(w)
+
+	inner := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Height(a.innerHeight()).Width(w).Render(content),
+		footerStyle.Render(footer),
+	)
+
+	return style.Render(inner)
 }
 
 // renderHelp renders a simple help overlay.

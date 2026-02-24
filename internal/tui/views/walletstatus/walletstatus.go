@@ -79,9 +79,10 @@ func New(walletMgr *wallet.WalletManager, address string, db *database.Database)
 	}
 }
 
-// Init starts loading the portfolio with a live network fetch.
+// Init loads the portfolio from cache (populated by the startup preload goroutine)
+// and schedules a background refresh every 30s.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Init(), m.refreshPortfolio(), m.scheduleRefresh())
+	return tea.Batch(m.spinner.Init(), m.loadPortfolio(), m.scheduleRefresh())
 }
 
 func (m Model) loadPortfolio() tea.Cmd {
@@ -430,20 +431,19 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleError.Render("⚠ "+m.err.Error()) + "\n")
 	}
 
-	// Status bar — abbreviated if narrow
+	return b.String()
+}
+
+// Footer implements tui.FooterProvider — returns the pinned status bar text.
+func (m Model) Footer() string {
 	showAllLabel := "[a]ll"
 	if m.showAll {
 		showAllLabel = "[a]ll*"
 	}
 	if m.width > 0 && m.width < 80 {
-		b.WriteString(tui.StyleStatusBar.Render(
-			fmt.Sprintf("[s]end [c]rcv [r]ef [R]en %s [1][2][3] [esc]", showAllLabel)))
-	} else {
-		b.WriteString(tui.StyleStatusBar.Render(
-			fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)))
+		return fmt.Sprintf("[s]end [c]rcv [r]ef [R]en %s [1][2][3] [esc]", showAllLabel)
 	}
-
-	return b.String()
+	return fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)
 }
 
 func truncate(s string, max int) string {

@@ -218,6 +218,10 @@ func runTUI(cmd *cobra.Command, args []string) error {
 
 	factory := makeViewFactory(d)
 	app := tui.NewApp(d.db, d.walletMgr, d.keystoreSvc, d.cfg, factory)
+
+	// Preload all portfolios in the background so walletstatus is instant on first open.
+	go d.walletMgr.RefreshAllPortfolios()
+
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)

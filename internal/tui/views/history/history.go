@@ -281,15 +281,15 @@ func (m Model) View() string {
 		}
 	}
 
-	// Status bar
-	b.WriteString("\n")
-	if m.noMorePages {
-		b.WriteString(tui.StyleStatusBar.Render("[j/k]navigate [esc]back"))
-	} else {
-		b.WriteString(tui.StyleStatusBar.Render("[n]ext page [j/k]navigate [esc]back"))
-	}
-
 	return b.String()
+}
+
+// Footer implements tui.FooterProvider — returns the pinned status bar text.
+func (m Model) Footer() string {
+	if m.noMorePages {
+		return "[j/k]navigate [esc]back"
+	}
+	return "[n]ext page [j/k]navigate [esc]back"
 }
 
 func truncate(s string, max int) string {

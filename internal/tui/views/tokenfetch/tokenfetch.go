@@ -108,7 +108,6 @@ func (m Model) View() string {
 		b.WriteString(title + "\n\n")
 		b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n")
 		b.WriteString("\n")
-		b.WriteString(tui.StyleStatusBar.Render("[esc]back"))
 		return b.String()
 	}
 
@@ -163,9 +162,12 @@ func (m Model) View() string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(tui.StyleStatusBar.Render("[esc]back"))
-
 	return b.String()
+}
+
+// Footer returns the pinned footer keybinding line for the App chrome.
+func (m Model) Footer() string {
+	return "[esc]back"
 }
 
 func truncateAddress(addr string) string {

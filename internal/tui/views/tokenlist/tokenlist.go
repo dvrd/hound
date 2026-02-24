@@ -216,10 +216,12 @@ func (m Model) View() string {
 		}
 	}
 
-	b.WriteString("\n")
-	b.WriteString(tui.StyleStatusBar.Render("[enter]details [a]dd [esc]back"))
-
 	return b.String()
+}
+
+// Footer implements tui.FooterProvider — returns the pinned status bar text.
+func (m Model) Footer() string {
+	return "[enter]details [a]dd [esc]back"
 }
 
 func truncate(s string, max int) string {
