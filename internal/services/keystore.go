@@ -72,6 +72,7 @@ func (s *KeystoreService) ImportKeypair(
 
 	// 9. Extract private key seed (first 32 bytes of ed25519.PrivateKey)
 	seed := kp.PrivateKey.Seed()
+	defer keystore.ZeroBytes(seed) // H5: zero seed after use
 
 	// 10. Encrypt
 	encrypted, err := keystore.Encrypt(seed, aesKey, nonce)
@@ -337,6 +338,7 @@ func (s *KeystoreService) UpdatePassword(
 	}
 
 	seed := kp.PrivateKey.Seed()
+	defer keystore.ZeroBytes(seed) // H5: zero seed after use
 	encrypted, err := keystore.Encrypt(seed, aesKey, nonce)
 	if err != nil {
 		return "", fmt.Errorf("update password: encrypt: %w", err)

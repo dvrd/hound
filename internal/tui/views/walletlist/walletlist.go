@@ -1,6 +1,7 @@
 package walletlist
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -18,6 +19,7 @@ type WalletsLoadedMsg struct {
 	Wallets    []models.Wallet
 	Portfolios map[string]models.PortfolioBalance
 	Err        error
+	PartialErr error // set when some wallets failed to refresh
 }
 
 // Model is the wallet list view.
@@ -32,6 +34,7 @@ type Model struct {
 	loading    bool
 	spinner    components.SpinnerModel
 	err        error
+	partialErr error // set when some wallet refreshes failed
 }
 
 // New creates a new wallet list view.
@@ -86,6 +89,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.wallets = msg.Wallets
 		m.portfolios = msg.Portfolios
+		m.partialErr = msg.PartialErr
 		return m, nil
 
 	case tui.PortfolioRefreshedMsg:
@@ -188,13 +192,20 @@ func (m Model) refreshAll() tea.Cmd {
 		if err != nil {
 			return WalletsLoadedMsg{Err: err}
 		}
+		var failedCount int
 		for _, w := range wallets {
-			p, err := m.walletMgr.RefreshPortfolio(w.Address)
+			p, err := m.walletMgr.RefreshPortfolio(context.Background(), w.Address)
 			if err == nil {
 				portfolios[w.Address] = p
+			} else {
+				failedCount++
 			}
 		}
-		return WalletsLoadedMsg{Wallets: wallets, Portfolios: portfolios}
+		var partialErr error
+		if failedCount > 0 {
+			partialErr = fmt.Errorf("%d wallet(s) could not be refreshed", failedCount)
+		}
+		return WalletsLoadedMsg{Wallets: wallets, Portfolios: portfolios, PartialErr: partialErr}
 	}
 }
 
@@ -213,6 +224,10 @@ func (m Model) View() string {
 	if m.err != nil {
 		b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n")
 		return b.String()
+	}
+
+	if m.partialErr != nil {
+		b.WriteString(tui.StyleWarning.Render("⚠ "+m.partialErr.Error()) + "\n")
 	}
 
 	if len(m.wallets) == 0 {
@@ -268,7 +283,7 @@ func (m Model) View() string {
 				primary = tui.StylePrimaryBadge.Render("* ")
 			}
 
-			addr := TruncateAddress(w.Address)
+			addr := tui.TruncateAddress(w.Address)
 			typeBadge := tui.StyleTypeBadge.Render(w.WalletType.String())
 
 			balance := "$0.00"
@@ -277,7 +292,7 @@ func (m Model) View() string {
 			}
 
 			row := fmt.Sprintf(rowFmt,
-				primary, truncate(w.Label, colLabel), addr, typeBadge, balance)
+				primary, tui.Truncate(w.Label, colLabel), addr, typeBadge, balance)
 
 			if i == m.cursor {
 				b.WriteString(tui.StyleTableRowSelected.Render("> "+row) + "\n")
@@ -310,21 +325,6 @@ func (m Model) Footer() string {
 		return "[i]mp [s]tat [d]el [t]ok [S]end [R]ecv [w]swap [h]ist [r]ef [q]uit"
 	}
 	return "[i]mport [s]tatus [d]elete [t]okens [S]end [R]eceive [w]swap [h]istory [r]efresh [q]uit"
-}
-
-// TruncateAddress shows first 4 + "..." + last 4 chars.
-func TruncateAddress(addr string) string {
-	if len(addr) <= 11 {
-		return addr
-	}
-	return addr[:4] + "..." + addr[len(addr)-4:]
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-1] + "~"
 }
 
 // SelectedWallet returns the currently selected wallet, if any.

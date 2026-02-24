@@ -1,6 +1,7 @@
 package history
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -58,7 +59,7 @@ func (m Model) loadActivity() tea.Cmd {
 			return ActivityLoadedMsg{Err: fmt.Errorf("activity service not available")}
 		}
 
-		items, err := m.activitySvc.GetActivity(m.rpcClient, m.walletAddr, pageSize, m.lastSignature)
+		items, err := m.activitySvc.GetActivity(context.Background(), m.rpcClient, m.walletAddr, pageSize, m.lastSignature)
 		if err != nil {
 			return ActivityLoadedMsg{Err: err}
 		}
@@ -262,7 +263,7 @@ func (m Model) View() string {
 			rowFmt := fmt.Sprintf("%%s %%-%ds %%-%ds %%-%ds", colDesc, colTime, colStatus)
 			row := fmt.Sprintf(rowFmt,
 				icon,
-				truncate(line+counterparty, colDesc),
+				tui.Truncate(line+counterparty, colDesc),
 				tui.StyleMuted.Render(timeStr),
 				statusStr,
 			)
@@ -290,13 +291,6 @@ func (m Model) Footer() string {
 		return "[j/k]navigate [esc]back"
 	}
 	return "[n]ext page [j/k]navigate [esc]back"
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-1] + "~"
 }
 
 // FormatRelativeTime formats a unix timestamp as a relative time string.

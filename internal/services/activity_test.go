@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -227,7 +228,7 @@ func TestTruncateAddress(t *testing.T) {
 func TestActivityGetActivity_Empty(t *testing.T) {
 	// With nil RPC client, GetActivity should fail gracefully
 	svc := NewActivityService(nil)
-	_, err := svc.GetActivity(nil, "addr", 10, "")
+	_, err := svc.GetActivity(context.Background(), nil, "addr", 10, "")
 	if err == nil {
 		t.Error("expected error with nil RPC client")
 	}
@@ -307,7 +308,7 @@ func TestGetActivityParallel(t *testing.T) {
 	client := blockchain.NewRPCClient(server.URL, nil)
 	svc := NewActivityService(nil)
 
-	items, err := svc.GetActivity(client, "testAddr", 10, "")
+	items, err := svc.GetActivity(context.Background(), client, "testAddr", 10, "")
 	if err != nil {
 		t.Fatalf("GetActivity failed: %v", err)
 	}

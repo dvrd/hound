@@ -30,6 +30,12 @@ type SwapClient struct {
 	cacheMu    sync.RWMutex
 }
 
+// HTTPClient returns the underlying HTTP client used by this SwapClient.
+// Callers may reuse it to avoid creating redundant clients for the same host.
+func (c *SwapClient) HTTPClient() *http.Client {
+	return c.httpClient
+}
+
 // NewSwapClient creates a new SwapClient with default settings.
 func NewSwapClient() *SwapClient {
 	return &SwapClient{
@@ -168,9 +174,15 @@ func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string
 		RawResponse:    json.RawMessage(body),
 	}
 
-	// Cache result
+	// Cache result and evict stale entries (H6: prevent unbounded cache growth).
 	c.cacheMu.Lock()
 	c.quoteCache[key] = cachedQuote{quote: quote, fetchedAt: time.Now()}
+	evictThreshold := models.QuoteTTL * 2
+	for k, v := range c.quoteCache {
+		if time.Since(v.fetchedAt) > evictThreshold {
+			delete(c.quoteCache, k)
+		}
+	}
 	c.cacheMu.Unlock()
 
 	return quote, nil

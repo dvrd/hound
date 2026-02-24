@@ -195,8 +195,8 @@ func (m Model) View() string {
 			}
 
 			row := fmt.Sprintf(rowFmt,
-				truncate(tr.Token.Symbol, colSym),
-				truncate(tr.Token.Name, colName),
+				tui.Truncate(tr.Token.Symbol, colSym),
+				tui.Truncate(tr.Token.Name, colName),
 				tr.PoolStats.PoolCount,
 				wallet.FormatLargeNumber(tr.PoolStats.TotalLiquidity),
 				autoDiscovered,
@@ -222,13 +222,6 @@ func (m Model) View() string {
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
 	return "[enter]details [a]dd [esc]back"
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-1] + "~"
 }
 
 // GetCursor returns the current cursor position for testing.

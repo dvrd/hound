@@ -280,7 +280,7 @@ func TestTruncateAddress(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := walletlist.TruncateAddress(tt.addr)
+			got := tui.TruncateAddress(tt.addr)
 			if got != tt.want {
 				t.Errorf("TruncateAddress(%q) = %q, want %q", tt.addr, got, tt.want)
 			}

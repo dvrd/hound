@@ -1,6 +1,7 @@
 package walletstatus
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -69,7 +70,7 @@ type Model struct {
 
 // New creates a new wallet status view.
 func New(walletMgr *wallet.WalletManager, address string, db *database.Database) Model {
-	return Model{
+	m := Model{
 		walletMgr: walletMgr,
 		address:   address,
 		loading:   true,
@@ -77,6 +78,12 @@ func New(walletMgr *wallet.WalletManager, address string, db *database.Database)
 		sortMode:  SortByValue,
 		db:        db,
 	}
+	if db != nil {
+		if w, err := db.GetWalletByAddress(address); err == nil {
+			m.wallet = w
+		}
+	}
+	return m
 }
 
 // Init loads the portfolio from cache (populated by the startup preload goroutine)
@@ -104,7 +111,7 @@ func (m Model) refreshPortfolio() tea.Cmd {
 		if m.walletMgr == nil {
 			return tui.PortfolioRefreshedMsg{Err: fmt.Errorf("wallet manager not available")}
 		}
-		portfolio, err := m.walletMgr.RefreshPortfolio(m.address)
+		portfolio, err := m.walletMgr.RefreshPortfolio(context.Background(), m.address)
 		return tui.PortfolioRefreshedMsg{Portfolio: portfolio, Err: err}
 	}
 }
@@ -129,20 +136,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err != nil {
 			m.err = msg.Err
 			// Keep existing portfolio visible on error — don't wipe data.
-			return m, nil
+			// H1: Reschedule even on error so we keep trying.
+			return m, m.scheduleRefresh()
 		}
 		m.portfolio = msg.Portfolio
 		m.hasData = true
 		m.err = nil
 		m.lastRefresh = time.Now()
-		return m, nil
+		// H1: Reschedule next refresh only after this one completes (one-shot timer).
+		return m, m.scheduleRefresh()
 
 	case autoRefreshTickMsg:
+		// H1: Tick fires once; start refresh but do NOT reschedule here.
+		// The next tick is scheduled inside PortfolioRefreshedMsg.
 		if !m.loading {
 			m.loading = true
 			m.spinner = components.NewSpinner("Refreshing...")
-			return m, tea.Batch(m.spinner.Init(), m.refreshPortfolio(), m.scheduleRefresh())
+			return m, tea.Batch(m.spinner.Init(), m.refreshPortfolio())
 		}
+		// Already loading — reschedule so we don't lose the timer entirely.
 		return m, m.scheduleRefresh()
 
 	case tea.WindowSizeMsg:
@@ -302,10 +314,7 @@ func (m Model) View() string {
 	title := tui.StyleTitle.Render("Wallet Status")
 	b.WriteString(title + "\n")
 
-	addrDisplay := m.address
-	if len(addrDisplay) > 11 {
-		addrDisplay = addrDisplay[:4] + "..." + addrDisplay[len(addrDisplay)-4:]
-	}
+	addrDisplay := tui.TruncateAddress(m.address)
 	b.WriteString(tui.StyleSubtitle.Render(addrDisplay) + "\n\n")
 
 	// Rename overlay
@@ -393,8 +402,8 @@ func (m Model) View() string {
 		for i := startIdx; i < endIdx; i++ {
 			t := tokens[i]
 			row := fmt.Sprintf(rowFmt,
-				truncate(t.Symbol, colSym),
-				truncate(t.Name, colName),
+				tui.Truncate(t.Symbol, colSym),
+				tui.Truncate(t.Name, colName),
 				wallet.FormatBalance(t.Amount),
 				wallet.FormatPrice(t.USDPrice),
 				wallet.FormatPrice(t.USDValue),
@@ -444,13 +453,6 @@ func (m Model) Footer() string {
 		return fmt.Sprintf("[s]end [c]rcv [r]ef [R]en %s [1][2][3] [esc]", showAllLabel)
 	}
 	return fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)
-}
-
-func truncate(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max-1] + "~"
 }
 
 // SetSize updates the view dimensions.

@@ -75,6 +75,7 @@ type Model struct {
 	signature      string
 	confirmed      bool
 	confirmErr     error
+	confirmCancel  context.CancelFunc // H7: cancel in-flight confirmation on esc
 	confirmSpinner components.SpinnerModel
 	spinner        components.SpinnerModel
 	err            error
@@ -156,7 +157,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.signature = msg.Signature
 		m.step = StepConfirming
 		m.confirmSpinner = components.NewSpinner("Confirming transaction...")
-		return m, tea.Batch(m.confirmSpinner.Init(), m.doConfirmation())
+		confirmCtx, cancel := context.WithCancel(context.Background())
+		m.confirmCancel = cancel
+		return m, tea.Batch(m.confirmSpinner.Init(), m.doConfirmation(confirmCtx))
 
 	case tui.TransferConfirmedMsg:
 		m.confirmed = msg.Confirmed
@@ -170,6 +173,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.step == StepSelectToken {
 				// M6: Clear all sensitive state on exit
 				m.passwordInput.Reset()
+				return m, func() tea.Msg { return tui.NavigateBackMsg{} }
+			}
+			if m.step == StepConfirming {
+				// H7: Cancel in-flight confirmation goroutine
+				if m.confirmCancel != nil {
+					m.confirmCancel()
+					m.confirmCancel = nil
+				}
 				return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 			}
 			if m.step > StepSelectToken && m.step < StepSending {
@@ -245,7 +256,7 @@ func (m Model) updateSelectToken(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.selectedToken = m.tokens[m.tokenCursor]
-		m.isSOL = m.selectedToken.Symbol == "SOL"
+		m.isSOL = m.selectedToken.Mint == blockchain.SOLMint // M4: use mint address, not symbol
 		m.err = nil
 		m.step = StepRecipient
 		m.recipientInput.Focus()
@@ -395,7 +406,7 @@ func (m Model) doTransfer(password string) tea.Cmd {
 	}
 }
 
-func (m Model) doConfirmation() tea.Cmd {
+func (m Model) doConfirmation(ctx context.Context) tea.Cmd {
 	return func() tea.Msg {
 		if m.rpcClient == nil {
 			return tui.TransferConfirmedMsg{
@@ -404,7 +415,6 @@ func (m Model) doConfirmation() tea.Cmd {
 				Err:       fmt.Errorf("RPC client not available"),
 			}
 		}
-		ctx := context.Background()
 		err := services.AwaitConfirmation(ctx, m.rpcClient, m.signature, 30*time.Second)
 		if err != nil {
 			return tui.TransferConfirmedMsg{
@@ -458,14 +468,6 @@ func (m Model) formatAmount(baseUnits uint64) string {
 	return fmt.Sprintf("%g %s", amount, m.selectedToken.Symbol)
 }
 
-// truncateAddr shows first 4 and last 4 characters of an address.
-func truncateAddr(addr string) string {
-	if len(addr) <= 8 {
-		return addr
-	}
-	return addr[:4] + "..." + addr[len(addr)-4:]
-}
-
 // View renders the send wizard.
 func (m Model) View() string {
 	var b strings.Builder
@@ -511,7 +513,7 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleMuted.Render("Press Enter to continue, Esc to go back"))
 
 	case StepAmount:
-		b.WriteString(fmt.Sprintf("Sending %s to %s\n\n", tui.StyleBold.Render(m.selectedToken.Symbol), truncateAddr(m.recipient)))
+		b.WriteString(fmt.Sprintf("Sending %s to %s\n\n", tui.StyleBold.Render(m.selectedToken.Symbol), tui.TruncateAddress(m.recipient)))
 		b.WriteString(fmt.Sprintf("Available: %g %s\n\n", m.selectedToken.Amount, m.selectedToken.Symbol))
 		b.WriteString("Enter amount (or MAX):\n\n")
 		b.WriteString(m.amountInput.View() + "\n\n")
@@ -521,7 +523,7 @@ func (m Model) View() string {
 		b.WriteString("Review Transaction\n\n")
 		b.WriteString(fmt.Sprintf("  Token:     %s\n", tui.StyleBold.Render(m.selectedToken.Symbol)))
 		b.WriteString(fmt.Sprintf("  Amount:    %s\n", tui.StyleBold.Render(m.amountDisplay+" "+m.selectedToken.Symbol)))
-		b.WriteString(fmt.Sprintf("  To:        %s\n", tui.StyleBold.Render(truncateAddr(m.recipient))))
+		b.WriteString(fmt.Sprintf("  To:        %s\n", tui.StyleBold.Render(tui.TruncateAddress(m.recipient))))
 		b.WriteString(fmt.Sprintf("  Fee:       %s\n", tui.StyleMuted.Render(fmt.Sprintf("~%g SOL", float64(m.estimatedFee)/1e9))))
 		b.WriteString("\n" + tui.StyleMuted.Render("Press Enter to confirm, Esc to go back"))
 
@@ -535,7 +537,7 @@ func (m Model) View() string {
 
 	case StepConfirming:
 		b.WriteString(m.confirmSpinner.View() + "\n\n")
-		b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("Signature: %s", truncateAddr(m.signature))) + "\n")
+		b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("Signature: %s", tui.TruncateAddress(m.signature))) + "\n")
 
 	case StepResult:
 		if m.err != nil {

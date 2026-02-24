@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -96,7 +97,9 @@ func initDeps() (*deps, error) {
 	jupiterClient := dex.NewJupiterClient()
 	dexscreenerClient := dex.NewDexScreenerClient()
 	router := dex.NewRouter(rpcClient, jupiterClient)
-	balanceFetcher := wallet.NewBalanceFetcher(rpcClient, router, db).
+	// H2: Use PriceService (implements FetchMultiplePrices for batch fetching) instead of router directly.
+	priceSvc := services.NewPriceService(router, dexscreenerClient, jupiterClient)
+	balanceFetcher := wallet.NewBalanceFetcher(rpcClient, priceSvc, db).
 		WithMetadataFetcher(jupiterMetadataAdapter{jupiterClient})
 	walletMgr := wallet.NewWalletManager(db, balanceFetcher)
 	keystoreSvc := &services.KeystoreService{}
@@ -220,7 +223,10 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	app := tui.NewApp(d.db, d.walletMgr, d.keystoreSvc, d.cfg, factory)
 
 	// Preload all portfolios in the background so walletstatus is instant on first open.
-	go d.walletMgr.RefreshAllPortfolios()
+	// Cancel the goroutine if the TUI exits before it finishes.
+	preloadCtx, cancelPreload := context.WithCancel(context.Background())
+	defer cancelPreload()
+	go d.walletMgr.RefreshAllPortfolios(preloadCtx) //nolint:errcheck
 
 	p := tea.NewProgram(app, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
@@ -355,7 +361,7 @@ func runWalletStatusJSON(identifier string) error {
 		os.Exit(1)
 	}
 
-	portfolio, err := d.walletMgr.RefreshPortfolio(w.Address)
+	portfolio, err := d.walletMgr.RefreshPortfolio(context.Background(), w.Address)
 	if err != nil {
 		// Fall back to cached
 		portfolio, err = d.walletMgr.GetCachedPortfolio(w.Address)

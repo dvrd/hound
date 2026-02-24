@@ -274,6 +274,7 @@ func (m Model) updateReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updatePassword(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "enter" {
 		pw := m.passwordInput.Value()
+		m.passwordInput.Reset() // H3: zero password buffer immediately after extraction
 		if pw == "" {
 			m.err = fmt.Errorf("password is required")
 			return m, nil

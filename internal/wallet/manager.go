@@ -1,6 +1,7 @@
 package wallet
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -37,7 +38,7 @@ func (m *WalletManager) GetPrimaryWallet() (models.Wallet, error) {
 }
 
 // RefreshPortfolio fetches live balances and caches the result.
-func (m *WalletManager) RefreshPortfolio(address string) (models.PortfolioBalance, error) {
+func (m *WalletManager) RefreshPortfolio(ctx context.Context, address string) (models.PortfolioBalance, error) {
 	if m.balanceFetcher == nil {
 		return models.PortfolioBalance{}, fmt.Errorf("balance fetcher not configured")
 	}
@@ -55,7 +56,7 @@ func (m *WalletManager) RefreshPortfolio(address string) (models.PortfolioBalanc
 }
 
 // RefreshAllPortfolios refreshes all wallets (best-effort: continues on failure).
-func (m *WalletManager) RefreshAllPortfolios() (map[string]models.PortfolioBalance, error) {
+func (m *WalletManager) RefreshAllPortfolios(ctx context.Context) (map[string]models.PortfolioBalance, error) {
 	wallets, err := m.db.GetAllWallets()
 	if err != nil {
 		return nil, fmt.Errorf("listing wallets: %w", err)
@@ -65,7 +66,10 @@ func (m *WalletManager) RefreshAllPortfolios() (map[string]models.PortfolioBalan
 	var lastErr error
 
 	for _, w := range wallets {
-		portfolio, err := m.RefreshPortfolio(w.Address)
+		if ctx.Err() != nil {
+			break // context cancelled — stop early
+		}
+		portfolio, err := m.RefreshPortfolio(ctx, w.Address)
 		if err != nil {
 			lastErr = err
 			continue
@@ -217,13 +221,13 @@ func (m *WalletManager) PersistPortfolio(portfolio models.PortfolioBalance) erro
 	if err != nil {
 		return fmt.Errorf("persisting portfolio: begin tx: %w", err)
 	}
+	defer tx.Rollback() // no-op after Commit; guards against early returns
 
 	// Save SOL balance
 	sol := portfolio.SOLBalance
 	if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, sol.Mint, sol.Symbol, sol.Name,
 		sol.Amount, sol.USDPrice, sol.USDValue,
 	); err != nil {
-		tx.Rollback()
 		return fmt.Errorf("persisting SOL balance: %w", err)
 	}
 
@@ -232,7 +236,6 @@ func (m *WalletManager) PersistPortfolio(portfolio models.PortfolioBalance) erro
 		if err := m.db.UpdateBalanceTx(tx, portfolio.WalletAddress, tb.Mint, tb.Symbol, tb.Name,
 			tb.Amount, tb.USDPrice, tb.USDValue,
 		); err != nil {
-			tx.Rollback()
 			return fmt.Errorf("persisting balance for %s: %w", tb.Symbol, err)
 		}
 	}

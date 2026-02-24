@@ -15,6 +15,8 @@ import (
 // This decouples the balance fetcher from the specific DEX/pricing implementation.
 type PriceFetcher interface {
 	FetchPrice(token models.Token) (models.PriceData, error)
+	// FetchMultiplePrices fetches prices for multiple tokens concurrently (best-effort).
+	FetchMultiplePrices(tokens []models.Token) map[string]models.PriceData
 }
 
 // TokenMetadata holds minimal metadata for an unknown token resolved from an external source.
@@ -87,59 +89,56 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 		return models.PortfolioBalance{}, fmt.Errorf("fetching token accounts: %w", err)
 	}
 
-	// 6. Process each token account
-	var tokenBalances []models.TokenBalance
+	// 6. Process each token account — resolve metadata, then batch-fetch prices.
+	type pendingToken struct {
+		ta       blockchain.TokenAccount
+		token    models.Token
+		symbol   string
+		name     string
+		decimals int
+		hasToken bool // true if found in DB (eligible for price fetch)
+	}
+
+	var pending []pendingToken
 	for _, ta := range tokenAccounts {
 		if ta.Amount == 0 {
 			continue
 		}
 
-		var symbol string
-		var name string
-		var usdPrice float64
-		var change24h float64
-		decimals := ta.Decimals
+		pt := pendingToken{ta: ta, decimals: ta.Decimals}
 
-		// Try to look up token in DB
 		token, err := f.db.GetTokenByContractAddress(ta.Mint)
 		if err == nil {
-			symbol = token.Symbol
-			name = token.Name
-			decimals = models.GetTokenDecimals(token)
-
-			// Fetch price via price fetcher
-			if f.priceFetcher != nil {
-				priceData, priceErr := f.priceFetcher.FetchPrice(token)
-				if priceErr == nil {
-					usdPrice = priceData.PriceUSD
-					change24h = priceData.Change24h
-				}
-			}
+			pt.symbol = token.Symbol
+			pt.name = token.Name
+			pt.decimals = models.GetTokenDecimals(token)
+			pt.token = token
+			pt.hasToken = true
 		} else if errors.Is(err, models.ErrTokenNotFound) {
 			// Unknown token: try to resolve metadata from external source (e.g. Jupiter).
 			if f.metadataFetcher != nil {
 				if meta, metaErr := f.metadataFetcher.LookupTokenMetadata(ta.Mint); metaErr == nil {
-					symbol = meta.Symbol
-					name = meta.Name
+					pt.symbol = meta.Symbol
+					pt.name = meta.Name
 					if meta.Decimals > 0 {
-						decimals = meta.Decimals
+						pt.decimals = meta.Decimals
 					}
 					// Cache in DB so subsequent fetches skip the network call.
 					_ = f.db.InsertToken(models.Token{
-						Symbol:          symbol,
-						Name:            name,
+						Symbol:          pt.symbol,
+						Name:            pt.name,
 						ContractAddress: ta.Mint,
 						Chain:           "solana",
-						Decimals:        decimals,
+						Decimals:        pt.decimals,
 					})
 				}
 			}
 			// Fall back to truncated mint if metadata is still unknown.
-			if symbol == "" {
+			if pt.symbol == "" {
 				if len(ta.Mint) >= 8 {
-					symbol = ta.Mint[:4] + "..." + ta.Mint[len(ta.Mint)-4:]
+					pt.symbol = ta.Mint[:4] + "..." + ta.Mint[len(ta.Mint)-4:]
 				} else {
-					symbol = ta.Mint
+					pt.symbol = ta.Mint
 				}
 			}
 		} else {
@@ -147,16 +146,43 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 			continue
 		}
 
-		amount := ta.UIAmount
+		pending = append(pending, pt)
+	}
+
+	// H2: Batch-fetch prices for all known tokens in one concurrent call.
+	var priceMap map[string]models.PriceData
+	if f.priceFetcher != nil && len(pending) > 0 {
+		var tokensToPrice []models.Token
+		for _, pt := range pending {
+			if pt.hasToken {
+				tokensToPrice = append(tokensToPrice, pt.token)
+			}
+		}
+		if len(tokensToPrice) > 0 {
+			priceMap = f.priceFetcher.FetchMultiplePrices(tokensToPrice)
+		}
+	}
+
+	var tokenBalances []models.TokenBalance
+	for _, pt := range pending {
+		var usdPrice, change24h float64
+		if priceMap != nil {
+			if pd, ok := priceMap[pt.symbol]; ok {
+				usdPrice = pd.PriceUSD
+				change24h = pd.Change24h
+			}
+		}
+
+		amount := pt.ta.UIAmount
 		usdValue := amount * usdPrice
 		totalUSD += usdValue
 
 		tokenBalances = append(tokenBalances, models.TokenBalance{
-			Mint:      ta.Mint,
-			Symbol:    symbol,
-			Name:      name,
+			Mint:      pt.ta.Mint,
+			Symbol:    pt.symbol,
+			Name:      pt.name,
 			Amount:    amount,
-			Decimals:  decimals,
+			Decimals:  pt.decimals,
 			USDPrice:  usdPrice,
 			USDValue:  usdValue,
 			Change24h: change24h,

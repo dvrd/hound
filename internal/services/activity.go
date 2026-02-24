@@ -37,12 +37,10 @@ func NewActivityService(db *database.Database) *ActivityService {
 }
 
 // GetActivity fetches on-chain activity for an address and merges with local swap history.
-func (s *ActivityService) GetActivity(rpcClient *blockchain.RPCClient, address string, limit int, before string) ([]ActivityItem, error) {
+func (s *ActivityService) GetActivity(ctx context.Context, rpcClient *blockchain.RPCClient, address string, limit int, before string) ([]ActivityItem, error) {
 	if rpcClient == nil {
 		return nil, fmt.Errorf("get activity: RPC client is nil")
 	}
-
-	ctx := context.Background()
 
 	// 1. Fetch signatures
 	sigs, err := blockchain.GetSignaturesForAddress(ctx, rpcClient, address, limit, before)

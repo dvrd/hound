@@ -152,7 +152,7 @@ func (m Model) View() string {
 	if len(info.TopHolders) > 0 {
 		b.WriteString(tui.StyleBold.Render("Top Holders") + "\n")
 		for _, h := range info.TopHolders {
-			addr := truncateAddress(h.Address)
+			addr := tui.TruncateAddress(h.Address)
 			b.WriteString(fmt.Sprintf("  %s  %s  %.2f%%\n",
 				addr,
 				wallet.FormatBalance(h.Balance),
@@ -168,13 +168,6 @@ func (m Model) View() string {
 // Footer returns the pinned footer keybinding line for the App chrome.
 func (m Model) Footer() string {
 	return "[esc]back"
-}
-
-func truncateAddress(addr string) string {
-	if len(addr) <= 11 {
-		return addr
-	}
-	return addr[:4] + "..." + addr[len(addr)-4:]
 }
 
 // GetInfo returns the loaded token info for testing.

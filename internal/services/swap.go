@@ -3,7 +3,6 @@ package services
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/dvrd/hound/internal/database"
@@ -65,9 +64,8 @@ func (s *SwapService) ExecuteSwap(quote models.SwapQuote, walletAddr string, pas
 		return models.SwapTransactionResult{}, fmt.Errorf("execute swap: %w", err)
 	}
 
-	// Submit transaction
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	result, err := swap.SubmitTransaction(httpClient, "https://lite-api.jup.ag", signedTx, rawResp.RequestID)
+	// Submit transaction — reuse the SwapClient's HTTP client (already configured with timeouts).
+	result, err := swap.SubmitTransaction(s.swapClient.HTTPClient(), "https://lite-api.jup.ag", signedTx, rawResp.RequestID)
 	if err != nil {
 		// Save failed swap to history
 		s.saveHistory(quote, walletAddr, result)
