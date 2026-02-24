@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hound — Solana Terminal Wallet</title>
+  <meta name="description" content="A terminal-native Solana wallet. Track portfolios, swap tokens, and manage wallets — all from your command line." />
+  <meta property="og:title" content="Hound — Solana Terminal Wallet" />
+  <meta property="og:description" content="Track portfolios, swap tokens, manage wallets. Terminal-native, Phantom-compatible." />
+  <meta property="og:image" content="./demo.gif" />
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+  <link href="https://api.fontshare.com/v2/css?f[]=neue-machina@700,800&display=swap" rel="stylesheet" />
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700&display=swap" rel="stylesheet" />
+
+  <style>
+    /* ─── Design Tokens ─────────────────────────────────────────────────── */
+    :root {
+      --bg:           #030712;
+      --bg-2:         #0a0f1e;
+      --bg-3:         #0f1629;
+      --surface:      rgba(255,255,255,0.03);
+      --surface-hover:rgba(255,255,255,0.06);
+      --border:       rgba(255,255,255,0.07);
+      --border-glow:  rgba(124,58,237,0.4);
+
+      --purple:       #7C3AED;
+      --purple-light: #9d5ff5;
+      --purple-dim:   rgba(124,58,237,0.15);
+      --cyan:         #06B6D4;
+      --cyan-dim:     rgba(6,182,212,0.12);
+      --green:        #10B981;
+      --amber:        #F59E0B;
+
+      --text-1:       #f0f4ff;
+      --text-2:       #8892a4;
+      --text-3:       #4a5568;
+
+      --font-display: 'Neue Machina', 'Space Grotesk', monospace;
+      --font-body:    'Satoshi', 'Inter', sans-serif;
+      --font-mono:    'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+
+      --radius-sm:    6px;
+      --radius-md:    12px;
+      --radius-lg:    20px;
+
+      --transition:   0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      --transition-slow: 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    /* ─── Reset ─────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      background: var(--bg);
+      color: var(--text-1);
+      font-family: var(--font-body);
+      font-size: 16px;
+      line-height: 1.6;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-decoration: none; }
+    img { display: block; max-width: 100%; }
+    button { cursor: pointer; font-family: inherit; border: none; background: none; }
+
+    /* ─── Grain Texture Overlay ─────────────────────────────────────────── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.35;
+    }
+
+    /* ─── Mesh Gradient Background ──────────────────────────────────────── */
+    .mesh-bg {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      overflow: hidden;
+    }
+    .mesh-bg::before {
+      content: '';
+      position: absolute;
+      width: 800px;
+      height: 800px;
+      top: -200px;
+      left: -100px;
+      background: radial-gradient(circle, rgba(124,58,237,0.18) 0%, transparent 70%);
+      animation: aurora-1 12s ease-in-out infinite alternate;
+    }
+    .mesh-bg::after {
+      content: '';
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      bottom: 0;
+      right: -100px;
+      background: radial-gradient(circle, rgba(6,182,212,0.12) 0%, transparent 70%);
+      animation: aurora-2 15s ease-in-out infinite alternate;
+    }
+    @keyframes aurora-1 {
+      0%   { transform: translate(0, 0) scale(1); }
+      50%  { transform: translate(120px, 80px) scale(1.15); }
+      100% { transform: translate(40px, 160px) scale(0.95); }
+    }
+    @keyframes aurora-2 {
+      0%   { transform: translate(0, 0) scale(1); }
+      50%  { transform: translate(-80px, -60px) scale(1.2); }
+      100% { transform: translate(-160px, 40px) scale(0.9); }
+    }
+
+    /* ─── Layout ────────────────────────────────────────────────────────── */
+    .wrapper {
+      position: relative;
+      z-index: 1;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* ─── Nav ───────────────────────────────────────────────────────────── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 20px 0;
+      border-bottom: 1px solid transparent;
+      transition: background var(--transition), border-color var(--transition), backdrop-filter var(--transition);
+    }
+    nav.scrolled {
+      background: rgba(3,7,18,0.85);
+      border-color: var(--border);
+      backdrop-filter: blur(16px);
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .nav-logo {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-1);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .nav-logo .logo-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--purple);
+      box-shadow: 0 0 12px var(--purple);
+      animation: pulse-dot 2s ease-in-out infinite;
+    }
+    @keyframes pulse-dot {
+      0%, 100% { box-shadow: 0 0 8px var(--purple); }
+      50%       { box-shadow: 0 0 20px var(--purple), 0 0 40px rgba(124,58,237,0.3); }
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+    .nav-links a {
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text-2);
+      transition: color var(--transition);
+    }
+    .nav-links a:hover { color: var(--text-1); }
+    .nav-cta {
+      font-size: 14px;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      padding: 8px 20px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border-glow);
+      color: var(--purple-light);
+      transition: background var(--transition), box-shadow var(--transition);
+    }
+    .nav-cta:hover {
+      background: var(--purple-dim);
+      box-shadow: 0 0 20px rgba(124,58,237,0.2);
+    }
+    .nav-cta:focus-visible {
+      outline: 2px solid var(--purple);
+      outline-offset: 3px;
+    }
+
+    /* ─── Hero ──────────────────────────────────────────────────────────── */
+    .hero {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      gap: 80px;
+      padding: 140px 0 100px;
+      position: relative;
+    }
+    .hero::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: -24px;
+      right: -24px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--border), transparent);
+    }
+
+    /* Diagonal clip accent */
+    .hero-visual {
+      position: relative;
+    }
+    .hero-visual::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border-radius: var(--radius-lg);
+      background: linear-gradient(135deg, var(--purple), var(--cyan));
+      z-index: -1;
+      opacity: 0.5;
+      filter: blur(1px);
+    }
+    .terminal-window {
+      background: #0d1117;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow:
+        0 0 0 1px rgba(124,58,237,0.2),
+        0 40px 80px rgba(0,0,0,0.6),
+        0 0 60px rgba(124,58,237,0.08);
+    }
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 18px;
+      background: #161b22;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+    .terminal-dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+    }
+    .terminal-dot:nth-child(1) { background: #ff5f57; }
+    .terminal-dot:nth-child(2) { background: #febc2e; }
+    .terminal-dot:nth-child(3) { background: #28c840; }
+    .terminal-title {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-3);
+      letter-spacing: 0.05em;
+    }
+    .terminal-body {
+      padding: 0;
+      line-height: 0;
+    }
+    .terminal-body img {
+      width: 100%;
+      border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+    }
+
+    /* Hero Text */
+    .hero-text {
+      max-width: 560px;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 100px;
+      border: 1px solid var(--border-glow);
+      background: var(--purple-dim);
+      font-size: 12px;
+      font-family: var(--font-mono);
+      color: var(--purple-light);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 28px;
+    }
+    .hero-badge::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--cyan);
+      box-shadow: 0 0 8px var(--cyan);
+    }
+    .hero-headline {
+      font-family: var(--font-display);
+      font-size: clamp(44px, 5.5vw, 72px);
+      font-weight: 800;
+      line-height: 1.05;
+      letter-spacing: -0.03em;
+      color: var(--text-1);
+      margin-bottom: 24px;
+    }
+    .hero-headline .accent-purple { color: var(--purple-light); }
+    .hero-headline .accent-cyan   { color: var(--cyan); }
+
+    /* Cursor blink on headline */
+    .hero-headline .cursor {
+      display: inline-block;
+      width: 4px;
+      height: 0.85em;
+      background: var(--cyan);
+      margin-left: 4px;
+      vertical-align: middle;
+      animation: cursor-blink 1.1s step-end infinite;
+    }
+    @keyframes cursor-blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+
+    .hero-sub {
+      font-size: 18px;
+      color: var(--text-2);
+      line-height: 1.7;
+      margin-bottom: 40px;
+      max-width: 440px;
+    }
+    .hero-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 28px;
+      border-radius: var(--radius-sm);
+      background: var(--purple);
+      color: #fff;
+      font-size: 15px;
+      font-weight: 700;
+      transition: background var(--transition), box-shadow var(--transition), transform var(--transition);
+      box-shadow: 0 0 0 0 rgba(124,58,237,0.4);
+    }
+    .btn-primary:hover {
+      background: var(--purple-light);
+      box-shadow: 0 0 30px rgba(124,58,237,0.4);
+      transform: translateY(-1px);
+    }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 24px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-size: 15px;
+      font-weight: 500;
+      transition: border-color var(--transition), color var(--transition), background var(--transition);
+    }
+    .btn-ghost:hover {
+      border-color: rgba(255,255,255,0.2);
+      color: var(--text-1);
+      background: var(--surface-hover);
+    }
+    .btn-ghost:focus-visible { outline: 2px solid var(--purple); outline-offset: 3px; }
+
+    /* ─── Stats Bar ─────────────────────────────────────────────────────── */
+    .stats-bar {
+      padding: 60px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .stats-inner {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+    .stat-item {
+      padding: 32px 28px;
+      background: var(--bg);
+      transition: background var(--transition);
+    }
+    .stat-item:hover { background: var(--surface); }
+    .stat-value {
+      font-family: var(--font-display);
+      font-size: 36px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-1);
+      margin-bottom: 4px;
+    }
+    .stat-value span { color: var(--purple-light); }
+    .stat-label {
+      font-size: 13px;
+      color: var(--text-3);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* ─── Features ──────────────────────────────────────────────────────── */
+    .features {
+      padding: 120px 0;
+    }
+    .section-label {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--cyan);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 16px;
+    }
+    .section-title {
+      font-family: var(--font-display);
+      font-size: clamp(32px, 4vw, 52px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      color: var(--text-1);
+      margin-bottom: 16px;
+    }
+    .section-sub {
+      font-size: 17px;
+      color: var(--text-2);
+      max-width: 480px;
+      line-height: 1.7;
+      margin-bottom: 64px;
+    }
+
+    /* Asymmetric feature grid */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      grid-template-rows: auto;
+      gap: 16px;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 32px;
+      transition: border-color var(--transition), background var(--transition), transform var(--transition-slow);
+      position: relative;
+      overflow: hidden;
+    }
+    .feature-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity var(--transition-slow);
+    }
+    .feature-card:hover {
+      border-color: var(--border-glow);
+      background: var(--surface-hover);
+      transform: translateY(-2px);
+    }
+    .feature-card:hover::before { opacity: 1; }
+
+    /* Purple glow card */
+    .feature-card.glow-purple::before {
+      background: radial-gradient(circle at top left, rgba(124,58,237,0.08), transparent 60%);
+    }
+    .feature-card.glow-purple:hover { border-color: rgba(124,58,237,0.4); }
+
+    /* Cyan glow card */
+    .feature-card.glow-cyan::before {
+      background: radial-gradient(circle at top right, rgba(6,182,212,0.08), transparent 60%);
+    }
+    .feature-card.glow-cyan:hover { border-color: rgba(6,182,212,0.35); }
+
+    /* Green glow card */
+    .feature-card.glow-green::before {
+      background: radial-gradient(circle at bottom left, rgba(16,185,129,0.08), transparent 60%);
+    }
+    .feature-card.glow-green:hover { border-color: rgba(16,185,129,0.35); }
+
+    /* Grid placement — asymmetric layout */
+    .feature-card:nth-child(1) { grid-column: 1 / 6; }
+    .feature-card:nth-child(2) { grid-column: 6 / 13; }
+    .feature-card:nth-child(3) { grid-column: 1 / 5; }
+    .feature-card:nth-child(4) { grid-column: 5 / 9; }
+    .feature-card:nth-child(5) { grid-column: 9 / 13; }
+
+    .feature-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-sm);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      margin-bottom: 20px;
+    }
+    .feature-icon.purple { background: var(--purple-dim); }
+    .feature-icon.cyan   { background: var(--cyan-dim); }
+    .feature-icon.green  { background: rgba(16,185,129,0.12); }
+    .feature-icon.amber  { background: rgba(245,158,11,0.12); }
+
+    .feature-title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-1);
+      margin-bottom: 10px;
+    }
+    .feature-desc {
+      font-size: 15px;
+      color: var(--text-2);
+      line-height: 1.65;
+    }
+    .feature-tag {
+      display: inline-block;
+      margin-top: 16px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 100px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-3);
+      letter-spacing: 0.05em;
+    }
+
+    /* ─── Install Section ───────────────────────────────────────────────── */
+    .install {
+      padding: 100px 0;
+      border-top: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+    }
+    .install-inner {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+    .install-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+    .install-step {
+      display: flex;
+      gap: 20px;
+      position: relative;
+    }
+    .install-step:not(:last-child)::after {
+      content: '';
+      position: absolute;
+      left: 15px;
+      top: 36px;
+      bottom: -8px;
+      width: 1px;
+      background: linear-gradient(to bottom, var(--border-glow), transparent);
+    }
+    .step-num {
+      flex-shrink: 0;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      border: 1px solid var(--border-glow);
+      background: var(--purple-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--purple-light);
+      margin-top: 2px;
+    }
+    .step-content {
+      padding-bottom: 36px;
+    }
+    .step-title {
+      font-weight: 600;
+      font-size: 15px;
+      color: var(--text-1);
+      margin-bottom: 6px;
+    }
+    .step-desc {
+      font-size: 14px;
+      color: var(--text-2);
+    }
+
+    /* Code block */
+    .code-block-wrap {
+      position: relative;
+    }
+    .code-block {
+      background: #0d1117;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: 0 0 40px rgba(124,58,237,0.08);
+      transition: border-color var(--transition), box-shadow var(--transition);
+    }
+    .code-block:hover {
+      border-color: var(--border-glow);
+      box-shadow: 0 0 60px rgba(124,58,237,0.15);
+    }
+    .code-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      background: #161b22;
+    }
+    .code-lang {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .copy-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-3);
+      padding: 4px 10px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      transition: color var(--transition), border-color var(--transition), background var(--transition);
+    }
+    .copy-btn:hover {
+      color: var(--text-1);
+      border-color: rgba(255,255,255,0.15);
+      background: var(--surface);
+    }
+    .copy-btn:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
+    .copy-btn.copied { color: var(--green); border-color: rgba(16,185,129,0.3); }
+    .code-body {
+      padding: 24px 20px;
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      line-height: 1.9;
+      overflow-x: auto;
+    }
+    .code-line { display: flex; align-items: flex-start; gap: 12px; }
+    .code-prompt { color: var(--purple-light); user-select: none; flex-shrink: 0; }
+    .code-cmd    { color: #e6edf3; }
+    .code-comment { color: var(--text-3); font-style: italic; }
+
+    /* ─── Compatibility ─────────────────────────────────────────────────── */
+    .compat {
+      padding: 80px 0;
+    }
+    .compat-inner {
+      text-align: center;
+    }
+    .compat-label {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-3);
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 40px;
+    }
+    .compat-logos {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 48px;
+      flex-wrap: wrap;
+    }
+    .compat-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-2);
+      transition: color var(--transition);
+    }
+    .compat-item:hover { color: var(--text-1); }
+    .compat-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+    }
+
+    /* ─── CTA ───────────────────────────────────────────────────────────── */
+    .cta-section {
+      padding: 120px 0;
+    }
+    .cta-card {
+      position: relative;
+      border-radius: var(--radius-lg);
+      padding: 80px;
+      text-align: center;
+      overflow: hidden;
+      border: 1px solid rgba(124,58,237,0.25);
+      background: linear-gradient(135deg, rgba(124,58,237,0.08) 0%, rgba(6,182,212,0.04) 100%);
+    }
+    .cta-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at 50% -20%, rgba(124,58,237,0.2), transparent 60%);
+      pointer-events: none;
+    }
+    .cta-title {
+      font-family: var(--font-display);
+      font-size: clamp(36px, 5vw, 60px);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-1);
+      margin-bottom: 16px;
+      position: relative;
+    }
+    .cta-sub {
+      font-size: 17px;
+      color: var(--text-2);
+      margin-bottom: 40px;
+      position: relative;
+    }
+    .cta-actions {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
+      position: relative;
+    }
+
+    /* ─── Footer ────────────────────────────────────────────────────────── */
+    footer {
+      padding: 40px 0;
+      border-top: 1px solid var(--border);
+    }
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .footer-brand {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--text-1);
+    }
+    .footer-links {
+      display: flex;
+      gap: 28px;
+      list-style: none;
+    }
+    .footer-links a {
+      font-size: 14px;
+      color: var(--text-3);
+      transition: color var(--transition);
+    }
+    .footer-links a:hover { color: var(--text-2); }
+    .footer-copy {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-3);
+    }
+
+    /* ─── Scroll Animations ─────────────────────────────────────────────── */
+    .fade-up {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1), transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .fade-up.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .fade-up:nth-child(2) { transition-delay: 0.1s; }
+    .fade-up:nth-child(3) { transition-delay: 0.2s; }
+    .fade-up:nth-child(4) { transition-delay: 0.3s; }
+    .fade-up:nth-child(5) { transition-delay: 0.4s; }
+
+    /* ─── Reduced Motion ────────────────────────────────────────────────── */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      .fade-up { opacity: 1; transform: none; }
+    }
+
+    /* ─── Responsive ────────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+        gap: 48px;
+        padding: 120px 0 80px;
+        text-align: center;
+      }
+      .hero-visual { order: -1; }
+      .hero-sub { max-width: 100%; }
+      .hero-actions { justify-content: center; }
+      .hero-badge { display: inline-flex; }
+
+      .stats-inner { grid-template-columns: repeat(2, 1fr); }
+
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+      .feature-card:nth-child(n) { grid-column: 1 / -1; }
+
+      .install-inner { grid-template-columns: 1fr; gap: 48px; }
+
+      .nav-links { display: none; }
+      .cta-card { padding: 48px 24px; }
+    }
+
+    @media (max-width: 600px) {
+      .stats-inner { grid-template-columns: 1fr 1fr; }
+      .footer-inner { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Mesh background -->
+  <div class="mesh-bg" aria-hidden="true"></div>
+
+  <div class="wrapper">
+
+    <!-- ── Nav ──────────────────────────────────────────────────────────── -->
+    <nav id="nav" role="navigation" aria-label="Main navigation">
+      <div class="container">
+        <div class="nav-inner">
+          <a href="/" class="nav-logo" aria-label="Hound home">
+            <span class="logo-dot" aria-hidden="true"></span>
+            hound
+          </a>
+          <ul class="nav-links">
+            <li><a href="#features">Features</a></li>
+            <li><a href="#install">Install</a></li>
+            <li><a href="https://github.com/dvrd/hound" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+          </ul>
+          <a href="https://github.com/dvrd/hound" target="_blank" rel="noopener noreferrer" class="nav-cta">
+            $ git clone
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- ── Hero ─────────────────────────────────────────────────────────── -->
+    <section class="hero" aria-labelledby="hero-headline">
+      <div class="container" style="display: contents;">
+
+        <div class="hero-text">
+          <div class="hero-badge" aria-label="Built for Solana">
+            Built for Solana
+          </div>
+          <h1 class="hero-headline" id="hero-headline">
+            Your wallet.<br />
+            <span class="accent-purple">Terminal</span>
+            <span class="accent-cyan">-native</span>.<span class="cursor" aria-hidden="true"></span>
+          </h1>
+          <p class="hero-sub">
+            Track portfolios, execute swaps, and manage wallets — all without leaving your terminal. Phantom-compatible. Jupiter-powered.
+          </p>
+          <div class="hero-actions">
+            <a href="#install" class="btn-primary">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M8 1v10M4 7l4 4 4-4M2 14h12" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              Get started
+            </a>
+            <a href="https://github.com/dvrd/hound" target="_blank" rel="noopener noreferrer" class="btn-ghost">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+              </svg>
+              View on GitHub
+            </a>
+          </div>
+        </div>
+
+        <div class="hero-visual">
+          <div class="terminal-window" role="img" aria-label="Hound terminal interface demo">
+            <div class="terminal-bar" aria-hidden="true">
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-dot"></span>
+              <span class="terminal-title">hound — ~/wallets</span>
+            </div>
+            <div class="terminal-body">
+              <img src="./demo.gif" alt="Hound TUI showing portfolio overview with SOL and SPL token balances" loading="eager" />
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ── Stats Bar ─────────────────────────────────────────────────────── -->
+    <section class="stats-bar" aria-label="Key metrics">
+      <div class="container">
+        <div class="stats-inner">
+          <div class="stat-item fade-up">
+            <div class="stat-value">BIP<span>44</span></div>
+            <div class="stat-label">Derivation standard</div>
+          </div>
+          <div class="stat-item fade-up">
+            <div class="stat-value"><span>∞</span> routes</div>
+            <div class="stat-label">Jupiter aggregated swaps</div>
+          </div>
+          <div class="stat-item fade-up">
+            <div class="stat-value">0<span>ms</span></div>
+            <div class="stat-label">Load time — preloaded</div>
+          </div>
+          <div class="stat-item fade-up">
+            <div class="stat-value">3<span>+</span></div>
+            <div class="stat-label">Compatible wallets</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Features ──────────────────────────────────────────────────────── -->
+    <section id="features" class="features" aria-labelledby="features-title">
+      <div class="container">
+        <p class="section-label">What it does</p>
+        <h2 class="section-title" id="features-title">
+          Everything you need.<br />Nothing you don't.
+        </h2>
+        <p class="section-sub">
+          Built for developers and power users who live in the terminal. No browser required.
+        </p>
+
+        <div class="features-grid">
+
+          <article class="feature-card glow-purple fade-up">
+            <div class="feature-icon purple" aria-hidden="true">📊</div>
+            <h3 class="feature-title">Portfolio at a glance</h3>
+            <p class="feature-desc">
+              SOL and all SPL tokens with live USD values and 24h change — loaded instantly before you even open the app.
+            </p>
+            <span class="feature-tag">preloaded in background</span>
+          </article>
+
+          <article class="feature-card glow-cyan fade-up">
+            <div class="feature-icon cyan" aria-hidden="true">⚡</div>
+            <h3 class="feature-title">Jupiter-powered swaps</h3>
+            <p class="feature-desc">
+              Execute token swaps through Jupiter's aggregator directly from the TUI. Best routes, lowest slippage — terminal style.
+            </p>
+            <span class="feature-tag">via Jupiter API</span>
+          </article>
+
+          <article class="feature-card glow-green fade-up">
+            <div class="feature-icon green" aria-hidden="true">🔍</div>
+            <h3 class="feature-title">Token deep-dive</h3>
+            <p class="feature-desc">
+              Market cap, top holders, and price history — all surfaced inline without leaving the terminal.
+            </p>
+            <span class="feature-tag">real-time data</span>
+          </article>
+
+          <article class="feature-card glow-purple fade-up">
+            <div class="feature-icon amber" aria-hidden="true">👻</div>
+            <h3 class="feature-title">Phantom-compatible</h3>
+            <p class="feature-desc">
+              BIP44 derivation matches Phantom, Solflare, and Ledger exactly. Same seed phrase, same wallets.
+            </p>
+            <span class="feature-tag">BIP44 standard</span>
+          </article>
+
+          <article class="feature-card glow-cyan fade-up">
+            <div class="feature-icon purple" aria-hidden="true">🗂️</div>
+            <h3 class="feature-title">Multi-wallet management</h3>
+            <p class="feature-desc">
+              Switch between wallets, derive new addresses, and manage your full Solana identity — all from one TUI.
+            </p>
+            <span class="feature-tag">unlimited wallets</span>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Install ────────────────────────────────────────────────────────── -->
+    <section id="install" class="install" aria-labelledby="install-title">
+      <div class="container">
+        <div class="install-inner">
+
+          <div>
+            <p class="section-label">Get hound</p>
+            <h2 class="section-title" id="install-title">
+              Up in three<br />commands.
+            </h2>
+            <p class="section-sub" style="margin-bottom: 0;">
+              Requires Go 1.21+ and <a href="https://taskfile.dev" target="_blank" rel="noopener noreferrer" style="color: var(--purple-light); text-decoration: underline; text-underline-offset: 3px;">Task</a>. Works on macOS and Linux.
+            </p>
+
+            <div class="install-steps" style="margin-top: 40px;">
+              <div class="install-step">
+                <div class="step-num" aria-hidden="true">1</div>
+                <div class="step-content">
+                  <div class="step-title">Clone the repository</div>
+                  <div class="step-desc">Grab the source from GitHub</div>
+                </div>
+              </div>
+              <div class="install-step">
+                <div class="step-num" aria-hidden="true">2</div>
+                <div class="step-content">
+                  <div class="step-title">Build the binary</div>
+                  <div class="step-desc">Compiles to <code style="font-family: var(--font-mono); font-size: 13px; color: var(--purple-light);">./bin/hound</code></div>
+                </div>
+              </div>
+              <div class="install-step">
+                <div class="step-num" aria-hidden="true">3</div>
+                <div class="step-content">
+                  <div class="step-title">Install system-wide</div>
+                  <div class="step-desc">Run <code style="font-family: var(--font-mono); font-size: 13px; color: var(--cyan);">hound</code> from anywhere</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="code-block-wrap">
+            <div class="code-block" id="code-block">
+              <div class="code-header">
+                <span class="code-lang">bash</span>
+                <button class="copy-btn" id="copy-btn" onclick="copyCode()" aria-label="Copy install commands">
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                    <rect x="4" y="4" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
+                    <path d="M2 8H1.5A.5.5 0 011 7.5v-6A.5.5 0 011.5 1h6a.5.5 0 01.5.5V2" stroke="currentColor" stroke-width="1.2"/>
+                  </svg>
+                  copy
+                </button>
+              </div>
+              <div class="code-body" id="code-content">
+                <div class="code-line">
+                  <span class="code-prompt" aria-hidden="true">$</span>
+                  <span class="code-cmd">git clone https://github.com/dvrd/hound.git</span>
+                </div>
+                <div class="code-line">
+                  <span class="code-prompt" aria-hidden="true">$</span>
+                  <span class="code-cmd">cd hound</span>
+                </div>
+                <div class="code-line" style="margin-top: 8px;">
+                  <span class="code-prompt" aria-hidden="true">$</span>
+                  <span class="code-cmd">task build</span>
+                  <span class="code-comment" style="margin-left: 8px;"># → ./bin/hound</span>
+                </div>
+                <div class="code-line">
+                  <span class="code-prompt" aria-hidden="true">$</span>
+                  <span class="code-cmd">task install</span>
+                  <span class="code-comment" style="margin-left: 8px;"># install system-wide</span>
+                </div>
+                <div class="code-line" style="margin-top: 16px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.05);">
+                  <span class="code-prompt" aria-hidden="true">$</span>
+                  <span class="code-cmd" style="color: var(--green);">hound</span>
+                  <span class="code-comment" style="margin-left: 8px;"># launch 🐕</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Compatibility ──────────────────────────────────────────────────── -->
+    <section class="compat" aria-label="Compatible wallets and tools">
+      <div class="container">
+        <div class="compat-inner">
+          <p class="compat-label">Works alongside</p>
+          <div class="compat-logos">
+            <div class="compat-item">
+              <div class="compat-icon" aria-hidden="true">👻</div>
+              Phantom
+            </div>
+            <div class="compat-item">
+              <div class="compat-icon" aria-hidden="true">🔥</div>
+              Solflare
+            </div>
+            <div class="compat-item">
+              <div class="compat-icon" aria-hidden="true">🔷</div>
+              Ledger
+            </div>
+            <div class="compat-item">
+              <div class="compat-icon" aria-hidden="true">⚡</div>
+              Jupiter
+            </div>
+            <div class="compat-item">
+              <div class="compat-icon" aria-hidden="true">◎</div>
+              Solana RPC
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── CTA ───────────────────────────────────────────────────────────── -->
+    <section class="cta-section" aria-labelledby="cta-title">
+      <div class="container">
+        <div class="cta-card">
+          <h2 class="cta-title" id="cta-title">
+            Your terminal.<br />Your Solana.
+          </h2>
+          <p class="cta-sub">Open source. No telemetry. No browser. Just your wallet.</p>
+          <div class="cta-actions">
+            <a href="https://github.com/dvrd/hound" target="_blank" rel="noopener noreferrer" class="btn-primary">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+              </svg>
+              Star on GitHub
+            </a>
+            <a href="#install" class="btn-ghost">
+              Read install guide ↓
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Footer ────────────────────────────────────────────────────────── -->
+    <footer role="contentinfo">
+      <div class="container">
+        <div class="footer-inner">
+          <span class="footer-brand">hound</span>
+          <ul class="footer-links">
+            <li><a href="https://github.com/dvrd/hound" target="_blank" rel="noopener noreferrer">GitHub</a></li>
+            <li><a href="https://github.com/dvrd/hound/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">License</a></li>
+            <li><a href="https://github.com/dvrd/hound/issues" target="_blank" rel="noopener noreferrer">Issues</a></li>
+          </ul>
+          <span class="footer-copy">MIT License · Open Source</span>
+        </div>
+      </div>
+    </footer>
+
+  </div><!-- /wrapper -->
+
+  <script>
+    // ── Nav scroll effect ─────────────────────────────────────────────────
+    const nav = document.getElementById('nav');
+    const onScroll = () => {
+      nav.classList.toggle('scrolled', window.scrollY > 40);
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+
+    // ── Scroll-triggered fade-up animations ──────────────────────────────
+    const fadeEls = document.querySelectorAll('.fade-up');
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.12, rootMargin: '0px 0px -40px 0px' }
+    );
+    fadeEls.forEach((el) => observer.observe(el));
+
+    // ── Copy install commands ─────────────────────────────────────────────
+    const INSTALL_COMMANDS = `git clone https://github.com/dvrd/hound.git
+cd hound
+task build
+task install
+hound`;
+
+    function copyCode() {
+      const btn = document.getElementById('copy-btn');
+      navigator.clipboard.writeText(INSTALL_COMMANDS).then(() => {
+        btn.classList.add('copied');
+        btn.innerHTML = `
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+            <path d="M2 6l3 3 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          copied!`;
+        setTimeout(() => {
+          btn.classList.remove('copied');
+          btn.innerHTML = `
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+              <rect x="4" y="4" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.2"/>
+              <path d="M2 8H1.5A.5.5 0 011 7.5v-6A.5.5 0 011.5 1h6a.5.5 0 01.5.5V2" stroke="currentColor" stroke-width="1.2"/>
+            </svg>
+            copy`;
+        }, 2000);
+      }).catch(() => {
+        // Fallback for older browsers
+        const ta = document.createElement('textarea');
+        ta.value = INSTALL_COMMANDS;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      });
+    }
+  </script>
+
+</body>
+</html>

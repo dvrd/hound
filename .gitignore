@@ -29,7 +29,6 @@ Thumbs.db
 
 # Agent/tool directories (not source)
 PRPs/
-docs/
 .logs/
 .opencode/
 /hound
