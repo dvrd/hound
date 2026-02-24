@@ -2,6 +2,8 @@
 
 A Solana toolkit for token price tracking, wallet management, and portfolio monitoring via CLI.
 
+![Hound demo](demo.gif)
+
 ## What Does It Do?
 
 - **Track Token Prices**: Real-time Solana token prices from multiple DEXs
