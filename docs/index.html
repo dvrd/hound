@@ -189,7 +189,7 @@
        LAYOUT
     ═══════════════════════════════════════════════════════════════════════ */
     .wrapper { position: relative; z-index: 1; }
-    .container { max-width: 1240px; margin: 0 auto; padding: 0 32px; }
+    .container { margin: 0 auto; padding: 0 64px; }
 
     /* ═══════════════════════════════════════════════════════════════════════
        NAV
@@ -416,22 +416,11 @@
       color: transparent;
       -webkit-text-stroke: 1px var(--neon-purple);
       position: relative;
-    }
-    .headline-line.accent::before {
-      content: attr(data-text);
-      position: absolute;
-      left: -2px;
-      color: transparent;
-      -webkit-text-stroke: 1px var(--neon-cyan);
-      opacity: 0.5;
-    }
-    .headline-line.accent::after {
-      content: attr(data-text);
-      position: absolute;
-      left: 2px;
-      color: transparent;
-      -webkit-text-stroke: 1px var(--neon-pink);
-      opacity: 0.35;
+      display: block;
+      /* chromatic aberration via filter instead of pseudo-elements */
+      filter:
+        drop-shadow(-2px 0 0 rgba(0,245,255,0.45))
+        drop-shadow(2px 0 0 rgba(255,45,120,0.35));
     }
 
     /* Typed cursor */
@@ -1260,7 +1249,7 @@
     }
 
     @media (max-width: 640px) {
-      .container { padding: 0 20px; }
+      .container { padding: 0 24px; }
       .bento-card:nth-child(n) { grid-column: 1 / -1; grid-row: auto; }
       .hero-metrics { flex-wrap: wrap; gap: 20px; }
       .metric-sep { display: none; }
