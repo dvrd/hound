@@ -26,18 +26,10 @@ Requires [Go 1.25+](https://go.dev/dl/) and [Task](https://taskfile.dev/): `brew
 ## Usage
 
 ```bash
-hound             # open the TUI
+hound
 ```
 
-That's the main entry point. Navigate with arrow keys, `enter` to drill in, `esc` to go back. Each view shows its keybindings in the pinned footer.
-
-### Import a wallet
-
-```bash
-hound wallet import
-```
-
-Supports BIP44 (Phantom/Solflare/Ledger), BIP44-Change (Trust Wallet), and Solana CLI keypairs. Your wallet is encrypted with AES-256-GCM + Argon2id and stored at `~/.config/hound/hound.db`.
+Everything happens inside the TUI. Navigate with arrow keys, `enter` to drill in, `esc` to go back. Each view shows its keybindings in the pinned footer.
 
 ### JSON output (for scripting)
 
