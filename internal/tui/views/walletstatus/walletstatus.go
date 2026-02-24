@@ -48,7 +48,8 @@ type Model struct {
 	cursor    int
 	sortMode  SortMode
 	showAll   bool // show zero-balance tokens
-	loading   bool
+	loading   bool // true while a network fetch is in flight
+	hasData   bool // true once we have received at least one portfolio response
 	spinner   components.SpinnerModel
 	walletMgr *wallet.WalletManager
 	address   string
@@ -126,9 +127,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner.SetDone()
 		if msg.Err != nil {
 			m.err = msg.Err
+			// Keep existing portfolio visible on error — don't wipe data.
 			return m, nil
 		}
 		m.portfolio = msg.Portfolio
+		m.hasData = true
+		m.err = nil
 		m.lastRefresh = time.Now()
 		return m, nil
 
@@ -314,15 +318,19 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	if m.loading {
-		b.WriteString(m.spinner.View() + "\n")
+	// First load: no data yet.
+	if !m.hasData {
+		if m.err != nil {
+			// Failed before we ever got data — show the error.
+			b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n")
+		} else {
+			b.WriteString(m.spinner.View() + "\n")
+		}
 		return b.String()
 	}
 
-	if m.err != nil {
-		b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n")
-		return b.String()
-	}
+	// Error with no prior data is already handled above (!hasData).
+	// If we have data and an error, show the error inline but keep the table.
 
 	// Total USD
 	totalStr := wallet.FormatPrice(m.portfolio.TotalUSD)
@@ -407,13 +415,20 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleMuted.Render("No tokens found") + "\n")
 	}
 
-	// Sort indicator + last refresh
+	// Sort indicator + refresh status line
 	b.WriteString("\n")
 	sortLine := fmt.Sprintf("Sort: %s", m.sortMode.String())
 	if !m.lastRefresh.IsZero() {
-		sortLine += fmt.Sprintf("  |  Last refresh: %s", m.lastRefresh.Format("15:04:05"))
+		sortLine += fmt.Sprintf("  |  %s", m.lastRefresh.Format("15:04:05"))
 	}
 	b.WriteString(tui.StyleMuted.Render(sortLine) + "\n")
+
+	// Inline refresh indicator — shown while a background fetch is in flight.
+	if m.loading {
+		b.WriteString(m.spinner.View() + "\n")
+	} else if m.err != nil {
+		b.WriteString(tui.StyleError.Render("⚠ "+m.err.Error()) + "\n")
+	}
 
 	// Status bar — abbreviated if narrow
 	showAllLabel := "[a]ll"
