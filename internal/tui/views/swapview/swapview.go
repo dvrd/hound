@@ -493,6 +493,11 @@ func (m *Model) SetSize(w, h int) {
 	m.height = h
 }
 
+// SetSlippageValue sets the slippage input value directly (used in tests).
+func (m *Model) SetSlippageValue(v string) {
+	m.slippageInput.SetValue(v)
+}
+
 // resizeInputs adjusts text input widths to fit the available width.
 func (m *Model) resizeInputs() {
 	maxW := m.width - 4

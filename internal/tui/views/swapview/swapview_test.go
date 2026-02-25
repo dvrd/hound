@@ -508,3 +508,111 @@ func TestEscOnPasswordPhase_GoesBackToReview(t *testing.T) {
 		t.Errorf("esc on password should go to PhaseReview, got %d", m.GetPhase())
 	}
 }
+
+// --- New tests: slippage input field, min received, slippage in review ---
+
+func TestInputPhaseView_ContainsSlippageField(t *testing.T) {
+	m := newTestModel()
+	view := m.View()
+	if !strings.Contains(view, "Slippage") {
+		t.Error("input phase should contain 'Slippage' field label")
+	}
+}
+
+func TestInputPhaseView_SlippageHintShowsPercent(t *testing.T) {
+	// Default value is "50" bps → hint should show "0.50%"
+	m := newTestModel()
+	view := m.View()
+	if !strings.Contains(view, "0.50%") {
+		t.Errorf("input phase with default 50 bps should show '0.50%%' hint, got view:\n%s", view)
+	}
+}
+
+func TestInputPhaseView_SlippageZeroShowsAuto(t *testing.T) {
+	// Directly set slippage to "0" and verify the "Jupiter auto" hint renders.
+	m := newTestModel()
+	m.SetSlippageValue("0")
+	view := m.View()
+	if !strings.Contains(view, "Jupiter auto") {
+		t.Errorf("slippage value '0' should show 'Jupiter auto' hint, got view:\n%s", view)
+	}
+}
+
+func TestReviewViewContainsSlippage(t *testing.T) {
+	// quotedModel() has SlippageBps: 50 → review should show "Slippage:" and "0.50%"
+	m := quotedModel()
+	view := m.View()
+	if !strings.Contains(view, "Slippage:") {
+		t.Error("review view should contain 'Slippage:' line when SlippageBps > 0")
+	}
+	if !strings.Contains(view, "0.50%") {
+		t.Errorf("review view should show '0.50%%' for 50 bps slippage, got view:\n%s", view)
+	}
+}
+
+func TestReviewViewContainsMinReceived(t *testing.T) {
+	m := newTestModel()
+	quote := models.SwapQuote{
+		InputMint:    "So11111111111111111111111111111111111111112",
+		OutputMint:   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		InAmount:     "1000000000",
+		OutAmount:    "150000000",
+		Rate:         150.0,
+		SlippageBps:  50,
+		MinReceived:  149250000,
+		InputSymbol:  "SOL",
+		OutputSymbol: "USDC",
+		RoutePlan:    []models.RouteStep{{DexLabel: "Raydium", Percent: 100}},
+		NetworkFee:   0.000005,
+		FetchedAt:    time.Now(),
+	}
+	updated, _ := m.Update(swapview.QuoteFetchedMsg{Quote: quote})
+	m = updated.(swapview.Model)
+	view := m.View()
+	if !strings.Contains(view, "Min Received:") {
+		t.Error("review view should contain 'Min Received:' line when MinReceived > 0")
+	}
+}
+
+func TestInvalidSlippage_ShowsError(t *testing.T) {
+	m := newTestModel()
+	// Fill required fields so validation reaches slippage check
+	for _, ch := range "So11111111111111111111111111111111111111112" {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = updated.(swapview.Model)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(swapview.Model)
+	for _, ch := range "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = updated.(swapview.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(swapview.Model)
+	for _, ch := range "1000000000" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = updated.(swapview.Model)
+	}
+	// Tab to slippage field and set an out-of-range value
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = updated.(swapview.Model)
+	// Clear default "50" first with backspace twice, then type 10001
+	for i := 0; i < 5; i++ {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+		m = updated.(swapview.Model)
+	}
+	for _, ch := range "10001" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		m = updated.(swapview.Model)
+	}
+	// Submit — should fail validation
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(swapview.Model)
+	if m.GetPhase() != swapview.PhaseInput {
+		t.Errorf("invalid slippage should keep PhaseInput, got %d", m.GetPhase())
+	}
+	view := m.View()
+	if !strings.Contains(view, "Error") {
+		t.Error("invalid slippage should show an error message")
+	}
+}

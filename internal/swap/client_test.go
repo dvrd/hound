@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -345,6 +346,96 @@ func TestSwapClient_GetQuote_CacheIncludesTaker(t *testing.T) {
 
 	if callCount != 2 {
 		t.Errorf("expected 2 server calls (taker A cached), got %d", callCount)
+	}
+}
+
+func TestSwapClient_GetQuote_SlippageBpsInURL(t *testing.T) {
+	tests := []struct {
+		name        string
+		slippageBps int
+		wantParam   bool // whether slippageBps should appear in URL
+	}{
+		{"zero uses Jupiter auto (no param)", 0, false},
+		{"50 bps appended to URL", 50, true},
+		{"300 bps appended to URL", 300, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotURL string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotURL = r.URL.RawQuery
+				fmt.Fprint(w, jupiterUltraResponse)
+			}))
+			defer server.Close()
+
+			client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
+			_, err := client.GetQuote("mint1", "mint2", "1000", "taker", tt.slippageBps)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			hasParam := strings.Contains(gotURL, "slippageBps=")
+			if hasParam != tt.wantParam {
+				t.Errorf("URL %q: slippageBps param present = %v, want %v", gotURL, hasParam, tt.wantParam)
+			}
+			if tt.wantParam {
+				want := fmt.Sprintf("slippageBps=%d", tt.slippageBps)
+				if !strings.Contains(gotURL, want) {
+					t.Errorf("URL %q: expected %q", gotURL, want)
+				}
+			}
+		})
+	}
+}
+
+func TestSwapClient_GetQuote_MinReceivedFromOtherAmountThreshold(t *testing.T) {
+	resp := `{
+		"requestId": "req-123",
+		"inputMint": "So11111111111111111111111111111111111111112",
+		"outputMint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		"inAmount": "1000000000",
+		"outAmount": "150000000",
+		"otherAmountThreshold": "149250000",
+		"swapMode": "ExactIn",
+		"slippageBps": 50,
+		"priceImpactPct": "0.01",
+		"routePlan": [],
+		"transaction": "AQAAAA==",
+		"prioritizationFeeLamports": 5000
+	}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, resp)
+	}))
+	defer server.Close()
+
+	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
+	quote, err := client.GetQuote("mint1", "mint2", "1000000000", "taker", 50)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if quote.MinReceived != 149250000 {
+		t.Errorf("MinReceived = %v, want 149250000", quote.MinReceived)
+	}
+}
+
+func TestSwapClient_GetQuote_MinReceivedAbsentWhenMissing(t *testing.T) {
+	// jupiterUltraResponse has no otherAmountThreshold field — MinReceived should be 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, jupiterUltraResponse)
+	}))
+	defer server.Close()
+
+	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
+	quote, err := client.GetQuote("mint1", "mint2", "1000", "taker", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if quote.MinReceived != 0 {
+		t.Errorf("MinReceived should be 0 when otherAmountThreshold absent, got %v", quote.MinReceived)
 	}
 }
 
