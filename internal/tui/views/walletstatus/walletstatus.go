@@ -44,19 +44,22 @@ type autoRefreshTickMsg struct{}
 
 // Model is the wallet status/detail view.
 type Model struct {
-	wallet    models.Wallet
-	portfolio models.PortfolioBalance
-	cursor    int
-	sortMode  SortMode
-	showAll   bool // show zero-balance tokens
-	loading   bool // true while a network fetch is in flight
-	hasData   bool // true once we have received at least one portfolio response
-	spinner   components.SpinnerModel
-	walletMgr *wallet.WalletManager
-	address   string
-	width     int
-	height    int
-	err       error
+	wallet      models.Wallet
+	portfolio   models.PortfolioBalance
+	cursor      int
+	sortMode    SortMode
+	showAll     bool            // show zero-balance tokens
+	showDust    bool            // show tokens with USD value < $1 (off by default)
+	showHidden  bool            // show manually hidden tokens (off by default)
+	hiddenMints map[string]bool // mints hidden by the user for this wallet
+	loading     bool            // true while a network fetch is in flight
+	hasData     bool            // true once we have received at least one portfolio response
+	spinner     components.SpinnerModel
+	walletMgr   *wallet.WalletManager
+	address     string
+	width       int
+	height      int
+	err         error
 
 	// Rename mode
 	renaming    bool
@@ -71,16 +74,22 @@ type Model struct {
 // New creates a new wallet status view.
 func New(walletMgr *wallet.WalletManager, address string, db *database.Database) Model {
 	m := Model{
-		walletMgr: walletMgr,
-		address:   address,
-		loading:   true,
-		spinner:   components.NewSpinner("Loading portfolio..."),
-		sortMode:  SortByValue,
-		db:        db,
+		walletMgr:   walletMgr,
+		address:     address,
+		loading:     true,
+		spinner:     components.NewSpinner("Loading portfolio..."),
+		sortMode:    SortByValue,
+		db:          db,
+		hiddenMints: make(map[string]bool),
+		// showDust = false: hide tokens < $1 by default
+		// showHidden = false: hide manually hidden tokens by default
 	}
 	if db != nil {
 		if w, err := db.GetWalletByAddress(address); err == nil {
 			m.wallet = w
+		}
+		if hidden, err := db.GetHiddenMints(address); err == nil {
+			m.hiddenMints = hidden
 		}
 	}
 	return m
@@ -199,6 +208,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			m.showAll = !m.showAll
 			m.clampCursor()
+		case "x":
+			// Toggle dust filter (hide tokens < $1)
+			m.showDust = !m.showDust
+			m.clampCursor()
+		case "h":
+			// Hide the token under the cursor
+			tokens := m.visibleTokens()
+			if len(tokens) > 0 && m.cursor < len(tokens) {
+				t := tokens[m.cursor]
+				if m.db != nil {
+					_ = m.db.HideToken(m.address, t.Mint)
+				}
+				m.hiddenMints[t.Mint] = true
+				m.clampCursor()
+			}
+		case "u":
+			// Toggle showing hidden tokens (to unhide one, navigate to it and press h again)
+			m.showHidden = !m.showHidden
+			m.clampCursor()
+		case "U":
+			// Unhide the token under the cursor (only useful when showHidden = true)
+			tokens := m.visibleTokens()
+			if len(tokens) > 0 && m.cursor < len(tokens) {
+				t := tokens[m.cursor]
+				if m.hiddenMints[t.Mint] {
+					if m.db != nil {
+						_ = m.db.UnhideToken(m.address, t.Mint)
+					}
+					delete(m.hiddenMints, t.Mint)
+					m.clampCursor()
+				}
+			}
 		case "1":
 			m.sortMode = SortByValue
 			m.clampCursor()
@@ -278,9 +319,19 @@ func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) visibleTokens() []models.TokenBalance {
 	tokens := make([]models.TokenBalance, 0, len(m.portfolio.TokenBalances))
 	for _, t := range m.portfolio.TokenBalances {
-		if m.showAll || t.USDValue > 0 || t.Amount > 0 {
-			tokens = append(tokens, t)
+		// Filter 1: manually hidden tokens (scam/spam)
+		if m.hiddenMints[t.Mint] && !m.showHidden {
+			continue
 		}
+		// Filter 2: dust filter — hide tokens worth less than $1 unless showDust or showAll
+		if !m.showDust && !m.showAll && t.USDValue < 1.0 {
+			continue
+		}
+		// Filter 3: original zero-balance filter
+		if !m.showAll && t.USDValue == 0 && t.Amount == 0 {
+			continue
+		}
+		tokens = append(tokens, t)
 	}
 
 	switch m.sortMode {
@@ -419,6 +470,11 @@ func (m Model) View() string {
 			paddedChg := fmt.Sprintf("%*s", colChg, plainChg)
 			row := plainRow + " " + tui.ColorizeChange(t.Change24h, paddedChg)
 
+			// Show a dim [hidden] tag so the user knows they can unhide it
+			if m.hiddenMints[t.Mint] {
+				row += " " + tui.StyleMuted.Render("[hidden]")
+			}
+
 			if i == m.cursor {
 				b.WriteString(tui.StyleTableRowSelected.Render(row) + "\n")
 			} else {
@@ -435,9 +491,15 @@ func (m Model) View() string {
 		b.WriteString(tui.StyleMuted.Render("No tokens found") + "\n")
 	}
 
-	// Sort indicator + refresh status line
+	// Sort indicator + active filters + refresh time
 	b.WriteString("\n")
 	sortLine := fmt.Sprintf("Sort: %s", m.sortMode.String())
+	if !m.showDust {
+		sortLine += "  filter:<$1"
+	}
+	if m.showHidden {
+		sortLine += "  showing hidden"
+	}
 	if !m.lastRefresh.IsZero() {
 		sortLine += fmt.Sprintf("  |  %s", m.lastRefresh.Format("15:04:05"))
 	}
@@ -463,10 +525,18 @@ func (m Model) Footer() string {
 	if m.showAll {
 		showAllLabel = "[a]ll*"
 	}
-	if m.width > 0 && m.width < 80 {
-		return fmt.Sprintf("[s]end [c]rcv [r]ef [R]en %s [1][2][3] [esc]", showAllLabel)
+	dustLabel := "[x]dust"
+	if m.showDust {
+		dustLabel = "[x]dust*"
 	}
-	return fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s [1]value [2]symbol [3]balance [esc]back", showAllLabel)
+	hiddenLabel := "[u]hidden"
+	if m.showHidden {
+		hiddenLabel = "[u]hidden*"
+	}
+	if m.width > 0 && m.width < 80 {
+		return fmt.Sprintf("[s]end [c]rcv [r]ef [R]en %s %s %s [h]ide [U]nhide [1][2][3] [esc]", showAllLabel, dustLabel, hiddenLabel)
+	}
+	return fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s %s %s [h]ide [U]nhide [1]value [2]symbol [3]balance [esc]back", showAllLabel, dustLabel, hiddenLabel)
 }
 
 // SetSize updates the view dimensions.

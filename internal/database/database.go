@@ -256,4 +256,14 @@ CREATE TABLE IF NOT EXISTS swap_history (
 
 CREATE INDEX IF NOT EXISTS idx_swap_history_wallet ON swap_history(wallet_address);
 CREATE INDEX IF NOT EXISTS idx_swap_history_created ON swap_history(created_at);
+
+CREATE TABLE IF NOT EXISTS hidden_tokens (
+    wallet_address TEXT NOT NULL,
+    mint           TEXT NOT NULL,
+    hidden_at      INTEGER NOT NULL,
+    PRIMARY KEY (wallet_address, mint),
+    FOREIGN KEY (wallet_address) REFERENCES wallets(address) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_hidden_tokens_wallet ON hidden_tokens(wallet_address);
 `
