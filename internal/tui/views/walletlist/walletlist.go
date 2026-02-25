@@ -243,8 +243,8 @@ func (m Model) View() string {
 		colType := max(8, w*20/100)
 		colBal := max(8, w*12/100)
 
-		// Table header
-		headerFmt := fmt.Sprintf("  %%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
+		// Table header — 4-char prefix ("  " badge + "  " cursor) to align with rows.
+		headerFmt := fmt.Sprintf("    %%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
 		header := fmt.Sprintf(headerFmt, "Label", "Address", "Type", "Balance")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
 
@@ -274,39 +274,39 @@ func (m Model) View() string {
 			}
 		}
 
-		// Table rows — build each cell with plain text first so fmt.Sprintf
-		// width specifiers count visible characters only, then apply ANSI color.
-		plainFmt := fmt.Sprintf("%%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
+		// Table rows — build each cell independently so ANSI codes from one cell
+		// never affect adjacent column width calculations.
 		for i := startIdx; i < endIdx; i++ {
 			w := m.wallets[i]
 
-			// Primary badge: 2 chars wide, styled after padding is computed.
+			// 2-char primary badge (plain, fixed width).
 			primaryPlain := "  "
 			if w.IsPrimary {
 				primaryPlain = "* "
 			}
-
-			addr := tui.TruncateAddress(w.Address)
-			typePlain := fmt.Sprintf("%-*s", colType, tui.Truncate(w.WalletType.String(), colType))
-
-			balance := "$0.00"
-			if p, ok := m.portfolios[w.Address]; ok {
-				balance = wallet.FormatPrice(p.TotalUSD)
-			}
-
-			// Plain row (correct widths, no ANSI).
-			plainRow := fmt.Sprintf(plainFmt,
-				tui.Truncate(w.Label, colLabel), addr, typePlain, balance)
-
-			// Colorize the primary badge.
 			var primaryStyled string
 			if w.IsPrimary {
 				primaryStyled = tui.StylePrimaryBadge.Render(primaryPlain)
 			} else {
 				primaryStyled = primaryPlain
 			}
-			// Replace the plain type cell with a muted-colored version.
-			coloredRow := primaryStyled + strings.Replace(plainRow, typePlain, tui.StyleTypeBadge.Render(typePlain), 1)
+
+			// Build each cell to its exact column width using plain strings.
+			labelCell := fmt.Sprintf("%-*s", colLabel, tui.Truncate(w.Label, colLabel))
+			addrCell := fmt.Sprintf("%-*s", colAddr, tui.TruncateAddress(w.Address))
+			typePlain := fmt.Sprintf("%-*s", colType, tui.Truncate(w.WalletType.String(), colType))
+			balPlain := "$0.00"
+			if p, ok := m.portfolios[w.Address]; ok {
+				balPlain = wallet.FormatPrice(p.TotalUSD)
+			}
+			balCell := fmt.Sprintf("%*s", colBal, balPlain)
+
+			// Apply color only to the pre-padded type cell — width is already fixed.
+			coloredType := tui.StyleTypeBadge.Render(typePlain)
+
+			// Assemble: cursor(2) + badge(2) + label + addr + coloredType + balance.
+			// Header uses 4-char indent ("    ") to match this layout.
+			coloredRow := primaryStyled + labelCell + " " + addrCell + " " + coloredType + " " + balCell
 
 			if i == m.cursor {
 				b.WriteString(tui.StyleTableRowSelected.Render("> "+coloredRow) + "\n")

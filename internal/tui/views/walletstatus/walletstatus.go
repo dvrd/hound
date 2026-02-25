@@ -270,9 +270,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if m.loading {
-		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		// Only forward non-key messages to the spinner so that filter keys
+		// (x, u, h, U, a, etc.) are never swallowed during a background refresh.
+		if _, isKey := msg.(tea.KeyMsg); !isKey {
+			var cmd tea.Cmd
+			m.spinner, cmd = m.spinner.Update(msg)
+			return m, cmd
+		}
 	}
 
 	return m, nil

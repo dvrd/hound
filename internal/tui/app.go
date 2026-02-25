@@ -67,8 +67,18 @@ func NewApp(
 	}
 
 	// Create initial view eagerly so it's available before Init() is called.
+	// Skip the wallet list entirely when there is exactly one wallet — go straight
+	// to wallet-status so the user isn't forced through a one-item list.
 	if factory != nil {
-		app.currentView = factory("wallet-list", nil)
+		initialView := "wallet-list"
+		var initialData interface{}
+		if db != nil {
+			if wallets, err := db.GetAllWallets(); err == nil && len(wallets) == 1 {
+				initialView = "wallet-status"
+				initialData = wallets[0].Address
+			}
+		}
+		app.currentView = factory(initialView, initialData)
 	}
 
 	return app
