@@ -102,6 +102,29 @@ tasks:
         git tag "v${new}"
         echo "Bumped to v${new}"
 
+  release:
+    desc: Tag and push current version to trigger GoReleaser (requires clean working tree)
+    cmds:
+      - |
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "Working tree is dirty. Commit your changes first."
+          exit 1
+        fi
+        version=$(cat VERSION)
+        tag="v${version}"
+        if git rev-parse "$tag" >/dev/null 2>&1; then
+          echo "Tag $tag already exists."
+          exit 1
+        fi
+        git tag "$tag"
+        git push origin "$tag"
+        echo "Pushed $tag — GitHub Actions will run GoReleaser"
+
+  release:dry:
+    desc: Dry-run GoReleaser locally (requires goreleaser installed)
+    cmds:
+      - goreleaser release --snapshot --clean
+
   hooks:install:
     desc: Install git pre-commit hook
     cmds:

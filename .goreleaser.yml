@@ -1,0 +1,62 @@
+version: 2
+
+project_name: hound
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hound
+    main: ./cmd/hound
+    binary: hound
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: hound
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+brews:
+  - name: hound
+    repository:
+      owner: dvrd
+      name: homebrew-hound
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "Brew formula update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://github.com/dvrd/hound"
+    description: "Terminal UI for Solana — manage wallets, track portfolio, and swap tokens"
+    license: "MIT"
+    test: |
+      system "#{bin}/hound", "--version"
+    install: |
+      bin.install "hound"
