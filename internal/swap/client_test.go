@@ -124,6 +124,7 @@ func TestSwapClient_GetQuote(t *testing.T) {
 				"EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 				"1000000000",
 				"taker-address",
+				0,
 			)
 
 			if tt.wantErr {
@@ -154,13 +155,13 @@ func TestSwapClient_GetQuote_Caching(t *testing.T) {
 	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
 
 	// First call
-	_, err := client.GetQuote("mint1", "mint2", "1000", "taker")
+	_, err := client.GetQuote("mint1", "mint2", "1000", "taker", 0)
 	if err != nil {
 		t.Fatalf("first call failed: %v", err)
 	}
 
 	// Second call should be cached
-	_, err = client.GetQuote("mint1", "mint2", "1000", "taker")
+	_, err = client.GetQuote("mint1", "mint2", "1000", "taker", 0)
 	if err != nil {
 		t.Fatalf("second call failed: %v", err)
 	}
@@ -170,7 +171,7 @@ func TestSwapClient_GetQuote_Caching(t *testing.T) {
 	}
 
 	// Different amount should not be cached
-	_, err = client.GetQuote("mint1", "mint2", "2000", "taker")
+	_, err = client.GetQuote("mint1", "mint2", "2000", "taker", 0)
 	if err != nil {
 		t.Fatalf("third call failed: %v", err)
 	}
@@ -200,7 +201,7 @@ func TestSwapClient_GetQuote_RequestParams(t *testing.T) {
 	defer server.Close()
 
 	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
-	_, err := client.GetQuote("inputMint1", "outputMint1", "5000", "myTaker")
+	_, err := client.GetQuote("inputMint1", "outputMint1", "5000", "myTaker", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -287,7 +288,7 @@ func TestSwapClient_GetQuote_MultiRouteStep(t *testing.T) {
 	defer server.Close()
 
 	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
-	quote, err := client.GetQuote("mintA", "mintC", "1000000", "taker")
+	quote, err := client.GetQuote("mintA", "mintC", "1000000", "taker", 0)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -323,12 +324,12 @@ func TestSwapClient_GetQuote_CacheIncludesTaker(t *testing.T) {
 
 	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
 
-	_, err := client.GetQuote("mint1", "mint2", "1000", "takerA")
+	_, err := client.GetQuote("mint1", "mint2", "1000", "takerA", 0)
 	if err != nil {
 		t.Fatalf("first call failed: %v", err)
 	}
 
-	_, err = client.GetQuote("mint1", "mint2", "1000", "takerB")
+	_, err = client.GetQuote("mint1", "mint2", "1000", "takerB", 0)
 	if err != nil {
 		t.Fatalf("second call failed: %v", err)
 	}
@@ -337,7 +338,7 @@ func TestSwapClient_GetQuote_CacheIncludesTaker(t *testing.T) {
 		t.Errorf("expected 2 server calls (different takers), got %d", callCount)
 	}
 
-	_, err = client.GetQuote("mint1", "mint2", "1000", "takerA")
+	_, err = client.GetQuote("mint1", "mint2", "1000", "takerA", 0)
 	if err != nil {
 		t.Fatalf("third call failed: %v", err)
 	}
@@ -368,7 +369,7 @@ func TestSwapClient_GetQuote_InvalidAmounts(t *testing.T) {
 	defer server.Close()
 
 	client := swap.NewSwapClientWithHTTP(server.Client(), server.URL)
-	_, err := client.GetQuote("mint1", "mint2", "1000", "taker")
+	_, err := client.GetQuote("mint1", "mint2", "1000", "taker", 0)
 	if err == nil {
 		t.Fatal("expected error for invalid inAmount")
 	}

@@ -61,7 +61,9 @@ func cacheKey(inputMint, outputMint, amount, taker string) string {
 
 // GetQuote fetches a swap quote from Jupiter Ultra API.
 // Results are cached for 90 seconds (QuoteTTL).
-func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string) (models.SwapQuote, error) {
+// slippageBps overrides Jupiter's automatic slippage when > 0 (manual mode).
+// Pass 0 to use Jupiter's default adaptive slippage.
+func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string, slippageBps int) (models.SwapQuote, error) {
 	key := cacheKey(inputMint, outputMint, amount, taker)
 
 	// Check cache
@@ -74,9 +76,12 @@ func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string
 	}
 	c.cacheMu.RUnlock()
 
-	// Build request URL
+	// Build request URL — append slippageBps only when user explicitly sets it (manual mode).
 	url := fmt.Sprintf("%s/ultra/v1/order?inputMint=%s&outputMint=%s&amount=%s&taker=%s",
 		c.baseURL, inputMint, outputMint, amount, taker)
+	if slippageBps > 0 {
+		url += fmt.Sprintf("&slippageBps=%d", slippageBps)
+	}
 
 	resp, err := c.httpClient.Get(url)
 	if err != nil {
@@ -96,15 +101,16 @@ func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string
 
 	// Parse the Jupiter Ultra response
 	var raw struct {
-		RequestID   string `json:"requestId"`
-		InputMint   string `json:"inputMint"`
-		OutputMint  string `json:"outputMint"`
-		InAmount    string `json:"inAmount"`
-		OutAmount   string `json:"outAmount"`
-		SwapMode    string `json:"swapMode"`
-		SlippageBps int    `json:"slippageBps"`
-		PriceImpact string `json:"priceImpactPct"`
-		RoutePlan   []struct {
+		RequestID            string `json:"requestId"`
+		InputMint            string `json:"inputMint"`
+		OutputMint           string `json:"outputMint"`
+		InAmount             string `json:"inAmount"`
+		OutAmount            string `json:"outAmount"`
+		OtherAmountThreshold string `json:"otherAmountThreshold"`
+		SwapMode             string `json:"swapMode"`
+		SlippageBps          int    `json:"slippageBps"`
+		PriceImpact          string `json:"priceImpactPct"`
+		RoutePlan            []struct {
 			SwapInfo struct {
 				AmmKey     string `json:"ammKey"`
 				Label      string `json:"label"`
@@ -160,6 +166,15 @@ func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string
 	}
 	networkFee := float64(raw.PrioritizationFeeLamports) / 1_000_000_000.0
 
+	// otherAmountThreshold is Jupiter's guaranteed minimum output (ExactIn mode).
+	// It already accounts for slippage — this is what gets enforced on-chain.
+	var minReceived float64
+	if raw.OtherAmountThreshold != "" {
+		if v, err := strconv.ParseFloat(raw.OtherAmountThreshold, 64); err == nil {
+			minReceived = v
+		}
+	}
+
 	quote := models.SwapQuote{
 		InputMint:      raw.InputMint,
 		OutputMint:     raw.OutputMint,
@@ -170,6 +185,7 @@ func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string
 		PriceImpactPct: priceImpact,
 		RoutePlan:      routePlan,
 		NetworkFee:     networkFee,
+		MinReceived:    minReceived,
 		FetchedAt:      time.Now(),
 		RawResponse:    json.RawMessage(body),
 	}

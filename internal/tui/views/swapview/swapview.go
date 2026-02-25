@@ -2,6 +2,7 @@ package swapview
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -64,6 +65,7 @@ type Model struct {
 	inputMint     textinput.Model
 	outputMint    textinput.Model
 	amountInput   textinput.Model
+	slippageInput textinput.Model
 	passwordInput textinput.Model
 	focusIndex    int
 	quote         models.SwapQuote
@@ -96,6 +98,13 @@ func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapS
 	ai.CharLimit = 20
 	ai.Width = 20
 
+	// Default 50 bps = 0.5% slippage. 0 = use Jupiter's adaptive auto-slippage.
+	si := textinput.New()
+	si.Placeholder = "50"
+	si.SetValue("50")
+	si.CharLimit = 5
+	si.Width = 8
+
 	pi := textinput.New()
 	pi.Placeholder = "Enter wallet password"
 	pi.EchoMode = textinput.EchoPassword
@@ -107,6 +116,7 @@ func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapS
 		inputMint:     im,
 		outputMint:    om,
 		amountInput:   ai,
+		slippageInput: si,
 		passwordInput: pi,
 		walletAddr:    walletAddr,
 		swapClient:    swapClient,
@@ -195,9 +205,9 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "tab", "shift+tab":
 		if msg.String() == "tab" {
-			m.focusIndex = (m.focusIndex + 1) % 3
+			m.focusIndex = (m.focusIndex + 1) % 4
 		} else {
-			m.focusIndex = (m.focusIndex + 2) % 3
+			m.focusIndex = (m.focusIndex + 3) % 4
 		}
 		return m, m.focusCurrent()
 	case "enter":
@@ -210,10 +220,21 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
+		// Parse slippage — empty or invalid defaults to 0 (Jupiter auto-slippage).
+		slippageBps := 0
+		if slipStr := strings.TrimSpace(m.slippageInput.Value()); slipStr != "" {
+			if v, err := strconv.Atoi(slipStr); err == nil && v >= 0 && v <= 10000 {
+				slippageBps = v
+			} else if err != nil || v < 0 || v > 10000 {
+				m.err = fmt.Errorf("slippage must be 0–10000 bps (0–100%%)")
+				return m, nil
+			}
+		}
+
 		m.err = nil
 		m.phase = PhaseQuoting
 		m.spinner = components.NewSpinner("Fetching quote...")
-		return m, tea.Batch(m.spinner.Init(), m.fetchQuote(inVal, outVal, amtVal))
+		return m, tea.Batch(m.spinner.Init(), m.fetchQuote(inVal, outVal, amtVal, slippageBps))
 	}
 
 	// Update the focused input
@@ -225,6 +246,8 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.outputMint, cmd = m.outputMint.Update(msg)
 	case 2:
 		m.amountInput, cmd = m.amountInput.Update(msg)
+	case 3:
+		m.slippageInput, cmd = m.slippageInput.Update(msg)
 	}
 	return m, cmd
 }
@@ -233,6 +256,7 @@ func (m Model) focusCurrent() tea.Cmd {
 	m.inputMint.Blur()
 	m.outputMint.Blur()
 	m.amountInput.Blur()
+	m.slippageInput.Blur()
 
 	switch m.focusIndex {
 	case 0:
@@ -241,16 +265,18 @@ func (m Model) focusCurrent() tea.Cmd {
 		return m.outputMint.Focus()
 	case 2:
 		return m.amountInput.Focus()
+	case 3:
+		return m.slippageInput.Focus()
 	}
 	return nil
 }
 
-func (m Model) fetchQuote(inputMint, outputMint, amount string) tea.Cmd {
+func (m Model) fetchQuote(inputMint, outputMint, amount string, slippageBps int) tea.Cmd {
 	return func() tea.Msg {
 		if m.swapClient == nil {
 			return QuoteFetchedMsg{Err: fmt.Errorf("swap client not available")}
 		}
-		quote, err := m.swapClient.GetQuote(inputMint, outputMint, amount, m.walletAddr)
+		quote, err := m.swapClient.GetQuote(inputMint, outputMint, amount, m.walletAddr, slippageBps)
 		return QuoteFetchedMsg{Quote: quote, Err: err}
 	}
 }
@@ -320,6 +346,16 @@ func (m Model) View() string {
 		b.WriteString(m.outputMint.View() + "\n\n")
 		b.WriteString("Amount:\n")
 		b.WriteString(m.amountInput.View() + "\n\n")
+		b.WriteString("Slippage (bps, 0=auto):\n")
+		b.WriteString(m.slippageInput.View() + "  ")
+		if slipStr := strings.TrimSpace(m.slippageInput.Value()); slipStr != "" && slipStr != "0" {
+			if v, err := strconv.Atoi(slipStr); err == nil {
+				b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("%.2f%%", float64(v)/100.0)))
+			}
+		} else {
+			b.WriteString(tui.StyleMuted.Render("Jupiter auto"))
+		}
+		b.WriteString("\n\n")
 		b.WriteString(tui.StyleMuted.Render("[tab]next field [enter]get quote [esc]back"))
 
 	case PhaseQuoting:
@@ -363,6 +399,14 @@ func (m Model) renderQuoteReview(b *strings.Builder) {
 
 	if q.Rate > 0 {
 		b.WriteString(fmt.Sprintf("  Rate:         %.6f\n", q.Rate))
+	}
+
+	if q.SlippageBps > 0 {
+		b.WriteString(fmt.Sprintf("  Slippage:     %.2f%%\n", float64(q.SlippageBps)/100.0))
+	}
+
+	if q.MinReceived > 0 {
+		b.WriteString(fmt.Sprintf("  Min Received: %s %s\n", wallet.FormatBalance(q.MinReceived), outputLabel))
 	}
 
 	// Price impact warnings
@@ -458,5 +502,6 @@ func (m *Model) resizeInputs() {
 	m.inputMint.Width = min(50, maxW)
 	m.outputMint.Width = min(50, maxW)
 	m.amountInput.Width = min(20, maxW)
+	m.slippageInput.Width = min(8, maxW)
 	m.passwordInput.Width = min(40, maxW)
 }
