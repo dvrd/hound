@@ -116,6 +116,21 @@ func (s *TokenInfoService) FetchExtendedTokenInfo(mintOrSymbol string, db *datab
 		info.Decimals = dbToken.Decimals
 	}
 
+	// Fetch price history candles for the best pair (highest liquidity).
+	var bestPair *models.PairData
+	for i := range pairs {
+		if bestPair == nil || pairs[i].Liquidity.USD > bestPair.Liquidity.USD {
+			bestPair = &pairs[i]
+		}
+	}
+	if bestPair != nil {
+		candles, candleErr := s.dexscreener.FetchCandles(bestPair.PairAddress, "60")
+		if candleErr == nil {
+			info.PriceHistory = candles
+		}
+		// If FetchCandles errors, leave PriceHistory nil — don't fail the whole request.
+	}
+
 	// Fetch on-chain supply
 	if s.rpcClient != nil {
 		totalSupply, decimals, err := blockchain.GetTokenSupply(context.Background(), s.rpcClient, mint)

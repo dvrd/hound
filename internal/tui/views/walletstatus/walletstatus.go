@@ -97,6 +97,11 @@ func (m Model) loadPortfolio() tea.Cmd {
 		if m.walletMgr == nil {
 			return tui.PortfolioRefreshedMsg{Err: fmt.Errorf("wallet manager not available")}
 		}
+		// If the background preload recorded an error for this wallet, surface it
+		// immediately so the user sees it rather than a generic cache-miss error.
+		if preloadErr := m.walletMgr.PreloadError(m.address); preloadErr != nil {
+			return tui.PortfolioRefreshedMsg{Err: preloadErr}
+		}
 		// Try cached first
 		portfolio, err := m.walletMgr.GetCachedPortfolio(m.address)
 		if err != nil {
@@ -331,8 +336,10 @@ func (m Model) View() string {
 	// First load: no data yet.
 	if !m.hasData {
 		if m.err != nil {
-			// Failed before we ever got data — show the error.
-			b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n")
+			// Failed before we ever got data — show a prominent error with retry hint.
+			b.WriteString(tui.StyleWarning.Render("  ⚠  Portfolio data unavailable") + "\n")
+			b.WriteString(tui.StyleMuted.Render("     last error: "+m.err.Error()) + "\n\n")
+			b.WriteString(tui.StyleMuted.Render("  [r] retry") + "\n")
 		} else {
 			b.WriteString(m.spinner.View() + "\n")
 		}
@@ -445,6 +452,10 @@ func (m Model) View() string {
 
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
+	// Error state with no data: show a minimal footer focused on retry.
+	if !m.hasData && m.err != nil {
+		return "[r]retry [esc]back"
+	}
 	showAllLabel := "[a]ll"
 	if m.showAll {
 		showAllLabel = "[a]ll*"

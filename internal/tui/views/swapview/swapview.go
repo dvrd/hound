@@ -378,13 +378,7 @@ func (m Model) renderQuoteReview(b *strings.Builder) {
 		b.WriteString(fmt.Sprintf("  Network Fee:  %s SOL\n", wallet.FormatBalance(q.NetworkFee)))
 	}
 
-	// Route plan
-	if len(q.RoutePlan) > 0 {
-		b.WriteString("\n  Route:\n")
-		for _, step := range q.RoutePlan {
-			b.WriteString(fmt.Sprintf("    %s (%d%%)\n", step.DexLabel, step.Percent))
-		}
-	}
+	b.WriteString(fmt.Sprintf("  Route:        %s\n", q.RouteLabel(inputLabel, outputLabel)))
 
 	b.WriteString("\n")
 	if m.dryRun {
@@ -414,6 +408,15 @@ func (m Model) renderResult(b *strings.Builder) {
 		if r.Dex != "" {
 			b.WriteString(fmt.Sprintf("  DEX:       %s\n", r.Dex))
 		}
+		inputLabel := m.quote.InputMint
+		if m.quote.InputSymbol != "" {
+			inputLabel = m.quote.InputSymbol
+		}
+		outputLabel := m.quote.OutputMint
+		if m.quote.OutputSymbol != "" {
+			outputLabel = m.quote.OutputSymbol
+		}
+		b.WriteString(fmt.Sprintf("  Route:     %s\n", m.quote.RouteLabel(inputLabel, outputLabel)))
 	}
 
 	b.WriteString("\n")

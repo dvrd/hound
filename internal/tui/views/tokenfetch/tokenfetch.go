@@ -142,6 +142,12 @@ func (m Model) View() string {
 
 	// Price changes section
 	b.WriteString(tui.StyleBold.Render("Price Changes") + "\n")
+	if len(info.PriceHistory) > 0 {
+		b.WriteString("  " + tui.StyleBold.Render("Price (1h candles)") + "\n")
+		b.WriteString("  " + tui.Sparkline(info.PriceHistory, 24) + "\n")
+	} else if prices := tui.PricePathFromChanges(info.PriceUSD, info.PriceChange.M5, info.PriceChange.H1, info.PriceChange.H6, info.PriceChange.H24); prices != nil {
+		b.WriteString(fmt.Sprintf("  %s\n", tui.RenderSparkline(prices, 24)))
+	}
 	b.WriteString(fmt.Sprintf("  5m:   %s\n", tui.FormatChange(info.PriceChange.M5)))
 	b.WriteString(fmt.Sprintf("  1h:   %s\n", tui.FormatChange(info.PriceChange.H1)))
 	b.WriteString(fmt.Sprintf("  6h:   %s\n", tui.FormatChange(info.PriceChange.H6)))

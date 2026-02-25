@@ -55,6 +55,7 @@ type TokenExtendedInfo struct {
 	Sells24h     int
 	PriceChange  PriceChanges
 	TopHolders   []TopHolder
+	PriceHistory []PriceCandle
 	CreatedAt    int64
 	IsActive     bool
 }
@@ -65,6 +66,16 @@ type PriceChanges struct {
 	H1  float64 // 1 hour
 	H6  float64 // 6 hours
 	H24 float64 // 24 hours
+}
+
+// PriceCandle represents a single OHLCV candlestick data point.
+type PriceCandle struct {
+	Timestamp int64   // Unix timestamp in seconds
+	Open      float64 // Opening price
+	High      float64 // Highest price
+	Low       float64 // Lowest price
+	Close     float64 // Closing price
+	Volume    float64 // Trading volume
 }
 
 // DexScreenerResponse is the top-level response from the DexScreener API.

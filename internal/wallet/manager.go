@@ -16,6 +16,10 @@ type WalletManager struct {
 	balanceFetcher *BalanceFetcher
 	portfolioCache map[string]models.PortfolioBalance
 	mu             sync.RWMutex
+
+	// preloadErrors stores per-wallet errors from the last background refresh.
+	preloadErrors map[string]error
+	preloadErrMu  sync.Mutex
 }
 
 // NewWalletManager creates a new WalletManager.
@@ -24,6 +28,7 @@ func NewWalletManager(db *database.Database, balanceFetcher *BalanceFetcher) *Wa
 		db:             db,
 		balanceFetcher: balanceFetcher,
 		portfolioCache: make(map[string]models.PortfolioBalance),
+		preloadErrors:  make(map[string]error),
 	}
 }
 
@@ -72,8 +77,14 @@ func (m *WalletManager) RefreshAllPortfolios(ctx context.Context) (map[string]mo
 		portfolio, err := m.RefreshPortfolio(ctx, w.Address)
 		if err != nil {
 			lastErr = err
+			m.preloadErrMu.Lock()
+			m.preloadErrors[w.Address] = err
+			m.preloadErrMu.Unlock()
 			continue
 		}
+		m.preloadErrMu.Lock()
+		delete(m.preloadErrors, w.Address)
+		m.preloadErrMu.Unlock()
 		results[w.Address] = portfolio
 	}
 
@@ -82,6 +93,13 @@ func (m *WalletManager) RefreshAllPortfolios(ctx context.Context) (map[string]mo
 	}
 
 	return results, nil
+}
+
+// PreloadError returns the last preload error for a wallet address, or nil if none.
+func (m *WalletManager) PreloadError(walletAddr string) error {
+	m.preloadErrMu.Lock()
+	defer m.preloadErrMu.Unlock()
+	return m.preloadErrors[walletAddr]
 }
 
 // GetCachedPortfolio returns the cached portfolio, or fetches from DB balances.

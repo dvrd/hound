@@ -13,10 +13,12 @@ import (
 )
 
 const (
-	dexScreenerBaseURL = "https://api.dexscreener.com/latest/dex/tokens/"
-	changeCacheTTL     = 5 * time.Minute
-	poolCacheTTL       = 1 * time.Hour
-	maxRetries         = 3
+	dexScreenerBaseURL   = "https://api.dexscreener.com/latest/dex/tokens/"
+	dexScreenerCandleURL = "https://api.dexscreener.com/latest/dex/candles/"
+	changeCacheTTL       = 5 * time.Minute
+	poolCacheTTL         = 1 * time.Hour
+	candleCacheTTL       = 5 * time.Minute
+	maxRetries           = 3
 )
 
 // priceCache is a thread-safe cache for price data with TTL.
@@ -89,12 +91,48 @@ func (c *poolCache) set(key string, data []models.PairData) {
 	c.entries[key] = poolCacheEntry{data: data, fetchedAt: time.Now()}
 }
 
+// candleCache is a thread-safe cache for candle data with TTL.
+type candleCache struct {
+	mu      sync.Mutex
+	entries map[string]candleCacheEntry
+	ttl     time.Duration
+}
+
+type candleCacheEntry struct {
+	data      []models.PriceCandle
+	fetchedAt time.Time
+}
+
+func newCandleCache(ttl time.Duration) *candleCache {
+	return &candleCache{
+		entries: make(map[string]candleCacheEntry),
+		ttl:     ttl,
+	}
+}
+
+func (c *candleCache) get(key string) ([]models.PriceCandle, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	entry, ok := c.entries[key]
+	if !ok || time.Since(entry.fetchedAt) > c.ttl {
+		return nil, false
+	}
+	return entry.data, true
+}
+
+func (c *candleCache) set(key string, data []models.PriceCandle) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.entries[key] = candleCacheEntry{data: data, fetchedAt: time.Now()}
+}
+
 // DexScreenerClient fetches token prices and pool data from DexScreener.
 type DexScreenerClient struct {
 	httpClient  *http.Client
 	baseURL     string
 	changeCache *priceCache
 	poolCache   *poolCache
+	candleCache *candleCache
 }
 
 // NewDexScreenerClient creates a new DexScreener API client.
@@ -104,6 +142,7 @@ func NewDexScreenerClient() *DexScreenerClient {
 		baseURL:     dexScreenerBaseURL,
 		changeCache: newPriceCache(changeCacheTTL),
 		poolCache:   newPoolCache(poolCacheTTL),
+		candleCache: newCandleCache(candleCacheTTL),
 	}
 }
 
@@ -114,6 +153,7 @@ func NewDexScreenerClientWithHTTP(httpClient *http.Client, baseURL string) *DexS
 		baseURL:     baseURL,
 		changeCache: newPriceCache(changeCacheTTL),
 		poolCache:   newPoolCache(poolCacheTTL),
+		candleCache: newCandleCache(candleCacheTTL),
 	}
 }
 
@@ -216,4 +256,64 @@ func (c *DexScreenerClient) FetchWithRetry(contractAddr string) (models.DexScree
 	}
 
 	return models.DexScreenerResponse{}, fmt.Errorf("dexscreener: all retries exhausted: %w", lastErr)
+}
+
+// candleAPIResponse is the JSON shape returned by the DexScreener candles endpoint.
+type candleAPIResponse struct {
+	Candles []candleAPIEntry `json:"candles"`
+}
+
+type candleAPIEntry struct {
+	T int64   `json:"t"` // Unix timestamp
+	O float64 `json:"o"` // Open
+	H float64 `json:"h"` // High
+	L float64 `json:"l"` // Low
+	C float64 `json:"c"` // Close
+	V float64 `json:"v"` // Volume
+}
+
+// FetchCandles fetches OHLCV candlestick data for a pair from DexScreener.
+// Valid resolutions: "1", "5", "15", "60", "240", "1D".
+// Results are cached for 5 minutes keyed by pairAddress+":"+resolution.
+func (c *DexScreenerClient) FetchCandles(pairAddress string, resolution string) ([]models.PriceCandle, error) {
+	cacheKey := pairAddress + ":" + resolution
+	if cached, ok := c.candleCache.get(cacheKey); ok {
+		return cached, nil
+	}
+
+	url := dexScreenerCandleURL + pairAddress + "?res=" + resolution
+	resp, err := c.httpClient.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("dexscreener fetch candles: %w", err)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("dexscreener read candles body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("dexscreener candles HTTP %d: %w", resp.StatusCode, models.ErrConnectionFailed)
+	}
+
+	var apiResp candleAPIResponse
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("dexscreener parse candles response: %w", models.ErrInvalidResponse)
+	}
+
+	candles := make([]models.PriceCandle, len(apiResp.Candles))
+	for i, entry := range apiResp.Candles {
+		candles[i] = models.PriceCandle{
+			Timestamp: entry.T,
+			Open:      entry.O,
+			High:      entry.H,
+			Low:       entry.L,
+			Close:     entry.C,
+			Volume:    entry.V,
+		}
+	}
+
+	c.candleCache.set(cacheKey, candles)
+	return candles, nil
 }

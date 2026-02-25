@@ -2,6 +2,8 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -54,6 +56,26 @@ type SwapQuote struct {
 // IsExpired returns true if the quote is older than QuoteTTL (90 seconds).
 func (q *SwapQuote) IsExpired() bool {
 	return time.Since(q.FetchedAt) > QuoteTTL
+}
+
+// RouteLabel returns a human-readable description of the swap route.
+// e.g. "SOL → Raydium → USDC" or "SOL → Raydium → Orca → USDC (2 hops)"
+func (q SwapQuote) RouteLabel(inputSymbol, outputSymbol string) string {
+	if len(q.RoutePlan) == 0 {
+		return inputSymbol + " → " + outputSymbol + " (direct)"
+	}
+	if len(q.RoutePlan) == 1 {
+		return inputSymbol + " → " + q.RoutePlan[0].DexLabel + " → " + outputSymbol
+	}
+	// 2+ hops: show all DEX labels
+	parts := make([]string, 0, len(q.RoutePlan)+2)
+	parts = append(parts, inputSymbol)
+	for _, step := range q.RoutePlan {
+		parts = append(parts, step.DexLabel)
+	}
+	parts = append(parts, outputSymbol)
+	label := strings.Join(parts, " → ")
+	return label + fmt.Sprintf(" (%d hops)", len(q.RoutePlan))
 }
 
 // SwapTransactionResult represents the result of executing a swap.
