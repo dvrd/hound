@@ -88,6 +88,11 @@ func resample(prices []float64, n int) []float64 {
 		return out
 	}
 
+	// n=1: division by zero in the loop — just take the middle value.
+	if n == 1 {
+		return []float64{prices[len(prices)/2]}
+	}
+
 	out := make([]float64, n)
 	for i := 0; i < n; i++ {
 		// Map output index i to a fractional position in the input.
