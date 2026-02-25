@@ -94,22 +94,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the token detail view.
 func (m Model) View() string {
-	var b strings.Builder
-
 	if m.loading {
-		title := tui.StyleTitle.Render("Token Info")
-		b.WriteString(title + "\n\n")
+		var b strings.Builder
+		b.WriteString(tui.StyleTitle.Render("Token Info") + "\n\n")
 		b.WriteString(m.spinner.View() + "\n")
 		return b.String()
 	}
 
 	if m.err != nil {
-		title := tui.StyleTitle.Render("Token Info")
-		b.WriteString(title + "\n\n")
-		b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n")
-		b.WriteString("\n")
+		var b strings.Builder
+		b.WriteString(tui.StyleTitle.Render("Token Info") + "\n\n")
+		b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n\n")
 		return b.String()
 	}
+
+	// Build all lines into a slice so we can cap to terminal height.
+	var lines []string
+	add := func(s string) { lines = append(lines, s) }
 
 	info := m.info
 
@@ -118,57 +119,65 @@ func (m Model) View() string {
 	if len(info.Symbols) > 0 {
 		symbolStr = " (" + strings.Join(info.Symbols, "/") + ")"
 	}
-	title := tui.StyleTitle.Render(info.Name + symbolStr)
-	b.WriteString(title + "\n")
+	add(tui.StyleTitle.Render(info.Name + symbolStr))
 	if info.MintAddress != "" {
-		b.WriteString(tui.StyleMuted.Render(info.MintAddress) + "\n")
+		add(tui.StyleMuted.Render(info.MintAddress))
 	}
-	b.WriteString("\n")
+	add("")
 
 	// Market data section
-	b.WriteString(tui.StyleBold.Render("Market Data") + "\n")
-	b.WriteString(fmt.Sprintf("  Price:       %s\n", wallet.FormatPrice(info.PriceUSD)))
-	b.WriteString(fmt.Sprintf("  Market Cap:  %s\n", wallet.FormatLargeNumber(info.MarketCap)))
-	b.WriteString(fmt.Sprintf("  FDV:         %s\n", wallet.FormatLargeNumber(info.FDV)))
-	b.WriteString(fmt.Sprintf("  Liquidity:   %s\n", wallet.FormatLargeNumber(info.LiquidityUSD)))
-	b.WriteString("\n")
+	add(tui.StyleBold.Render("Market Data"))
+	add(fmt.Sprintf("  Price:       %s", wallet.FormatPrice(info.PriceUSD)))
+	add(fmt.Sprintf("  Market Cap:  %s", wallet.FormatLargeNumber(info.MarketCap)))
+	add(fmt.Sprintf("  FDV:         %s", wallet.FormatLargeNumber(info.FDV)))
+	add(fmt.Sprintf("  Liquidity:   %s", wallet.FormatLargeNumber(info.LiquidityUSD)))
+	add("")
 
 	// Trading section
-	b.WriteString(tui.StyleBold.Render("Trading (24h)") + "\n")
-	b.WriteString(fmt.Sprintf("  Volume:      %s\n", wallet.FormatLargeNumber(info.Volume24h)))
-	b.WriteString(fmt.Sprintf("  Txns:        %d\n", info.Txns24h))
-	b.WriteString(fmt.Sprintf("  Buys/Sells:  %d / %d\n", info.Buys24h, info.Sells24h))
-	b.WriteString("\n")
+	add(tui.StyleBold.Render("Trading (24h)"))
+	add(fmt.Sprintf("  Volume:      %s", wallet.FormatLargeNumber(info.Volume24h)))
+	add(fmt.Sprintf("  Txns:        %d", info.Txns24h))
+	add(fmt.Sprintf("  Buys/Sells:  %d / %d", info.Buys24h, info.Sells24h))
+	add("")
 
 	// Price changes section
-	b.WriteString(tui.StyleBold.Render("Price Changes") + "\n")
+	add(tui.StyleBold.Render("Price Changes"))
 	if len(info.PriceHistory) > 0 {
-		b.WriteString("  " + tui.StyleBold.Render("Price (1h candles)") + "\n")
-		b.WriteString("  " + tui.Sparkline(info.PriceHistory, 24) + "\n")
+		add("  " + tui.StyleBold.Render("Price (1h candles)"))
+		add("  " + tui.Sparkline(info.PriceHistory, 24))
 	} else if prices := tui.PricePathFromChanges(info.PriceUSD, info.PriceChange.M5, info.PriceChange.H1, info.PriceChange.H6, info.PriceChange.H24); prices != nil {
-		b.WriteString(fmt.Sprintf("  %s\n", tui.RenderSparkline(prices, 24)))
+		add(fmt.Sprintf("  %s", tui.RenderSparkline(prices, 24)))
 	}
-	b.WriteString(fmt.Sprintf("  5m:   %s\n", tui.FormatChange(info.PriceChange.M5)))
-	b.WriteString(fmt.Sprintf("  1h:   %s\n", tui.FormatChange(info.PriceChange.H1)))
-	b.WriteString(fmt.Sprintf("  6h:   %s\n", tui.FormatChange(info.PriceChange.H6)))
-	b.WriteString(fmt.Sprintf("  24h:  %s\n", tui.FormatChange(info.PriceChange.H24)))
-	b.WriteString("\n")
+	add(fmt.Sprintf("  5m:   %s", tui.FormatChange(info.PriceChange.M5)))
+	add(fmt.Sprintf("  1h:   %s", tui.FormatChange(info.PriceChange.H1)))
+	add(fmt.Sprintf("  6h:   %s", tui.FormatChange(info.PriceChange.H6)))
+	add(fmt.Sprintf("  24h:  %s", tui.FormatChange(info.PriceChange.H24)))
+	add("")
 
 	// Top holders section
 	if len(info.TopHolders) > 0 {
-		b.WriteString(tui.StyleBold.Render("Top Holders") + "\n")
+		add(tui.StyleBold.Render("Top Holders"))
 		for _, h := range info.TopHolders {
 			addr := tui.TruncateAddress(h.Address)
-			b.WriteString(fmt.Sprintf("  %s  %s  %.2f%%\n",
+			add(fmt.Sprintf("  %s  %s  %.2f%%",
 				addr,
 				wallet.FormatBalance(h.Balance),
 				h.OwnershipPct,
 			))
 		}
-		b.WriteString("\n")
+		add("")
 	}
 
-	return b.String()
+	// Cap to available terminal height (leave 4 lines for border + footer).
+	maxLines := len(lines)
+	if m.height > 4 {
+		avail := m.height - 4
+		if avail < maxLines {
+			maxLines = avail
+		}
+	}
+
+	return strings.Join(lines[:maxLines], "\n") + "\n"
 }
 
 // Footer returns the pinned footer keybinding line for the App chrome.

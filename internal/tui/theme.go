@@ -75,3 +75,29 @@ func FormatChange(change float64) string {
 		return lipgloss.NewStyle().Foreground(ColorMuted).Render("0.00%")
 	}
 }
+
+// FormatChangePlain returns the plain (unstyled) change string for use in
+// fmt.Sprintf width specifiers, where ANSI bytes would inflate apparent length.
+func FormatChangePlain(change float64) string {
+	switch {
+	case change > 0:
+		return fmt.Sprintf("+%.2f%%", change)
+	case change < 0:
+		return fmt.Sprintf("%.2f%%", change)
+	default:
+		return "0.00%"
+	}
+}
+
+// ColorizeChange wraps an already-padded plain string with the appropriate
+// color for the given change value.
+func ColorizeChange(change float64, plain string) string {
+	switch {
+	case change > 0:
+		return lipgloss.NewStyle().Foreground(ColorPositive).Render(plain)
+	case change < 0:
+		return lipgloss.NewStyle().Foreground(ColorNegative).Render(plain)
+	default:
+		return lipgloss.NewStyle().Foreground(ColorMuted).Render(plain)
+	}
+}

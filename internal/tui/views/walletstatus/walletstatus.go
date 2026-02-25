@@ -355,11 +355,10 @@ func (m Model) View() string {
 
 	// SOL balance
 	sol := m.portfolio.SOLBalance
-	solLine := fmt.Sprintf("SOL  %s  %s  %s",
+	solLine := fmt.Sprintf("SOL  %s  %s  ",
 		wallet.FormatBalance(sol.Amount),
-		wallet.FormatPrice(sol.USDValue),
-		tui.FormatChange(sol.Change24h))
-	b.WriteString(solLine + "\n\n")
+		wallet.FormatPrice(sol.USDValue))
+	b.WriteString(solLine + tui.FormatChange(sol.Change24h) + "\n\n")
 
 	// Token table with proportional columns
 	tokens := m.visibleTokens()
@@ -405,16 +404,20 @@ func (m Model) View() string {
 			}
 		}
 
-		rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
+		rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal)
 		for i := startIdx; i < endIdx; i++ {
 			t := tokens[i]
-			row := fmt.Sprintf(rowFmt,
+			// Build the plain portion first so fmt.Sprintf width specifiers count
+			// visible characters only, then append the ANSI-colored change cell.
+			plainRow := fmt.Sprintf(rowFmt,
 				tui.Truncate(t.Symbol, colSym),
 				tui.Truncate(t.Name, colName),
 				wallet.FormatBalance(t.Amount),
 				wallet.FormatPrice(t.USDPrice),
-				wallet.FormatPrice(t.USDValue),
-				tui.FormatChange(t.Change24h))
+				wallet.FormatPrice(t.USDValue))
+			plainChg := tui.FormatChangePlain(t.Change24h)
+			paddedChg := fmt.Sprintf("%*s", colChg, plainChg)
+			row := plainRow + " " + tui.ColorizeChange(t.Change24h, paddedChg)
 
 			if i == m.cursor {
 				b.WriteString(tui.StyleTableRowSelected.Render(row) + "\n")

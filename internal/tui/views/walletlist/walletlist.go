@@ -274,30 +274,44 @@ func (m Model) View() string {
 			}
 		}
 
-		// Table rows
-		rowFmt := fmt.Sprintf("%%s%%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
+		// Table rows — build each cell with plain text first so fmt.Sprintf
+		// width specifiers count visible characters only, then apply ANSI color.
+		plainFmt := fmt.Sprintf("%%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
 		for i := startIdx; i < endIdx; i++ {
 			w := m.wallets[i]
-			primary := "  "
+
+			// Primary badge: 2 chars wide, styled after padding is computed.
+			primaryPlain := "  "
 			if w.IsPrimary {
-				primary = tui.StylePrimaryBadge.Render("* ")
+				primaryPlain = "* "
 			}
 
 			addr := tui.TruncateAddress(w.Address)
-			typeBadge := tui.StyleTypeBadge.Render(w.WalletType.String())
+			typePlain := fmt.Sprintf("%-*s", colType, tui.Truncate(w.WalletType.String(), colType))
 
 			balance := "$0.00"
 			if p, ok := m.portfolios[w.Address]; ok {
 				balance = wallet.FormatPrice(p.TotalUSD)
 			}
 
-			row := fmt.Sprintf(rowFmt,
-				primary, tui.Truncate(w.Label, colLabel), addr, typeBadge, balance)
+			// Plain row (correct widths, no ANSI).
+			plainRow := fmt.Sprintf(plainFmt,
+				tui.Truncate(w.Label, colLabel), addr, typePlain, balance)
+
+			// Colorize the primary badge.
+			var primaryStyled string
+			if w.IsPrimary {
+				primaryStyled = tui.StylePrimaryBadge.Render(primaryPlain)
+			} else {
+				primaryStyled = primaryPlain
+			}
+			// Replace the plain type cell with a muted-colored version.
+			coloredRow := primaryStyled + strings.Replace(plainRow, typePlain, tui.StyleTypeBadge.Render(typePlain), 1)
 
 			if i == m.cursor {
-				b.WriteString(tui.StyleTableRowSelected.Render("> "+row) + "\n")
+				b.WriteString(tui.StyleTableRowSelected.Render("> "+coloredRow) + "\n")
 			} else {
-				b.WriteString(tui.StyleTableRow.Render("  "+row) + "\n")
+				b.WriteString(tui.StyleTableRow.Render("  "+coloredRow) + "\n")
 			}
 		}
 
