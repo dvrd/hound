@@ -3,6 +3,7 @@ package walletstatus
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"sort"
 	"strings"
 	"time"
@@ -42,15 +43,58 @@ func (s SortMode) String() string {
 // autoRefreshTickMsg is sent by the auto-refresh timer.
 type autoRefreshTickMsg struct{}
 
+// clipboardCopiedMsg is sent after copying the wallet address to the clipboard.
+type clipboardCopiedMsg struct{ err error }
+
+func copyAddressToClipboard(addr string) tea.Cmd {
+	return func() tea.Msg {
+		for _, args := range [][]string{
+			{"pbcopy"},
+			{"wl-copy"},
+			{"xclip", "-selection", "clipboard"},
+			{"xsel", "--clipboard", "--input"},
+			{"clip.exe"},
+		} {
+			c := exec.Command(args[0], args[1:]...)
+			c.Stdin = strings.NewReader(addr)
+			if err := c.Run(); err == nil {
+				return clipboardCopiedMsg{}
+			}
+		}
+		return clipboardCopiedMsg{err: fmt.Errorf("no clipboard command available")}
+	}
+}
+
+// FilterMode controls which tokens are shown in the list.
+type FilterMode int
+
+const (
+	FilterDefault FilterMode = iota // hide dust (<$1) and zero-balance tokens
+	FilterDust                      // show dust but still hide zero-balance tokens
+	FilterAll                       // show everything including zero-balance tokens
+)
+
+// String returns the status-bar label for each filter mode.
+func (f FilterMode) String() string {
+	switch f {
+	case FilterDust:
+		return "show dust"
+	case FilterAll:
+		return "show all"
+	default:
+		return "hide dust"
+	}
+}
+
 // Model is the wallet status/detail view.
 type Model struct {
 	wallet      models.Wallet
 	portfolio   models.PortfolioBalance
 	cursor      int
 	sortMode    SortMode
-	showAll     bool            // show zero-balance tokens
-	showDust    bool            // show tokens with USD value < $1 (off by default)
+	filterMode  FilterMode      // cycles: hide dust → show dust → show all
 	showHidden  bool            // show manually hidden tokens (off by default)
+	copied      bool            // true briefly after address copied to clipboard
 	hiddenMints map[string]bool // mints hidden by the user for this wallet
 	loading     bool            // true while a network fetch is in flight
 	hasData     bool            // true once we have received at least one portfolio response
@@ -147,6 +191,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case clipboardCopiedMsg:
+		m.copied = msg.err == nil
+		return m, nil
+
 	case tui.PortfolioRefreshedMsg:
 		m.loading = false
 		m.spinner.SetDone()
@@ -209,12 +257,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renameInput = ri
 			return m, ri.Focus()
 		case "a":
-			m.showAll = !m.showAll
+			// Cycle filter: hide dust → show dust → show all → hide dust
+			m.filterMode = (m.filterMode + 1) % 3
 			m.clampCursor()
-		case "x":
-			// Toggle dust filter (hide tokens < $1)
-			m.showDust = !m.showDust
-			m.clampCursor()
+		case "t":
+			return m, func() tea.Msg {
+				return tui.NavigateMsg{View: "token-list"}
+			}
 		case "h":
 			// Hide the token under the cursor
 			tokens := m.visibleTokens()
@@ -257,9 +306,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return tui.NavigateMsg{View: "send", Data: m.address}
 			}
 		case "c":
-			return m, func() tea.Msg {
-				return tui.NavigateMsg{View: "receive", Data: m.address}
-			}
+			// Copy wallet address to clipboard directly — no extra view needed.
+			return m, copyAddressToClipboard(m.address)
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -330,12 +378,14 @@ func (m Model) visibleTokens() []models.TokenBalance {
 		if m.hiddenMints[t.Mint] && !m.showHidden {
 			continue
 		}
-		// Filter 2: dust filter — hide tokens worth less than $1 unless showDust or showAll
-		if !m.showDust && !m.showAll && t.USDValue < 1.0 {
+		// Filter 2: value filter — controlled by filterMode
+		// FilterDefault: hide dust (<$1) and zero-balance tokens
+		// FilterDust:    show dust but hide zero-balance tokens
+		// FilterAll:     show everything
+		if m.filterMode == FilterDefault && t.USDValue < 1.0 {
 			continue
 		}
-		// Filter 3: original zero-balance filter
-		if !m.showAll && t.USDValue == 0 && t.Amount == 0 {
+		if m.filterMode != FilterAll && t.USDValue == 0 && t.Amount == 0 {
 			continue
 		}
 		tokens = append(tokens, t)
@@ -503,10 +553,7 @@ func (m Model) View() string {
 
 	// Sort indicator + active filters + refresh time
 	b.WriteString("\n")
-	sortLine := fmt.Sprintf("Sort: %s", m.sortMode.String())
-	if !m.showDust {
-		sortLine += "  filter:<$1"
-	}
+	sortLine := fmt.Sprintf("Sort: %s  filter:%s", m.sortMode.String(), m.filterMode.String())
 	if m.showHidden {
 		sortLine += "  showing hidden"
 	}
@@ -514,6 +561,9 @@ func (m Model) View() string {
 		sortLine += fmt.Sprintf("  |  %s", m.lastRefresh.Format("15:04:05"))
 	}
 	b.WriteString(tui.StyleMuted.Render(sortLine) + "\n")
+	if m.copied {
+		b.WriteString(tui.StyleSuccess.Render("✓ Address copied!") + "\n")
+	}
 
 	// Inline refresh indicator — shown while a background fetch is in flight.
 	if m.loading {
@@ -531,22 +581,18 @@ func (m Model) Footer() string {
 	if !m.hasData && m.err != nil {
 		return "[r]retry [esc]back"
 	}
-	showAllLabel := "[a]ll"
-	if m.showAll {
-		showAllLabel = "[a]ll*"
-	}
-	dustLabel := "[x]dust"
-	if m.showDust {
-		dustLabel = "[x]dust*"
+	filterLabel := "[a]filter"
+	if m.filterMode != FilterDefault {
+		filterLabel = "[a]filter*"
 	}
 	hiddenLabel := "[u]hidden"
 	if m.showHidden {
 		hiddenLabel = "[u]hidden*"
 	}
 	if m.width > 0 && m.width < 80 {
-		return fmt.Sprintf("[s]end [c]rcv [r]ef [R]en %s %s %s [h]ide [U]nhide [1][2][3] [esc]", showAllLabel, dustLabel, hiddenLabel)
+		return fmt.Sprintf("[s]end [c]opy [r]ef [R]en [t]ok %s %s [h]ide [U]nhide [1][2][3] [esc]", filterLabel, hiddenLabel)
 	}
-	return fmt.Sprintf("[s]end re[c]eive [r]efresh [R]ename %s %s %s [h]ide [U]nhide [1]value [2]symbol [3]balance [esc]back", showAllLabel, dustLabel, hiddenLabel)
+	return fmt.Sprintf("[s]end [c]opy addr [r]efresh [R]ename [t]okens %s %s [h]ide [U]nhide [1]value [2]symbol [3]balance [esc]back", filterLabel, hiddenLabel)
 }
 
 // SetSize updates the view dimensions.
@@ -560,9 +606,9 @@ func (m Model) GetSortMode() SortMode {
 	return m.sortMode
 }
 
-// GetShowAll returns whether zero-balance tokens are shown.
-func (m Model) GetShowAll() bool {
-	return m.showAll
+// GetFilterMode returns the current filter mode for testing.
+func (m Model) GetFilterMode() FilterMode {
+	return m.filterMode
 }
 
 // IsRenaming returns whether the rename mode is active for testing.

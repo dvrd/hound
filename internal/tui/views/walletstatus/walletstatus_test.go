@@ -159,22 +159,31 @@ func TestSortModeString(t *testing.T) {
 	}
 }
 
-func TestToggleShowAll(t *testing.T) {
+func TestCycleFilterMode(t *testing.T) {
 	m := loadedModel()
-	if m.GetShowAll() {
-		t.Error("showAll should be false initially")
+	if m.GetFilterMode() != walletstatus.FilterDefault {
+		t.Error("filterMode should be FilterDefault initially")
 	}
 
+	// First press: FilterDefault → FilterDust
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(walletstatus.Model)
-	if !model.GetShowAll() {
-		t.Error("showAll should be true after 'a'")
+	if model.GetFilterMode() != walletstatus.FilterDust {
+		t.Errorf("filterMode should be FilterDust after first 'a', got %v", model.GetFilterMode())
 	}
 
+	// Second press: FilterDust → FilterAll
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model = updated.(walletstatus.Model)
-	if model.GetShowAll() {
-		t.Error("showAll should be false after second 'a'")
+	if model.GetFilterMode() != walletstatus.FilterAll {
+		t.Errorf("filterMode should be FilterAll after second 'a', got %v", model.GetFilterMode())
+	}
+
+	// Third press: FilterAll → FilterDefault
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	model = updated.(walletstatus.Model)
+	if model.GetFilterMode() != walletstatus.FilterDefault {
+		t.Errorf("filterMode should be FilterDefault after third 'a', got %v", model.GetFilterMode())
 	}
 }
 
@@ -253,15 +262,19 @@ func TestEmptyTokens(t *testing.T) {
 	}
 }
 
-func TestShowAllLabel(t *testing.T) {
+func TestFilterLabel(t *testing.T) {
 	m := loadedModel()
 
-	// Toggle showAll on
+	// Default: no asterisk
+	if strings.Contains(m.Footer(), "[a]filter*") {
+		t.Error("Footer should not show asterisk when filter is default")
+	}
+
+	// After one press (FilterDust): asterisk appears
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(walletstatus.Model)
-	footer := model.Footer()
-	if !strings.Contains(footer, "[a]ll*") {
-		t.Error("Footer should show [a]ll* when showAll is active")
+	if !strings.Contains(model.Footer(), "[a]filter*") {
+		t.Error("Footer should show [a]filter* when filter is non-default")
 	}
 }
 
@@ -339,7 +352,7 @@ func TestWalletStatus_ResponsiveView_Narrow(t *testing.T) {
 		t.Error("View should not be empty at narrow width")
 	}
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[s]end [c]rcv") {
+	if !strings.Contains(footer, "[s]end [c]opy") {
 		t.Error("narrow view should use abbreviated status bar")
 	}
 }
@@ -357,7 +370,7 @@ func TestWalletStatus_ResponsiveView_Wide(t *testing.T) {
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[s]end re[c]eive") {
+	if !strings.Contains(footer, "[s]end [c]opy addr") {
 		t.Error("wide view should use full status bar")
 	}
 }
