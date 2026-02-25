@@ -17,7 +17,7 @@ A terminal UI for Solana — manage wallets, track your portfolio, and swap toke
 ### Homebrew (recommended)
 
 ```bash
-brew tap dvrd/brew-hound
+brew tap dvrd/hound
 brew install hound
 ```
 
