@@ -47,7 +47,7 @@ brews:
   - name: hound
     repository:
       owner: dvrd
-      name: homebrew-hound
+      name: brew-hound
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     commit_author:
       name: goreleaserbot
