@@ -95,10 +95,9 @@ func New(walletMgr *wallet.WalletManager, address string, db *database.Database)
 	return m
 }
 
-// Init loads the portfolio from cache (populated by the startup preload goroutine)
-// and schedules a background refresh every 30s.
+// Init fetches the portfolio live and schedules a background refresh every 30s.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Init(), m.loadPortfolio(), m.scheduleRefresh())
+	return tea.Batch(m.spinner.Init(), m.refreshPortfolio(), m.scheduleRefresh())
 }
 
 func (m Model) loadPortfolio() tea.Cmd {
