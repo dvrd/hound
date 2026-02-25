@@ -111,10 +111,14 @@ func (m Model) loadPortfolio() tea.Cmd {
 		if preloadErr := m.walletMgr.PreloadError(m.address); preloadErr != nil {
 			return tui.PortfolioRefreshedMsg{Err: preloadErr}
 		}
-		// Try cached first
+		// Try cached first — cache is populated either by the walletlist preload
+		// or by a previous refresh in this session.
 		portfolio, err := m.walletMgr.GetCachedPortfolio(m.address)
 		if err != nil {
-			return tui.PortfolioRefreshedMsg{Err: err}
+			// Cache miss (e.g. app launched directly to wallet-status with 1 wallet).
+			// Fall back to a live fetch so the user sees real data immediately.
+			portfolio, err = m.walletMgr.RefreshPortfolio(context.Background(), m.address)
+			return tui.PortfolioRefreshedMsg{Portfolio: portfolio, Err: err}
 		}
 		return tui.PortfolioRefreshedMsg{Portfolio: portfolio}
 	}
@@ -370,10 +374,13 @@ func (m *Model) clampCursor() {
 func (m Model) View() string {
 	var b strings.Builder
 
-	// Header
+	// Header — show label if available, truncated address always.
 	title := tui.StyleTitle.Render("Wallet Status")
 	b.WriteString(title + "\n")
 
+	if m.wallet.Label != "" {
+		b.WriteString(tui.StyleBold.Render(m.wallet.Label) + "\n")
+	}
 	addrDisplay := tui.TruncateAddress(m.address)
 	b.WriteString(tui.StyleSubtitle.Render(addrDisplay) + "\n\n")
 
