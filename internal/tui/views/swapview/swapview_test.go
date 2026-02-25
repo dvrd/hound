@@ -328,3 +328,183 @@ func TestSwap_ResponsiveInputWidths(t *testing.T) {
 		t.Error("View should not be empty at narrow width")
 	}
 }
+
+// --- New tests: RouteLabel, route display, price impact ---
+
+func TestRouteLabel_SingleHop(t *testing.T) {
+	q := models.SwapQuote{
+		RoutePlan: []models.RouteStep{
+			{DexLabel: "Raydium"},
+		},
+	}
+	got := q.RouteLabel("SOL", "USDC")
+	want := "SOL → Raydium → USDC"
+	if got != want {
+		t.Errorf("RouteLabel single hop = %q, want %q", got, want)
+	}
+}
+
+func TestRouteLabel_MultiHop(t *testing.T) {
+	q := models.SwapQuote{
+		RoutePlan: []models.RouteStep{
+			{DexLabel: "Raydium"},
+			{DexLabel: "Orca"},
+		},
+	}
+	got := q.RouteLabel("SOL", "BONK")
+	if !strings.Contains(got, "2 hops") {
+		t.Errorf("RouteLabel multi-hop should contain '2 hops', got %q", got)
+	}
+	if !strings.Contains(got, "Raydium") {
+		t.Errorf("RouteLabel multi-hop should contain 'Raydium', got %q", got)
+	}
+	if !strings.Contains(got, "Orca") {
+		t.Errorf("RouteLabel multi-hop should contain 'Orca', got %q", got)
+	}
+}
+
+func TestRouteLabel_NoRoute(t *testing.T) {
+	q := models.SwapQuote{RoutePlan: nil}
+	got := q.RouteLabel("SOL", "USDC")
+	if !strings.Contains(got, "direct") {
+		t.Errorf("RouteLabel with no route plan should contain 'direct', got %q", got)
+	}
+}
+
+func TestReviewViewContainsRouteLabel(t *testing.T) {
+	m := quotedModel()
+	view := m.View()
+	if !strings.Contains(view, "Route") {
+		t.Error("review view should contain 'Route' line")
+	}
+	if !strings.Contains(view, "Raydium") {
+		t.Error("review view should contain DEX name 'Raydium' in route")
+	}
+}
+
+func TestResultViewContainsRouteLabel(t *testing.T) {
+	m := newTestModel()
+	quote := models.SwapQuote{
+		InputMint:    "So11111111111111111111111111111111111111112",
+		OutputMint:   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		InAmount:     "1000000000",
+		OutAmount:    "150000000",
+		InputSymbol:  "SOL",
+		OutputSymbol: "USDC",
+		RoutePlan: []models.RouteStep{
+			{DexLabel: "Orca"},
+		},
+		FetchedAt: time.Now(),
+	}
+	updated, _ := m.Update(swapview.QuoteFetchedMsg{Quote: quote})
+	m = updated.(swapview.Model)
+
+	result := models.SwapTransactionResult{
+		Signature: "abc123",
+		Status:    "finalized",
+		Dex:       "Orca",
+	}
+	updated, _ = m.Update(swapview.SwapExecutedMsg{Result: result})
+	m = updated.(swapview.Model)
+
+	view := m.View()
+	if !strings.Contains(view, "Route") {
+		t.Error("result view should contain 'Route' line")
+	}
+}
+
+func TestPriceImpact_ModerateWarning(t *testing.T) {
+	m := newTestModel()
+	quote := models.SwapQuote{
+		InputMint:      "SOL",
+		OutputMint:     "USDC",
+		InAmount:       "1000000000",
+		OutAmount:      "150000000",
+		PriceImpactPct: 2.5,
+		FetchedAt:      time.Now(),
+	}
+	updated, _ := m.Update(swapview.QuoteFetchedMsg{Quote: quote})
+	model := updated.(swapview.Model)
+	view := model.View()
+	if !strings.Contains(view, "2.50%") {
+		t.Error("review view should show moderate price impact percentage")
+	}
+	if strings.Contains(view, "HIGH IMPACT") {
+		t.Error("review view should not show HIGH IMPACT for 2.5% impact")
+	}
+}
+
+func TestPriceImpact_LowNoWarning(t *testing.T) {
+	m := newTestModel()
+	quote := models.SwapQuote{
+		InputMint:      "SOL",
+		OutputMint:     "USDC",
+		InAmount:       "1000000000",
+		OutAmount:      "150000000",
+		PriceImpactPct: 0.1,
+		FetchedAt:      time.Now(),
+	}
+	updated, _ := m.Update(swapview.QuoteFetchedMsg{Quote: quote})
+	model := updated.(swapview.Model)
+	view := model.View()
+	if strings.Contains(view, "HIGH IMPACT") {
+		t.Error("review view should not show HIGH IMPACT for 0.1% impact")
+	}
+}
+
+func TestPhaseInput_EnterWithEmptyFields_ShowsError(t *testing.T) {
+	m := newTestModel()
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model := updated.(swapview.Model)
+	if model.GetPhase() != swapview.PhaseInput {
+		t.Errorf("phase after empty enter = %d, want PhaseInput", model.GetPhase())
+	}
+	view := model.View()
+	if !strings.Contains(view, "Error") {
+		t.Error("should show error when fields are empty")
+	}
+}
+
+func TestEscOnResultPhase_NavigatesBack(t *testing.T) {
+	m := newDryRunModel()
+	quote := models.SwapQuote{FetchedAt: time.Now()}
+	updated, _ := m.Update(swapview.QuoteFetchedMsg{Quote: quote})
+	m = updated.(swapview.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(swapview.Model)
+	if m.GetPhase() != swapview.PhaseResult {
+		t.Fatalf("expected PhaseResult, got %d", m.GetPhase())
+	}
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd == nil {
+		t.Fatal("esc on result phase should return a command")
+	}
+	msg := cmd()
+	if _, ok := msg.(tui.NavigateBackMsg); !ok {
+		t.Errorf("esc on result should return NavigateBackMsg, got %T", msg)
+	}
+}
+
+func TestEscOnPasswordPhase_GoesBackToReview(t *testing.T) {
+	m := newTestModel()
+	quote := models.SwapQuote{
+		InputMint:  "SOL",
+		OutputMint: "USDC",
+		InAmount:   "1000000000",
+		OutAmount:  "150000000",
+		FetchedAt:  time.Now(),
+	}
+	updated, _ := m.Update(swapview.QuoteFetchedMsg{Quote: quote})
+	m = updated.(swapview.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(swapview.Model)
+	if m.GetPhase() != swapview.PhasePassword {
+		t.Fatalf("expected PhasePassword, got %d", m.GetPhase())
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	m = updated.(swapview.Model)
+	if m.GetPhase() != swapview.PhaseReview {
+		t.Errorf("esc on password should go to PhaseReview, got %d", m.GetPhase())
+	}
+}

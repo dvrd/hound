@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/dvrd/hound/internal/models"
 )
 
 // Ensure strings is used (for stripANSI helper below)
@@ -162,4 +164,154 @@ func stripANSI(s string) string {
 		}
 	}
 	return out.String()
+}
+
+// --- New tests: Sparkline (chart.go) ---
+
+func TestSparkline_Empty(t *testing.T) {
+	got := Sparkline(nil, 10)
+	if got != "" {
+		t.Errorf("Sparkline(nil, 10) = %q, want empty string", got)
+	}
+	got = Sparkline([]models.PriceCandle{}, 10)
+	if got != "" {
+		t.Errorf("Sparkline([], 10) = %q, want empty string", got)
+	}
+}
+
+func TestSparkline_Width(t *testing.T) {
+	candles := []models.PriceCandle{
+		{Close: 1}, {Close: 2}, {Close: 3}, {Close: 4}, {Close: 5},
+	}
+	for _, width := range []int{1, 5, 10, 24} {
+		got := Sparkline(candles, width)
+		stripped := stripANSI(got)
+		runeCount := utf8.RuneCountInString(stripped)
+		if runeCount != width {
+			t.Errorf("Sparkline width=%d: expected %d runes, got %d (stripped: %q)", width, width, runeCount, stripped)
+		}
+	}
+}
+
+func TestSparkline_Ascending_BlockChars(t *testing.T) {
+	// Ascending prices → last block should be the highest (█).
+	candles := []models.PriceCandle{
+		{Close: 1}, {Close: 2}, {Close: 3}, {Close: 4}, {Close: 5},
+	}
+	got := Sparkline(candles, 5)
+	stripped := stripANSI(got)
+	runes := []rune(stripped)
+	if len(runes) == 0 {
+		t.Fatal("ascending Sparkline should not be empty")
+	}
+	// Last block should be the highest (█).
+	if runes[len(runes)-1] != '█' {
+		t.Errorf("ascending Sparkline: expected last block to be █, got %q (stripped: %q)", string(runes[len(runes)-1]), stripped)
+	}
+}
+
+func TestSparkline_Descending_BlockChars(t *testing.T) {
+	// Descending prices → last block should be the lowest (▁).
+	candles := []models.PriceCandle{
+		{Close: 5}, {Close: 4}, {Close: 3}, {Close: 2}, {Close: 1},
+	}
+	got := Sparkline(candles, 5)
+	stripped := stripANSI(got)
+	runes := []rune(stripped)
+	if len(runes) == 0 {
+		t.Fatal("descending Sparkline should not be empty")
+	}
+	// Last block should be the lowest (▁).
+	if runes[len(runes)-1] != '▁' {
+		t.Errorf("descending Sparkline: expected last block to be ▁, got %q (stripped: %q)", string(runes[len(runes)-1]), stripped)
+	}
+}
+
+func TestSparkline_Flat_NeutralColor(t *testing.T) {
+	// Flat prices → last == first → muted/neutral color.
+	candles := []models.PriceCandle{
+		{Close: 3}, {Close: 3}, {Close: 3}, {Close: 3}, {Close: 3},
+	}
+	got := Sparkline(candles, 5)
+	// Should NOT use green or red.
+	if strings.Contains(got, "00FF88") {
+		t.Error("flat Sparkline should not use green color")
+	}
+	if strings.Contains(got, "FF2D78") {
+		t.Error("flat Sparkline should not use red color")
+	}
+	// Should still render something.
+	if got == "" {
+		t.Error("flat Sparkline should not be empty")
+	}
+}
+
+func TestSparkline_Flat_MiddleBlock(t *testing.T) {
+	// Flat prices → all blocks should be the middle block (▄, index 3).
+	candles := []models.PriceCandle{
+		{Close: 5}, {Close: 5}, {Close: 5}, {Close: 5}, {Close: 5},
+	}
+	got := Sparkline(candles, 5)
+	stripped := stripANSI(got)
+	for _, r := range stripped {
+		if r != ' ' && r != '▄' {
+			t.Errorf("flat Sparkline should use only ▄ blocks, got %q in %q", string(r), stripped)
+			break
+		}
+	}
+}
+
+func TestSparkline_TruncatesToWidth(t *testing.T) {
+	// More candles than width → last `width` candles used.
+	candles := make([]models.PriceCandle, 20)
+	for i := range candles {
+		candles[i] = models.PriceCandle{Close: float64(i + 1)}
+	}
+	got := Sparkline(candles, 5)
+	stripped := stripANSI(got)
+	runeCount := utf8.RuneCountInString(stripped)
+	if runeCount != 5 {
+		t.Errorf("Sparkline with 20 candles and width=5 should produce 5 runes, got %d", runeCount)
+	}
+}
+
+func TestSparkline_PadsWithSpaces(t *testing.T) {
+	// Fewer candles than width → padded with spaces on the left.
+	candles := []models.PriceCandle{
+		{Close: 1}, {Close: 2},
+	}
+	got := Sparkline(candles, 5)
+	stripped := stripANSI(got)
+	runeCount := utf8.RuneCountInString(stripped)
+	if runeCount != 5 {
+		t.Errorf("Sparkline with 2 candles and width=5 should produce 5 runes (padded), got %d (stripped: %q)", runeCount, stripped)
+	}
+	// First 3 chars should be spaces.
+	runes := []rune(stripped)
+	for i := 0; i < 3; i++ {
+		if runes[i] != ' ' {
+			t.Errorf("Sparkline padding: expected space at index %d, got %q", i, string(runes[i]))
+		}
+	}
+}
+
+func TestSparkline_SingleCandle(t *testing.T) {
+	candles := []models.PriceCandle{{Close: 42.0}}
+	got := Sparkline(candles, 1)
+	stripped := stripANSI(got)
+	if utf8.RuneCountInString(stripped) != 1 {
+		t.Errorf("single candle Sparkline should produce 1 rune, got %q", stripped)
+	}
+}
+
+func TestSparkline_DefaultWidth(t *testing.T) {
+	candles := []models.PriceCandle{
+		{Close: 1}, {Close: 2}, {Close: 3},
+	}
+	got := Sparkline(candles, 0)
+	stripped := stripANSI(got)
+	// width=0 → uses len(candles) = 3.
+	if utf8.RuneCountInString(stripped) != 3 {
+		t.Errorf("Sparkline with width=0 should default to len(candles)=3, got %q", stripped)
+	}
 }

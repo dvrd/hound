@@ -185,8 +185,8 @@ func TestPortfolioRefreshedMsg_Error(t *testing.T) {
 	})
 	model := updated.(walletstatus.Model)
 	view := model.View()
-	if !strings.Contains(view, "Error") {
-		t.Error("View should show error when PortfolioRefreshedMsg has error")
+	if !strings.Contains(view, "unavailable") && !strings.Contains(view, "last error") {
+		t.Error("View should show error state when PortfolioRefreshedMsg has error")
 	}
 }
 

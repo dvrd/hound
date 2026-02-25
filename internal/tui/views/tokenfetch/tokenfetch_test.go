@@ -196,3 +196,157 @@ func TestNoTopHolders(t *testing.T) {
 		t.Error("View should not contain 'Top Holders' when there are none")
 	}
 }
+
+// --- New tests: sparkline display, error, loading ---
+
+func TestLoadingStateShowsSpinner(t *testing.T) {
+	m := newTestModel()
+	if !m.IsLoading() {
+		t.Fatal("new model should be loading")
+	}
+	view := m.View()
+	if !strings.Contains(view, "Token Info") {
+		t.Error("loading view should contain 'Token Info'")
+	}
+	if len(view) == 0 {
+		t.Error("loading view should not be empty")
+	}
+}
+
+func TestErrorStateShowsErrorMessage(t *testing.T) {
+	m := newTestModel()
+	updated, _ := m.Update(tokenfetch.TokenInfoLoadedMsg{Err: models.ErrTokenNotFound})
+	model := updated.(tokenfetch.Model)
+	if model.IsLoading() {
+		t.Error("model should not be loading after error")
+	}
+	view := model.View()
+	if !strings.Contains(view, "Error") {
+		t.Error("error view should contain 'Error'")
+	}
+	if !strings.Contains(view, "Token Info") {
+		t.Error("error view should still contain 'Token Info' title")
+	}
+}
+
+func TestPopulatedWithPriceHistory_RendersSparklineChars(t *testing.T) {
+	m := newTestModel()
+	candles := []models.PriceCandle{
+		{Close: 1.0},
+		{Close: 2.0},
+		{Close: 3.0},
+		{Close: 4.0},
+		{Close: 5.0},
+		{Close: 6.0},
+		{Close: 7.0},
+		{Close: 8.0},
+	}
+	info := models.TokenExtendedInfo{
+		Symbols:      []string{"TEST"},
+		Name:         "Test Token",
+		PriceHistory: candles,
+		PriceUSD:     8.0,
+	}
+	updated, _ := m.Update(tokenfetch.TokenInfoLoadedMsg{Info: info})
+	model := updated.(tokenfetch.Model)
+	view := model.View()
+
+	sparklineChars := "▁▂▃▄▅▆▇█"
+	found := false
+	for _, r := range sparklineChars {
+		if strings.ContainsRune(view, r) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("populated view with PriceHistory should render sparkline block chars (▁▂▃▄▅▆▇█), got view:\n%s", view)
+	}
+}
+
+func TestPopulatedWithNilPriceHistory_FallsBackToSyntheticSparkline(t *testing.T) {
+	m := newTestModel()
+	info := models.TokenExtendedInfo{
+		Symbols:      []string{"TEST"},
+		Name:         "Test Token",
+		PriceHistory: nil,
+		PriceUSD:     100.0,
+		PriceChange: models.PriceChanges{
+			M5:  1.0,
+			H1:  2.0,
+			H6:  3.0,
+			H24: 5.0,
+		},
+	}
+	updated, _ := m.Update(tokenfetch.TokenInfoLoadedMsg{Info: info})
+	model := updated.(tokenfetch.Model)
+	view := model.View()
+
+	sparklineChars := "▁▂▃▄▅▆▇█"
+	found := false
+	for _, r := range sparklineChars {
+		if strings.ContainsRune(view, r) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("populated view with nil PriceHistory should fall back to synthetic sparkline (▁▂▃▄▅▆▇█), got view:\n%s", view)
+	}
+}
+
+func TestPopulatedViewContainsPriceChangeLines(t *testing.T) {
+	m := loadedModel()
+	view := m.View()
+
+	for _, label := range []string{"5m", "1h", "6h", "24h"} {
+		if !strings.Contains(view, label) {
+			t.Errorf("populated view should contain price change label %q", label)
+		}
+	}
+}
+
+func TestLoadedModel_IsNotLoading(t *testing.T) {
+	m := loadedModel()
+	if m.IsLoading() {
+		t.Error("loaded model should not be in loading state")
+	}
+}
+
+func TestLoadedModel_GetInfo(t *testing.T) {
+	m := loadedModel()
+	info := m.GetInfo()
+	if info.Name != "Bonk" {
+		t.Errorf("GetInfo().Name = %q, want %q", info.Name, "Bonk")
+	}
+	if len(info.Symbols) == 0 || info.Symbols[0] != "BONK" {
+		t.Errorf("GetInfo().Symbols = %v, want [BONK]", info.Symbols)
+	}
+}
+
+func TestPopulatedWithZeroPriceHistory_NoSparkline(t *testing.T) {
+	// When PriceHistory is empty AND PriceUSD is 0, no sparkline should be rendered.
+	m := newTestModel()
+	info := models.TokenExtendedInfo{
+		Symbols:      []string{"TEST"},
+		Name:         "Test Token",
+		PriceHistory: nil,
+		PriceUSD:     0,
+		PriceChange:  models.PriceChanges{},
+	}
+	updated, _ := m.Update(tokenfetch.TokenInfoLoadedMsg{Info: info})
+	model := updated.(tokenfetch.Model)
+	// Should not panic; view should still render.
+	view := model.View()
+	if !strings.Contains(view, "Test Token") {
+		t.Error("view should contain token name even with no price data")
+	}
+}
+
+func TestLoadingView_FooterHasEscBack(t *testing.T) {
+	m := newTestModel()
+	footer := m.Footer()
+	if !strings.Contains(footer, "[esc]back") {
+		t.Errorf("loading footer should contain '[esc]back', got %q", footer)
+	}
+}

@@ -213,3 +213,122 @@ func TestWalletDelete_ResponsiveInputWidth(t *testing.T) {
 		t.Error("View should not be empty at narrow width")
 	}
 }
+
+// --- New tests: only-wallet guard, address mismatch, success ---
+
+func TestOnlyWallet_Guard_NoConfirmInput(t *testing.T) {
+	// When walletCount == 1, the confirm input should not be shown.
+	m := newTestModel(1)
+	view := m.View()
+	if strings.Contains(view, "Type the full wallet address") {
+		t.Error("only-wallet view should not show address confirmation input")
+	}
+	if !strings.Contains(view, "Cannot delete your only wallet") {
+		t.Error("only-wallet view should show the guard message")
+	}
+}
+
+func TestOnlyWallet_EscStillNavigatesBack(t *testing.T) {
+	m := newTestModel(1)
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEscape})
+	if cmd == nil {
+		t.Fatal("esc on only-wallet view should return a command")
+	}
+	msg := cmd()
+	if _, ok := msg.(tui.NavigateBackMsg); !ok {
+		t.Errorf("esc on only-wallet should return NavigateBackMsg, got %T", msg)
+	}
+}
+
+func TestAddressMismatch_ShowsError(t *testing.T) {
+	m := newTestModel(3)
+
+	// Type a wrong address.
+	for _, r := range "completely_wrong_address_here" {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(walletdelete.Model)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletdelete.Model)
+
+	view := m.View()
+	if !strings.Contains(view, "does not match") {
+		t.Error("wrong address should show 'does not match' error")
+	}
+	if m.IsConfirmed() {
+		t.Error("should not be confirmed with wrong address")
+	}
+}
+
+func TestAddressMatch_SetsConfirmedAndDeleting(t *testing.T) {
+	m := newTestModel(3)
+
+	// Type the exact wallet address.
+	for _, r := range testWallet.Address {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(walletdelete.Model)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletdelete.Model)
+
+	if !m.IsConfirmed() {
+		t.Error("correct address should set IsConfirmed to true")
+	}
+	if !m.IsDeleting() {
+		t.Error("correct address should set IsDeleting to true")
+	}
+}
+
+func TestDeleteSuccess_NavigatesBack(t *testing.T) {
+	m := newTestModel(3)
+	updated, cmd := m.Update(walletdelete.WalletDeletedMsg{})
+	_ = updated.(walletdelete.Model)
+	if cmd == nil {
+		t.Fatal("successful delete should return a command")
+	}
+	msg := cmd()
+	if _, ok := msg.(tui.NavigateBackMsg); !ok {
+		t.Errorf("successful delete should navigate back, got %T", msg)
+	}
+}
+
+func TestDeleteError_ShowsErrorAndStopsDeleting(t *testing.T) {
+	m := newTestModel(3)
+	updated, _ := m.Update(walletdelete.WalletDeletedMsg{Err: models.ErrWalletNotFound})
+	model := updated.(walletdelete.Model)
+	if model.IsDeleting() {
+		t.Error("should not be deleting after error")
+	}
+	view := model.View()
+	if !strings.Contains(view, "Error") {
+		t.Error("error view should contain 'Error'")
+	}
+}
+
+func TestMultipleWrongAttempts_EachShowsError(t *testing.T) {
+	m := newTestModel(3)
+
+	// First wrong attempt.
+	for _, r := range "wrong1" {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(walletdelete.Model)
+	}
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(walletdelete.Model)
+	view := m.View()
+	if !strings.Contains(view, "does not match") {
+		t.Error("first wrong attempt should show error")
+	}
+}
+
+func TestWalletCount_Two_AllowsDelete(t *testing.T) {
+	// With walletCount == 2, deletion should be allowed.
+	m := newTestModel(2)
+	view := m.View()
+	if strings.Contains(view, "Cannot delete your only wallet") {
+		t.Error("with 2 wallets, should not show only-wallet guard")
+	}
+	if !strings.Contains(view, "Type the full wallet address") {
+		t.Error("with 2 wallets, should show address confirmation input")
+	}
+}

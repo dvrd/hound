@@ -424,3 +424,75 @@ func TestLegacyWrongPasswordRejected(t *testing.T) {
 		t.Error("legacy wallet should NOT be migrated on wrong password")
 	}
 }
+
+// TestImportSameSeedTwice verifies K10: importing the same seed phrase twice returns an error.
+// The second import should fail because the wallet address (PRIMARY KEY) already exists.
+func TestImportSameSeedTwice(t *testing.T) {
+	db := setupTestDB(t)
+	svc := &services.KeystoreService{}
+	words := strings.Split(testMnemonic, " ")
+
+	// First import should succeed
+	address, err := svc.ImportKeypair(db, words, testPassword, "wallet-one", true, models.WalletTypeBIP44Standard, 0)
+	if err != nil {
+		t.Fatalf("first ImportKeypair failed: %v", err)
+	}
+	if address == "" {
+		t.Fatal("first ImportKeypair returned empty address")
+	}
+
+	// Second import of the same seed should fail (UNIQUE constraint on address)
+	_, err = svc.ImportKeypair(db, words, testPassword, "wallet-two", false, models.WalletTypeBIP44Standard, 0)
+	if err == nil {
+		t.Fatal("second ImportKeypair with same seed should return error")
+	}
+	// The error should be a database-level constraint violation (not a sentinel we wrap)
+	// but it should definitely be non-nil
+	t.Logf("duplicate import error (expected): %v", err)
+}
+
+// TestImportPasswordTooShort verifies K3: password shorter than 12 chars is rejected at service level.
+func TestImportPasswordTooShort(t *testing.T) {
+	db := setupTestDB(t)
+	svc := &services.KeystoreService{}
+	words := strings.Split(testMnemonic, " ")
+
+	// 11 chars — meets all char class requirements but is too short
+	shortPassword := "Abcdefghi1!"
+	_, err := svc.ImportKeypair(db, words, shortPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	if err == nil {
+		t.Fatal("ImportKeypair with 11-char password should return error")
+	}
+	if !errors.Is(err, models.ErrWeakPassword) {
+		t.Errorf("expected ErrWeakPassword for short password, got: %v", err)
+	}
+}
+
+// TestImportPasswordMissingCharClasses verifies K4: passwords missing required char classes are rejected.
+func TestImportPasswordMissingCharClasses(t *testing.T) {
+	db := setupTestDB(t)
+	svc := &services.KeystoreService{}
+	words := strings.Split(testMnemonic, " ")
+
+	tests := []struct {
+		name     string
+		password string
+	}{
+		{"no uppercase", "nouppercase1!"},
+		{"no lowercase", "NOLOWERCASE1!"},
+		{"no digit", "NoDigitHere!!"},
+		{"no special", "NoSpecial1234"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := svc.ImportKeypair(db, words, tt.password, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+			if err == nil {
+				t.Fatalf("ImportKeypair with password %q (missing char class) should return error", tt.password)
+			}
+			if !errors.Is(err, models.ErrWeakPassword) {
+				t.Errorf("expected ErrWeakPassword, got: %v", err)
+			}
+		})
+	}
+}

@@ -447,3 +447,304 @@ func TestSend_ResponsiveInputWidths_Wide(t *testing.T) {
 		t.Error("View should not be empty at wide width")
 	}
 }
+
+// --- New tests: SOL vs SPL, MAX amount, initial state ---
+
+func TestInitialState_ShowsTokenSelection(t *testing.T) {
+	m := newTestModel()
+	if m.CurrentStep() != send.StepSelectToken {
+		t.Errorf("initial step = %d, want StepSelectToken", m.CurrentStep())
+	}
+	view := m.View()
+	if !strings.Contains(view, "Select token") {
+		t.Error("initial view should show token selection prompt")
+	}
+}
+
+// advanceToReviewSOL drives the model through all steps to StepReview with SOL selected.
+func advanceToReviewSOL(t *testing.T) send.Model {
+	t.Helper()
+	m := newTestModel()
+
+	// Select SOL (cursor at 0).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepRecipient {
+		t.Fatalf("expected StepRecipient, got %d", m.CurrentStep())
+	}
+
+	// Type a valid recipient.
+	recipient := "RecipientAddr111111111111111111111111111111"
+	for _, r := range recipient {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepAmount {
+		t.Fatalf("expected StepAmount, got %d", m.CurrentStep())
+	}
+
+	// Type amount.
+	for _, r := range "1.0" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepReview {
+		t.Fatalf("expected StepReview, got %d", m.CurrentStep())
+	}
+	return m
+}
+
+// advanceToReviewSPL drives the model to StepReview with USDC (SPL) selected.
+func advanceToReviewSPL(t *testing.T) send.Model {
+	t.Helper()
+	m := newTestModel()
+
+	// Move cursor to USDC (index 1).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(send.Model)
+
+	// Select USDC.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepRecipient {
+		t.Fatalf("expected StepRecipient, got %d", m.CurrentStep())
+	}
+
+	// Type a valid recipient.
+	recipient := "RecipientAddr111111111111111111111111111111"
+	for _, r := range recipient {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepAmount {
+		t.Fatalf("expected StepAmount, got %d", m.CurrentStep())
+	}
+
+	// Type amount.
+	for _, r := range "10.0" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepReview {
+		t.Fatalf("expected StepReview, got %d", m.CurrentStep())
+	}
+	return m
+}
+
+func TestSOLSend_ReviewShowsFee(t *testing.T) {
+	m := advanceToReviewSOL(t)
+	view := m.View()
+	// Review must show fee line.
+	if !strings.Contains(view, "Fee") {
+		t.Error("SOL send review should show fee line")
+	}
+	if !strings.Contains(view, "SOL") {
+		t.Error("SOL send review should mention SOL")
+	}
+}
+
+func TestSPLSend_ReviewShowsFee(t *testing.T) {
+	m := advanceToReviewSPL(t)
+	view := m.View()
+	if !strings.Contains(view, "Fee") {
+		t.Error("SPL send review should show fee line")
+	}
+	if !strings.Contains(view, "USDC") {
+		t.Error("SPL send review should mention USDC")
+	}
+}
+
+func TestMAXAmount_SOL_AdvancesToReview(t *testing.T) {
+	m := newTestModel()
+
+	// Select SOL.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type recipient.
+	recipient := "RecipientAddr111111111111111111111111111111"
+	for _, r := range recipient {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type MAX.
+	for _, r := range "MAX" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	if m.CurrentStep() != send.StepReview {
+		t.Errorf("MAX amount should advance to StepReview, got step %d", m.CurrentStep())
+	}
+}
+
+func TestMAXAmount_SPL_AdvancesToReview(t *testing.T) {
+	m := newTestModel()
+
+	// Select USDC (index 1).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	m = updated.(send.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type recipient.
+	recipient := "RecipientAddr111111111111111111111111111111"
+	for _, r := range recipient {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type MAX.
+	for _, r := range "MAX" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	if m.CurrentStep() != send.StepReview {
+		t.Errorf("MAX amount for SPL should advance to StepReview, got step %d", m.CurrentStep())
+	}
+}
+
+func TestSelfSend_ShowsError(t *testing.T) {
+	m := newTestModel()
+
+	// Select SOL.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type own address.
+	selfAddr := "SenderAddr111111111111111111111111111111111"
+	for _, r := range selfAddr {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	if m.CurrentStep() != send.StepRecipient {
+		t.Error("self-send should stay on recipient step")
+	}
+	view := m.View()
+	if !strings.Contains(view, "own address") {
+		t.Error("self-send should show 'own address' error")
+	}
+}
+
+func TestAmountExceedsBalance_ShowsError(t *testing.T) {
+	m := newTestModel()
+
+	// Select SOL (5.0 SOL balance).
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type recipient.
+	recipient := "RecipientAddr111111111111111111111111111111"
+	for _, r := range recipient {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type amount exceeding balance.
+	for _, r := range "999.0" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	if m.CurrentStep() != send.StepAmount {
+		t.Error("exceeding balance should stay on amount step")
+	}
+	view := m.View()
+	if !strings.Contains(view, "Error") {
+		t.Error("exceeding balance should show error")
+	}
+}
+
+func TestAmountNegative_ShowsError(t *testing.T) {
+	m := newTestModel()
+
+	// Select SOL.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type recipient.
+	recipient := "RecipientAddr111111111111111111111111111111"
+	for _, r := range recipient {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	// Type negative amount.
+	for _, r := range "-1.0" {
+		updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = updated.(send.Model)
+	}
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	if m.CurrentStep() != send.StepAmount {
+		t.Error("negative amount should stay on amount step")
+	}
+	view := m.View()
+	if !strings.Contains(view, "Error") {
+		t.Error("negative amount should show error")
+	}
+}
+
+func TestPasswordStep_EmptyPassword_ShowsError(t *testing.T) {
+	m := advanceToReviewSOL(t)
+
+	// Advance to password step.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepPassword {
+		t.Fatalf("expected StepPassword, got %d", m.CurrentStep())
+	}
+
+	// Press enter without typing password.
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(send.Model)
+
+	if m.CurrentStep() != send.StepPassword {
+		t.Error("empty password should stay on password step")
+	}
+	view := m.View()
+	if !strings.Contains(view, "Error") {
+		t.Error("empty password should show error")
+	}
+}
+
+func TestConfirmingStep_View(t *testing.T) {
+	m := newTestModel()
+	updated, _ := m.Update(tui.TransferSentMsg{Signature: "sig123abc"})
+	m = updated.(send.Model)
+	if m.CurrentStep() != send.StepConfirming {
+		t.Fatalf("expected StepConfirming, got %d", m.CurrentStep())
+	}
+	view := m.View()
+	if !strings.Contains(view, "sig123abc") {
+		t.Error("confirming view should show signature")
+	}
+}
