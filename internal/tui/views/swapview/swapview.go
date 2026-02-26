@@ -209,7 +209,8 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.focusIndex = (m.focusIndex + 3) % 4
 		}
-		return m, m.focusCurrent()
+		m, cmd := m.focusCurrent()
+		return m, cmd
 	case "enter":
 		inVal := strings.TrimSpace(m.inputMint.Value())
 		outVal := strings.TrimSpace(m.outputMint.Value())
@@ -252,23 +253,24 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m Model) focusCurrent() tea.Cmd {
+func (m Model) focusCurrent() (Model, tea.Cmd) {
 	m.inputMint.Blur()
 	m.outputMint.Blur()
 	m.amountInput.Blur()
 	m.slippageInput.Blur()
 
+	var cmd tea.Cmd
 	switch m.focusIndex {
 	case 0:
-		return m.inputMint.Focus()
+		cmd = m.inputMint.Focus()
 	case 1:
-		return m.outputMint.Focus()
+		cmd = m.outputMint.Focus()
 	case 2:
-		return m.amountInput.Focus()
+		cmd = m.amountInput.Focus()
 	case 3:
-		return m.slippageInput.Focus()
+		cmd = m.slippageInput.Focus()
 	}
-	return nil
+	return m, cmd
 }
 
 func (m Model) fetchQuote(inputMint, outputMint, amount string, slippageBps int) tea.Cmd {
@@ -492,6 +494,11 @@ func (m Model) Footer() string {
 // GetPhase returns the current phase for testing.
 func (m Model) GetPhase() SwapPhase {
 	return m.phase
+}
+
+// GetFocusIndex returns the currently focused field index for testing.
+func (m Model) GetFocusIndex() int {
+	return m.focusIndex
 }
 
 // GetQuote returns the current quote for testing.

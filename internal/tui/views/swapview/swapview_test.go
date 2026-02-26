@@ -616,3 +616,66 @@ func TestInvalidSlippage_ShowsError(t *testing.T) {
 		t.Error("invalid slippage should show an error message")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Tab cycling: focus advances through all 4 fields and wraps around
+// ---------------------------------------------------------------------------
+
+func TestTabCyclesFocus(t *testing.T) {
+	tab := tea.KeyMsg{Type: tea.KeyTab}
+	shiftTab := tea.KeyMsg{Type: tea.KeyShiftTab}
+
+	m := newTestModel()
+	if m.GetFocusIndex() != 0 {
+		t.Fatalf("initial focus should be 0 (input mint), got %d", m.GetFocusIndex())
+	}
+
+	// Tab forward through all 4 fields.
+	for want := 1; want <= 4; want++ {
+		updated, _ := m.Update(tab)
+		m = updated.(swapview.Model)
+		if m.GetFocusIndex() != want%4 {
+			t.Errorf("after %d tab(s): focus = %d, want %d", want, m.GetFocusIndex(), want%4)
+		}
+	}
+
+	// shift+tab goes backward.
+	updated, _ := m.Update(shiftTab)
+	m = updated.(swapview.Model)
+	if m.GetFocusIndex() != 3 {
+		t.Errorf("after shift+tab from 0: focus = %d, want 3", m.GetFocusIndex())
+	}
+}
+
+// TestTabInputsAreIndependent verifies that typing after a tab lands in the
+// correct field — i.e., focus state is actually applied to the model, not
+// just tracked in focusIndex.
+func TestTabInputsAreIndependent(t *testing.T) {
+	tab := tea.KeyMsg{Type: tea.KeyTab}
+	typeKey := func(m swapview.Model, ch rune) swapview.Model {
+		updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{ch}})
+		return updated.(swapview.Model)
+	}
+
+	m := newTestModel()
+	m = typeKey(m, 'A') // field 0: input mint
+
+	updated, _ := m.Update(tab)
+	m = updated.(swapview.Model)
+	m = typeKey(m, 'B') // field 1: output mint
+
+	updated, _ = m.Update(tab)
+	m = updated.(swapview.Model)
+	m = typeKey(m, 'C') // field 2: amount
+
+	view := m.View()
+	if !strings.Contains(view, "A") {
+		t.Error("input mint field should contain 'A'")
+	}
+	if !strings.Contains(view, "B") {
+		t.Error("output mint field should contain 'B'")
+	}
+	if !strings.Contains(view, "C") {
+		t.Error("amount field should contain 'C'")
+	}
+}
