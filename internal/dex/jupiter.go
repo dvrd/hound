@@ -104,42 +104,56 @@ func (c *JupiterClient) FetchPrice(mint string) (models.PriceData, error) {
 	return data, nil
 }
 
-// LookupTokenMetadata looks up token metadata by mint address.
+// LookupTokenMetadata looks up token metadata by mint address or symbol,
+// returning only the first result.
 func (c *JupiterClient) LookupTokenMetadata(mintAddr string) (TokenMetadata, error) {
-	resp, err := c.httpClient.Get(c.searchBaseURL + mintAddr)
+	results, err := c.LookupTokenList(mintAddr)
 	if err != nil {
-		return TokenMetadata{}, fmt.Errorf("jupiter token search request: %w", err)
+		return TokenMetadata{}, err
+	}
+	return results[0], nil
+}
+
+// LookupTokenList searches Jupiter for tokens matching the query (address,
+// symbol, or name) and returns all results up to the API limit.
+func (c *JupiterClient) LookupTokenList(query string) ([]TokenMetadata, error) {
+	resp, err := c.httpClient.Get(c.searchBaseURL + query)
+	if err != nil {
+		return nil, fmt.Errorf("jupiter token search request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return TokenMetadata{}, fmt.Errorf("jupiter token search HTTP %d: %w", resp.StatusCode, models.ErrConnectionFailed)
+		return nil, fmt.Errorf("jupiter token search HTTP %d: %w", resp.StatusCode, models.ErrConnectionFailed)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return TokenMetadata{}, fmt.Errorf("jupiter token search read body: %w", err)
+		return nil, fmt.Errorf("jupiter token search read body: %w", err)
 	}
 
-	var results []struct {
+	var raw []struct {
 		ID       string `json:"id"`
 		Name     string `json:"name"`
 		Symbol   string `json:"symbol"`
 		Decimals int    `json:"decimals"`
 	}
-	if err := json.Unmarshal(body, &results); err != nil {
-		return TokenMetadata{}, fmt.Errorf("jupiter token search parse: %w", models.ErrInvalidResponse)
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("jupiter token search parse: %w", models.ErrInvalidResponse)
 	}
 
-	if len(results) == 0 {
-		return TokenMetadata{}, fmt.Errorf("jupiter: token %s not found: %w", mintAddr, models.ErrTokenNotFound)
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("jupiter: token %q not found: %w", query, models.ErrTokenNotFound)
 	}
 
-	r := results[0]
-	return TokenMetadata{
-		Address:  r.ID,
-		Symbol:   r.Symbol,
-		Name:     r.Name,
-		Decimals: r.Decimals,
-	}, nil
+	out := make([]TokenMetadata, len(raw))
+	for i, r := range raw {
+		out[i] = TokenMetadata{
+			Address:  r.ID,
+			Symbol:   r.Symbol,
+			Name:     r.Name,
+			Decimals: r.Decimals,
+		}
+	}
+	return out, nil
 }

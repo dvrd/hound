@@ -270,11 +270,7 @@ func (m Model) View() string {
 				statusStr,
 			)
 
-			if i == m.cursor {
-				b.WriteString(tui.StyleTableRowSelected.Render(row) + "\n")
-			} else {
-				b.WriteString(tui.StyleTableRow.Render(row) + "\n")
-			}
+			b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 		}
 
 		// Scroll indicator
@@ -290,9 +286,13 @@ func (m Model) View() string {
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
 	if m.noMorePages {
-		return "[j/k]navigate [h/esc]back"
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "h/esc", Action: "back"}},
+		)
 	}
-	return "[n]ext page [j/k]navigate [h/esc]back"
+	return tui.RenderFooter(
+		tui.FooterGroup{{Key: "n", Action: "next page"}, {Key: "j/k", Action: "navigate"}, {Key: "h/esc", Action: "back"}},
+	)
 }
 
 // FormatRelativeTime formats a unix timestamp as a relative time string.

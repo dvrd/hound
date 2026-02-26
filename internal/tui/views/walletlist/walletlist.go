@@ -240,6 +240,7 @@ func (m Model) View() string {
 		headerFmt := fmt.Sprintf("    %%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
 		header := fmt.Sprintf(headerFmt, "Label", "Address", "Type", "Balance")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
+		b.WriteString(tui.TableSeparator(w) + "\n")
 
 		// Cap visible rows
 		maxRows := len(m.wallets)
@@ -292,20 +293,16 @@ func (m Model) View() string {
 			if p, ok := m.portfolios[w.Address]; ok {
 				balPlain = wallet.FormatPrice(p.TotalUSD)
 			}
-			balCell := fmt.Sprintf("%*s", colBal, balPlain)
+			balCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colBal, balPlain))
 
 			// Apply color only to the pre-padded type cell — width is already fixed.
 			coloredType := tui.StyleTypeBadge.Render(typePlain)
 
-			// Assemble: cursor(2) + badge(2) + label + addr + coloredType + balance.
-			// Header uses 4-char indent ("    ") to match this layout.
+			// Assemble: badge(2) + label + addr + coloredType + balance.
+			// Header uses 4-char indent ("    ") to match badge(2) + RenderRow indent(2).
 			coloredRow := primaryStyled + labelCell + " " + addrCell + " " + coloredType + " " + balCell
 
-			if i == m.cursor {
-				b.WriteString(tui.StyleTableRowSelected.Render("> "+coloredRow) + "\n")
-			} else {
-				b.WriteString(tui.StyleTableRow.Render("  "+coloredRow) + "\n")
-			}
+			b.WriteString(tui.RenderRow(coloredRow, i == m.cursor) + "\n")
 		}
 
 		// Scroll indicator
@@ -328,10 +325,17 @@ func (m Model) View() string {
 
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
-	if m.width > 0 && m.width < 80 {
-		return "[m]enu [i]mp [s]tat [d]el [t]ok [S]end [w]swap [h]ist [r]ef [q]uit"
-	}
-	return "[m]enu [i]mport [s]tatus [d]elete [t]okens [S]end [w]swap [h]istory [r]efresh [q]uit"
+	return tui.RenderFooter(
+		tui.FooterGroup{
+			{Key: "m", Action: "menu"}, {Key: "i", Action: "import"},
+			{Key: "s", Action: "status"}, {Key: "d", Action: "delete"},
+		},
+		tui.FooterGroup{
+			{Key: "t", Action: "tokens"}, {Key: "S", Action: "send"},
+			{Key: "w", Action: "swap"}, {Key: "h", Action: "history"},
+			{Key: "r", Action: "refresh"}, {Key: "q", Action: "quit"},
+		},
+	)
 }
 
 // SelectedWallet returns the currently selected wallet, if any.

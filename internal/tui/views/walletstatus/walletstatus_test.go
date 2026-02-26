@@ -97,11 +97,11 @@ func TestViewContainsTokens(t *testing.T) {
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel()
 	footer := m.Footer()
-	if !strings.Contains(footer, "[r]efresh") {
-		t.Error("Footer should contain [r]efresh in status bar")
+	if !strings.Contains(footer, "refresh") {
+		t.Error("Footer should contain refresh in status bar")
 	}
-	if !strings.Contains(footer, "[q]uit") {
-		t.Error("Footer should contain [q]uit in status bar")
+	if !strings.Contains(footer, "quit") {
+		t.Error("Footer should contain quit in status bar")
 	}
 }
 
@@ -259,15 +259,15 @@ func TestFilterLabel(t *testing.T) {
 	m := loadedModel()
 
 	// Default: no asterisk
-	if strings.Contains(m.Footer(), "[a]filter*") {
+	if strings.Contains(m.Footer(), "filter*") {
 		t.Error("Footer should not show asterisk when filter is default")
 	}
 
 	// After one press (FilterAll): asterisk appears
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(walletstatus.Model)
-	if !strings.Contains(model.Footer(), "[a]filter*") {
-		t.Error("Footer should show [a]filter* when filter is non-default")
+	if !strings.Contains(model.Footer(), "filter*") {
+		t.Error("Footer should show filter* when filter is non-default")
 	}
 }
 
@@ -323,8 +323,8 @@ func TestRenameViewContainsInput(t *testing.T) {
 func TestStatusBarContainsRename(t *testing.T) {
 	m := loadedModel()
 	footer := m.Footer()
-	if !strings.Contains(footer, "[R]ename") {
-		t.Error("Footer should contain [R]ename")
+	if !strings.Contains(footer, "rename") {
+		t.Error("Footer should contain rename")
 	}
 }
 
@@ -345,8 +345,8 @@ func TestWalletStatus_ResponsiveView_Narrow(t *testing.T) {
 		t.Error("View should not be empty at narrow width")
 	}
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[m]enu") {
-		t.Error("narrow view should contain [m]enu")
+	if !strings.Contains(footer, "menu") {
+		t.Error("narrow view should contain menu")
 	}
 }
 
@@ -363,7 +363,7 @@ func TestWalletStatus_ResponsiveView_Wide(t *testing.T) {
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[m]enu") {
-		t.Error("wide view should contain [m]enu")
+	if !strings.Contains(footer, "menu") {
+		t.Error("wide view should contain menu")
 	}
 }

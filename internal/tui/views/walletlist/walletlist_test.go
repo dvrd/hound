@@ -250,11 +250,11 @@ func TestEmptyWalletList_NoNavigate(t *testing.T) {
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel(sampleWallets(), samplePortfolios())
 	footer := m.Footer()
-	if !strings.Contains(footer, "[i]mport") {
-		t.Error("Footer should contain [i]mport in status bar")
+	if !strings.Contains(footer, "import") {
+		t.Error("Footer should contain import in status bar")
 	}
-	if !strings.Contains(footer, "[q]uit") {
-		t.Error("Footer should contain [q]uit in status bar")
+	if !strings.Contains(footer, "quit") {
+		t.Error("Footer should contain quit in status bar")
 	}
 }
 
@@ -359,8 +359,8 @@ func TestWalletList_ResponsiveView_Narrow(t *testing.T) {
 		t.Error("View should not be empty at narrow width")
 	}
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[i]mp") {
-		t.Error("narrow view should use abbreviated status bar")
+	if !strings.Contains(footer, "import") {
+		t.Error("narrow view should contain import in status bar")
 	}
 }
 
@@ -376,8 +376,8 @@ func TestWalletList_ResponsiveView_Wide(t *testing.T) {
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[i]mport") {
-		t.Error("wide view should use full status bar")
+	if !strings.Contains(footer, "import") {
+		t.Error("wide view should contain import in status bar")
 	}
 }
 

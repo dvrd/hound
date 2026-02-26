@@ -85,11 +85,7 @@ func (m Model) View() string {
 	b.WriteString(tui.StyleTitle.Render("Menu") + "\n\n")
 
 	for i, it := range items {
-		if i == m.cursor {
-			b.WriteString(tui.StyleTableRowSelected.Render("> "+it.label) + "\n")
-		} else {
-			b.WriteString(tui.StyleTableRow.Render("  "+it.label) + "\n")
-		}
+		b.WriteString(tui.RenderRow(it.label, i == m.cursor) + "\n")
 	}
 
 	return b.String()
@@ -97,5 +93,7 @@ func (m Model) View() string {
 
 // Footer implements tui.FooterProvider.
 func (m Model) Footer() string {
-	return "[j/k] navigate  [l/enter] select  [h/esc] back"
+	return tui.RenderFooter(
+		tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "l/enter", Action: "select"}, {Key: "h/esc", Action: "back"}},
+	)
 }

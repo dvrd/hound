@@ -91,7 +91,6 @@ type Model struct {
 	sortMode    SortMode
 	filterMode  FilterMode      // cycles: hide dust → show dust → show all
 	showHidden  bool            // show manually hidden tokens (off by default)
-	copied      bool            // true briefly after address copied to clipboard
 	hiddenMints map[string]bool // mints hidden by the user for this wallet
 	loading     bool            // true while a network fetch is in flight
 	hasData     bool            // true once we have received at least one portfolio response
@@ -189,7 +188,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case clipboardCopiedMsg:
-		m.copied = msg.err == nil
+		if msg.err == nil {
+			return m, func() tea.Msg { return tui.NotifMsg{Text: "✓ Address copied!"} }
+		}
 		return m, nil
 
 	case tui.PortfolioRefreshedMsg:
@@ -492,6 +493,7 @@ func (m Model) View() string {
 		headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
 		header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Balance", "Price", "Value", "24h")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
+		b.WriteString(tui.TableSeparator(w) + "\n")
 
 		// Cap visible rows
 		maxRows := len(tokens)
@@ -519,31 +521,25 @@ func (m Model) View() string {
 			}
 		}
 
-		rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal)
 		for i := startIdx; i < endIdx; i++ {
 			t := tokens[i]
-			// Build the plain portion first so fmt.Sprintf width specifiers count
-			// visible characters only, then append the ANSI-colored change cell.
-			plainRow := fmt.Sprintf(rowFmt,
-				tui.Truncate(t.Symbol, colSym),
-				tui.Truncate(t.Name, colName),
-				wallet.FormatBalance(t.Amount),
-				wallet.FormatPrice(t.USDPrice),
-				wallet.FormatPrice(t.USDValue))
+			// Build plain symbol+name columns, then styled numeric columns.
+			symCell := fmt.Sprintf("%-*s", colSym, tui.Truncate(t.Symbol, colSym))
+			nameCell := fmt.Sprintf("%-*s", colName, tui.Truncate(t.Name, colName))
+			balCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colBal, wallet.FormatBalance(t.Amount)))
+			priceCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colPrice, wallet.FormatPrice(t.USDPrice)))
+			valCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colVal, wallet.FormatPrice(t.USDValue)))
 			plainChg := tui.FormatChangePlain(t.Change24h)
 			paddedChg := fmt.Sprintf("%*s", colChg, plainChg)
-			row := plainRow + " " + tui.ColorizeChange(t.Change24h, paddedChg)
+			chgCell := tui.ColorizeChange(t.Change24h, paddedChg)
+			row := symCell + " " + nameCell + " " + balCell + " " + priceCell + " " + valCell + " " + chgCell
 
 			// Show a dim [hidden] tag so the user knows they can unhide it
 			if m.hiddenMints[t.Mint] {
 				row += " " + tui.StyleMuted.Render("[hidden]")
 			}
 
-			if i == m.cursor {
-				b.WriteString(tui.StyleTableRowSelected.Render(row) + "\n")
-			} else {
-				b.WriteString(tui.StyleTableRow.Render(row) + "\n")
-			}
+			b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 		}
 
 		// Scroll indicator
@@ -565,10 +561,6 @@ func (m Model) View() string {
 		sortLine += fmt.Sprintf("  |  %s", m.lastRefresh.Format("15:04:05"))
 	}
 	b.WriteString(tui.StyleMuted.Render(sortLine) + "\n")
-	if m.copied {
-		b.WriteString(tui.StyleSuccess.Render("✓ Address copied!") + "\n")
-	}
-
 	// Inline refresh indicator — shown while a background fetch is in flight.
 	if m.loading {
 		b.WriteString(m.spinner.View() + "\n")
@@ -583,20 +575,37 @@ func (m Model) View() string {
 func (m Model) Footer() string {
 	// Error state with no data: show a minimal footer focused on retry.
 	if !m.hasData && m.err != nil {
-		return "[r]retry [esc]back"
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "r", Action: "retry"}, {Key: "esc", Action: "back"}},
+		)
 	}
-	filterLabel := "[a]filter"
+	filterStar := ""
 	if m.filterMode != FilterDefault {
-		filterLabel = "[a]filter*"
+		filterStar = "*"
 	}
-	hiddenLabel := "[u]hidden"
+	hiddenStar := ""
 	if m.showHidden {
-		hiddenLabel = "[u]hidden*"
+		hiddenStar = "*"
 	}
-	if m.width > 0 && m.width < 80 {
-		return fmt.Sprintf("[m]enu [s]end [w]ap [H]ist [c]opy [r]ef [R]en [t]ok %s %s [h]ide [U]nhide [1][2][3] [q]uit", filterLabel, hiddenLabel)
-	}
-	return fmt.Sprintf("[m]enu [s]end [w]swap [H]istory [c]opy addr [r]efresh [R]ename [t]okens %s %s [h]ide [U]nhide [1]value [2]symbol [3]balance [q]uit", filterLabel, hiddenLabel)
+	return tui.RenderFooter(
+		tui.FooterGroup{
+			{Key: "m", Action: "menu"}, {Key: "s", Action: "send"},
+			{Key: "w", Action: "swap"}, {Key: "H", Action: "history"},
+		},
+		tui.FooterGroup{
+			{Key: "c", Action: "copy"}, {Key: "r", Action: "refresh"},
+			{Key: "R", Action: "rename"}, {Key: "t", Action: "tokens"},
+		},
+		tui.FooterGroup{
+			{Key: "a", Action: "filter" + filterStar},
+			{Key: "h", Action: "hide"}, {Key: "U", Action: "unhide"},
+			{Key: "u", Action: "hidden" + hiddenStar},
+		},
+		tui.FooterGroup{
+			{Key: "1", Action: "value"}, {Key: "2", Action: "symbol"},
+			{Key: "3", Action: "balance"}, {Key: "q", Action: "quit"},
+		},
+	)
 }
 
 // SetSize updates the view dimensions.

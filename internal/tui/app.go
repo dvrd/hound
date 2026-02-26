@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -27,21 +28,42 @@ type FooterProvider interface {
 // errorDismissMsg is sent when the error bar should auto-dismiss.
 type errorDismissMsg struct{}
 
+// notifDismissMsg is sent when the floating notification should auto-dismiss.
+type notifDismissMsg struct{}
+
+// viewTitles maps internal view keys to human-readable border titles.
+var viewTitles = map[string]string{
+	"wallet-list":   "Wallets",
+	"wallet-status": "Portfolio",
+	"history":       "History",
+	"menu":          "Menu",
+	"swap":          "Swap",
+	"send":          "Send",
+	"token-list":    "Tokens",
+	"token-fetch":   "Token",
+	"wallet-import": "Import",
+	"wallet-delete": "Delete",
+}
+
 // App is the root Bubble Tea model that manages view navigation.
 type App struct {
-	currentView tea.Model
-	viewStack   []tea.Model // for back navigation
-	db          *database.Database
-	walletMgr   *wallet.WalletManager
-	keystoreSvc *services.KeystoreService
-	config      config.Config
-	width       int
-	height      int
-	helpVisible bool
-	errorMsg    string
-	errorShown  bool
-	ready       bool
-	viewFactory ViewFactory
+	currentView     tea.Model
+	viewStack       []tea.Model // for back navigation
+	viewNameStack   []string    // parallel stack tracking view keys for border title
+	db              *database.Database
+	walletMgr       *wallet.WalletManager
+	keystoreSvc     *services.KeystoreService
+	config          config.Config
+	width           int
+	height          int
+	helpVisible     bool
+	errorMsg        string
+	errorShown      bool
+	ready           bool
+	viewFactory     ViewFactory
+	currentViewName string // tracks the active view key for border title (D)
+	notifMsg        string // floating notification text (E)
+	notifShown      bool   // true while notification is visible (E)
 }
 
 // NewApp creates a new root TUI application model.
@@ -101,6 +123,7 @@ func NewApp(
 		}
 
 		app.currentView = factory(initialView, initialData)
+		app.currentViewName = initialView
 	}
 
 	return app
@@ -146,19 +169,12 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "ctrl+c":
-			return a, tea.Quit
-		case "q":
-			// Global quit — only when at the root view (stack empty).
-			// When navigated into a sub-view (send, swap, import, etc.) the user
-			// must use esc to go back; q is passed to the view as a normal key.
-			if len(a.viewStack) == 0 {
-				// Save current view before quitting so next launch restores here.
-				if ap, ok := a.currentView.(interface{ WalletAddress() string }); ok {
-					a.saveState("wallet-status", ap.WalletAddress())
-				}
-				return a, tea.Quit
+		case "ctrl+c", "ctrl+q":
+			// Save current view before quitting so next launch restores here.
+			if ap, ok := a.currentView.(interface{ WalletAddress() string }); ok {
+				a.saveState("wallet-status", ap.WalletAddress())
 			}
+			return a, tea.Quit
 		case "?":
 			a.helpVisible = true
 			return a, nil
@@ -189,6 +205,19 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errorDismissMsg:
 		a.errorShown = false
 		a.errorMsg = ""
+		return a, nil
+
+	case NotifMsg:
+		a.notifMsg = msg.Text
+		a.notifShown = true
+		cmd := tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+			return notifDismissMsg{}
+		})
+		return a, cmd
+
+	case notifDismissMsg:
+		a.notifShown = false
+		a.notifMsg = ""
 		return a, nil
 	}
 
@@ -226,10 +255,13 @@ func (a App) navigate(msg NavigateMsg) (tea.Model, tea.Cmd) {
 	// All other views push the current view onto the stack for back navigation.
 	if rootViews[msg.View] {
 		a.viewStack = nil
+		a.viewNameStack = nil
 	} else if a.currentView != nil {
 		a.viewStack = append(a.viewStack, a.currentView)
+		a.viewNameStack = append(a.viewNameStack, a.currentViewName)
 	}
 	a.currentView = newView
+	a.currentViewName = msg.View
 
 	// Persist the new view so next launch restores here.
 	// Only save wallet-status — the only view that makes sense as a standalone
@@ -258,6 +290,15 @@ func (a App) navigateBack() (tea.Model, tea.Cmd) {
 	last := len(a.viewStack) - 1
 	a.currentView = a.viewStack[last]
 	a.viewStack = a.viewStack[:last]
+
+	// Restore view name for border title
+	if len(a.viewNameStack) > 0 {
+		nameLast := len(a.viewNameStack) - 1
+		a.currentViewName = a.viewNameStack[nameLast]
+		a.viewNameStack = a.viewNameStack[:nameLast]
+	} else {
+		a.currentViewName = ""
+	}
 
 	// Pass current size
 	var sizeCmd tea.Cmd
@@ -353,7 +394,53 @@ func (a App) View() string {
 		footerStyle.Render(footer),
 	)
 
-	return style.Render(inner)
+	rendered := style.Render(inner)
+
+	// D: Splice view name into the top border line.
+	if title, ok := viewTitles[a.currentViewName]; ok && title != "" {
+		rendered = injectBorderTitle(rendered, " "+title+" ")
+	}
+
+	// E: Floating notification — rendered below the box, auto-dismisses after 3s.
+	if a.notifShown && a.notifMsg != "" {
+		notifStyle := lipgloss.NewStyle().Foreground(ColorSuccess).PaddingLeft(2)
+		rendered += "\n" + notifStyle.Render(a.notifMsg)
+	}
+
+	return rendered
+}
+
+// injectBorderTitle splices a title string into the top border of a lipgloss
+// rounded-border box. It finds the first line (which starts with "╭") and
+// replaces the characters immediately after "╭" with the title, preserving
+// the rest of the border line.
+//
+// This is a workaround for lipgloss v1.x not supporting BorderTitle natively.
+func injectBorderTitle(rendered, title string) string {
+	lines := strings.SplitN(rendered, "\n", 2)
+	if len(lines) < 2 {
+		return rendered
+	}
+	topLine := lines[0]
+	// Find the opening corner rune (╭ is 3 bytes in UTF-8).
+	cornerIdx := strings.Index(topLine, "╭")
+	if cornerIdx < 0 {
+		return rendered
+	}
+	afterCorner := cornerIdx + len("╭")
+	if afterCorner >= len(topLine) {
+		return rendered
+	}
+	// Count visible runes in title to know how many border chars to skip.
+	titleRunes := []rune(title)
+	titleLen := len(titleRunes)
+	// Walk titleLen runes forward from afterCorner in the border line.
+	restRunes := []rune(topLine[afterCorner:])
+	if titleLen >= len(restRunes) {
+		return rendered // title too long — don't mangle
+	}
+	newTop := topLine[:afterCorner] + title + string(restRunes[titleLen:])
+	return newTop + "\n" + lines[1]
 }
 
 // renderHelp renders a simple help overlay.

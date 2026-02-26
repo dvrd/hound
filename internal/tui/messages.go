@@ -47,3 +47,9 @@ type TransferConfirmedMsg struct {
 	Confirmed bool  // true if confirmed/finalized
 	Err       error // non-nil if tx failed on-chain or timed out
 }
+
+// NotifMsg is sent by views to display a transient notification in the App shell.
+// The App renders it below the main box for 3 seconds then auto-dismisses.
+type NotifMsg struct {
+	Text string
+}

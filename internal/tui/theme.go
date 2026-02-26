@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -9,7 +10,7 @@ import (
 var (
 	// Colors
 	ColorPrimary   = lipgloss.Color("#7C3AED") // Purple
-	ColorSecondary = lipgloss.Color("#06B6D4") // Cyan
+	ColorSecondary = lipgloss.Color("#06B6D4") // Cyan — used for numeric data values
 	ColorSuccess   = lipgloss.Color("#10B981") // Green
 	ColorWarning   = lipgloss.Color("#F59E0B") // Amber
 	ColorError     = lipgloss.Color("#EF4444") // Red
@@ -29,8 +30,10 @@ var (
 	StyleSuccess  = lipgloss.NewStyle().Foreground(ColorSuccess)
 	StyleWarning  = lipgloss.NewStyle().Foreground(ColorWarning)
 	StyleError    = lipgloss.NewStyle().Foreground(ColorError)
+	StyleValue    = lipgloss.NewStyle().Foreground(ColorSecondary) // numeric data values
 
-	// Container styles
+	// Container styles — StyleApp is the default; app.go builds a dynamic version
+	// with the view name embedded in the top border title.
 	StyleApp = lipgloss.NewStyle().
 			Padding(1, 2).
 			Border(lipgloss.RoundedBorder()).
@@ -50,6 +53,7 @@ var (
 			Foreground(ColorText).
 			Padding(0, 1)
 
+	// StyleTableRowSelected: accent bar ┃ is prepended by RenderRow — no background needed.
 	StyleTableRowSelected = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(ColorHighlight).
@@ -62,7 +66,67 @@ var (
 
 	StyleTypeBadge = lipgloss.NewStyle().
 			Foreground(ColorMuted)
+
+	// Internal accent / separator / footer styles.
+	styleAccentBar = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true)
+	styleSeparator = lipgloss.NewStyle().Foreground(ColorBorder)
+	styleFooterKey = lipgloss.NewStyle().Foreground(ColorHighlight).Bold(true)
+	styleFooterSep = lipgloss.NewStyle().Foreground(ColorMuted)
 )
+
+// ─── Row rendering helpers ────────────────────────────────────────────────────
+
+// RenderRow renders a table row with an accent bar ┃ when selected, or a plain
+// 2-space indent when not. This replaces the old "> " cursor convention and
+// works even when TrueColor is unavailable, since the bar is a visible glyph.
+//
+//	selected=true  → "┃ " + StyleTableRowSelected(content)
+//	selected=false → "  " + StyleTableRow(content)
+func RenderRow(content string, selected bool) string {
+	if selected {
+		bar := styleAccentBar.Render("┃")
+		return bar + " " + StyleTableRowSelected.Render(content)
+	}
+	return "  " + StyleTableRow.Render(content)
+}
+
+// TableSeparator returns a full-width ─── line styled in the border color,
+// to be placed between the table header and the first data row.
+func TableSeparator(width int) string {
+	if width <= 0 {
+		width = 40
+	}
+	return styleSeparator.Render(strings.Repeat("─", width))
+}
+
+// ─── Footer helpers ───────────────────────────────────────────────────────────
+
+// FooterBinding is a single key+action pair for the footer bar.
+type FooterBinding struct {
+	Key    string
+	Action string
+}
+
+// FooterGroup is a slice of bindings that belong together visually.
+type FooterGroup []FooterBinding
+
+// RenderFooter renders groups of key bindings separated by a styled │.
+// Format: "key action  key action  │  key action"
+// Keys are rendered in highlight color, actions in plain subtext.
+func RenderFooter(groups ...FooterGroup) string {
+	var parts []string
+	for _, g := range groups {
+		var bindings []string
+		for _, b := range g {
+			bindings = append(bindings, styleFooterKey.Render(b.Key)+" "+b.Action)
+		}
+		parts = append(parts, strings.Join(bindings, "  "))
+	}
+	sep := "  " + styleFooterSep.Render("│") + "  "
+	return strings.Join(parts, sep)
+}
+
+// ─── Color helpers ────────────────────────────────────────────────────────────
 
 // FormatChange returns a styled 24h change string with color.
 func FormatChange(change float64) string {
