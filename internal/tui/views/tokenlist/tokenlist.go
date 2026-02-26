@@ -90,7 +90,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc":
+		case "esc", "h":
 			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 		case "up", "k":
 			if m.cursor > 0 {
@@ -100,7 +100,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.cursor < len(m.tokens)-1 {
 				m.cursor++
 			}
-		case "enter":
+		case "enter", "l":
 			if len(m.tokens) > 0 && m.cursor < len(m.tokens) {
 				addr := m.tokens[m.cursor].Token.ContractAddress
 				return m, func() tea.Msg {
@@ -221,7 +221,7 @@ func (m Model) View() string {
 
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
-	return "[enter]details [a]dd [esc]back"
+	return "[j/k]navigate [l/enter]details [a]dd [h/esc]back"
 }
 
 // GetCursor returns the current cursor position for testing.

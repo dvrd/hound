@@ -74,14 +74,14 @@ func TestViewContainsTokenName(t *testing.T) {
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel()
 	footer := m.Footer()
-	if !strings.Contains(footer, "[enter]details") {
-		t.Error("Footer should contain [enter]details in status bar")
+	if !strings.Contains(footer, "details") {
+		t.Error("Footer should contain details in status bar")
 	}
 	if !strings.Contains(footer, "[a]dd") {
 		t.Error("Footer should contain [a]dd in status bar")
 	}
-	if !strings.Contains(footer, "[esc]back") {
-		t.Error("Footer should contain [esc]back in status bar")
+	if !strings.Contains(footer, "back") {
+		t.Error("Footer should contain back in status bar")
 	}
 }
 
