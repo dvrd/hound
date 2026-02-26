@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dvrd/hound/internal/database"
 	"github.com/dvrd/hound/internal/models"
@@ -26,22 +27,30 @@ type TokenRow struct {
 
 // Model is the token list view.
 type Model struct {
-	tokens  []TokenRow
-	cursor  int
-	db      *database.Database
-	loading bool
-	spinner components.SpinnerModel
-	width   int
-	height  int
-	err     error
+	tokens         []TokenRow
+	filteredTokens []TokenRow
+	cursor         int
+	db             *database.Database
+	loading        bool
+	spinner        components.SpinnerModel
+	width          int
+	height         int
+	err            error
+	searchInput    textinput.Model
 }
 
 // New creates a new token list view.
 func New(db *database.Database) Model {
+	si := textinput.New()
+	si.Placeholder = "Search tokens..."
+	si.Width = 76 // default; resized on WindowSizeMsg
+	si.Focus()
+
 	return Model{
-		db:      db,
-		loading: true,
-		spinner: components.NewSpinner("Loading tokens..."),
+		db:          db,
+		loading:     true,
+		spinner:     components.NewSpinner("Loading tokens..."),
+		searchInput: si,
 	}
 }
 
@@ -70,6 +79,28 @@ func (m Model) loadTokens() tea.Cmd {
 	}
 }
 
+// recomputeFilter rebuilds filteredTokens from tokens using the current search
+// query. It always resets cursor to 0. Called after every query change.
+func (m *Model) recomputeFilter() {
+	query := strings.ToLower(m.searchInput.Value())
+	if query == "" {
+		m.filteredTokens = m.tokens
+		m.cursor = 0
+		return
+	}
+
+	filtered := make([]TokenRow, 0, len(m.tokens))
+	for _, tr := range m.tokens {
+		sym := strings.ToLower(tr.Token.Symbol)
+		name := strings.ToLower(tr.Token.Name)
+		if strings.Contains(sym, query) || strings.Contains(name, query) {
+			filtered = append(filtered, tr)
+		}
+	}
+	m.filteredTokens = filtered
+	m.cursor = 0
+}
+
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -81,36 +112,72 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tokens = msg.Tokens
+		m.filteredTokens = msg.Tokens // initial: show all
 		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		w := m.width - 4
+		if w < 10 {
+			w = 10
+		}
+		m.searchInput.Width = w
 		return m, nil
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc", "h":
+		case "esc":
+			if m.searchInput.Value() != "" {
+				// Clear search, show all tokens, stay on this view
+				m.searchInput.SetValue("")
+				m.recomputeFilter()
+				return m, nil
+			}
+			// Empty search — navigate back
 			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
+
+		case "h":
+			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
+
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
 			}
+			return m, nil
+
 		case "down", "j":
-			if m.cursor < len(m.tokens)-1 {
+			if m.cursor < len(m.filteredTokens)-1 {
 				m.cursor++
 			}
+			return m, nil
+
 		case "enter", "l":
-			if len(m.tokens) > 0 && m.cursor < len(m.tokens) {
-				addr := m.tokens[m.cursor].Token.ContractAddress
+			if len(m.filteredTokens) > 0 && m.cursor < len(m.filteredTokens) {
+				addr := m.filteredTokens[m.cursor].Token.ContractAddress
 				return m, func() tea.Msg {
 					return tui.NavigateMsg{View: "token-fetch", Data: addr}
 				}
 			}
+			return m, nil
+
 		case "a":
-			return m, func() tea.Msg {
-				return tui.NavigateMsg{View: "token-add"}
+			// Only navigate to token-add when search is empty; otherwise
+			// treat 'a' as a regular character for the search input.
+			if m.searchInput.Value() == "" {
+				return m, func() tea.Msg {
+					return tui.NavigateMsg{View: "token-add"}
+				}
 			}
+			fallthrough
+
+		default:
+			// Forward all other keys (printable chars, backspace, etc.) to
+			// the search input, then recompute the filter.
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			m.recomputeFilter()
+			return m, cmd
 		}
 	}
 
@@ -140,8 +207,14 @@ func (m Model) View() string {
 		return b.String()
 	}
 
+	// Always render the search input bar
+	b.WriteString("  " + m.searchInput.View() + "\n\n")
+
 	if len(m.tokens) == 0 {
 		b.WriteString(tui.StyleMuted.Render("No tokens found. Press [a] to add one.") + "\n")
+	} else if len(m.filteredTokens) == 0 {
+		// Tokens exist but none match the query
+		b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("No tokens match %q", m.searchInput.Value())) + "\n")
 	} else {
 		// Proportional column widths
 		w := m.width
@@ -157,8 +230,8 @@ func (m Model) View() string {
 		header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Pools", "Liquidity", "")
 		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
 
-		// Cap visible rows
-		maxRows := len(m.tokens)
+		// Cap visible rows (account for title + search bar + header = ~6 extra lines)
+		maxRows := len(m.filteredTokens)
 		if m.height > 0 {
 			visible := m.height - 6
 			if visible < 1 {
@@ -175,8 +248,8 @@ func (m Model) View() string {
 			startIdx = m.cursor - maxRows + 1
 		}
 		endIdx := startIdx + maxRows
-		if endIdx > len(m.tokens) {
-			endIdx = len(m.tokens)
+		if endIdx > len(m.filteredTokens) {
+			endIdx = len(m.filteredTokens)
 			startIdx = endIdx - maxRows
 			if startIdx < 0 {
 				startIdx = 0
@@ -185,7 +258,7 @@ func (m Model) View() string {
 
 		rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%dd %%%ds %%s", colSym, colName, colPools, colLiq)
 		for i := startIdx; i < endIdx; i++ {
-			tr := m.tokens[i]
+			tr := m.filteredTokens[i]
 			autoDiscovered := ""
 			for _, p := range tr.Token.Pools {
 				if p.DiscoveredAt > 0 {
@@ -210,8 +283,8 @@ func (m Model) View() string {
 		}
 
 		// Scroll indicator
-		if len(m.tokens) > maxRows {
-			hidden := len(m.tokens) - maxRows
+		if len(m.filteredTokens) > maxRows {
+			hidden := len(m.filteredTokens) - maxRows
 			b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden)) + "\n")
 		}
 	}
@@ -220,7 +293,12 @@ func (m Model) View() string {
 }
 
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
+// It is dynamic: when a search query is active, esc clears the search instead
+// of navigating back.
 func (m Model) Footer() string {
+	if m.searchInput.Value() != "" {
+		return "[j/k]navigate [l/enter]details [esc]clear search [h]back"
+	}
 	return "[j/k]navigate [l/enter]details [a]dd [h/esc]back"
 }
 
@@ -229,9 +307,14 @@ func (m Model) GetCursor() int {
 	return m.cursor
 }
 
-// GetTokens returns the loaded tokens for testing.
+// GetTokens returns the loaded tokens (unfiltered) for testing.
 func (m Model) GetTokens() []TokenRow {
 	return m.tokens
+}
+
+// GetFilteredTokens returns the currently filtered token list for testing.
+func (m Model) GetFilteredTokens() []TokenRow {
+	return m.filteredTokens
 }
 
 // SetSize updates the view dimensions.

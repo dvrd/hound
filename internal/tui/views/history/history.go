@@ -211,10 +211,12 @@ func (m Model) View() string {
 		colTime := max(8, w*19/100)
 		colStatus := max(8, w*15/100)
 
-		// Cap visible rows
+		// Cap visible rows to available height.
+		// m.height is already the inner content height from the app shell —
+		// no need to subtract chrome here. Reserve 3 rows for title + blank + status line.
 		maxRows := len(m.items)
 		if m.height > 0 {
-			visible := m.height - 6
+			visible := m.height - 3
 			if visible < 1 {
 				visible = 1
 			}
