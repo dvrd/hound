@@ -273,29 +273,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		// ── Vim nav — only when input is empty ────────────────────────────
-		case "j":
-			if query == "" {
-				if max := m.listLen() - 1; m.cursor < max {
-					m.cursor++
-				}
-				return m, nil
-			}
-			var cmd tea.Cmd
-			m.searchInput, cmd = m.searchInput.Update(msg)
-			return m, m.afterInput(cmd)
-
-		case "k":
-			if query == "" {
-				if m.cursor > 0 {
-					m.cursor--
-				}
-				return m, nil
-			}
-			var cmd tea.Cmd
-			m.searchInput, cmd = m.searchInput.Update(msg)
-			return m, m.afterInput(cmd)
-
 		case "l":
 			if query == "" {
 				addr := m.selectedAddress()
@@ -310,22 +287,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.searchInput, cmd = m.searchInput.Update(msg)
 			return m, m.afterInput(cmd)
 
-		// ── Enter: open selected OR trigger immediate search ───────────────
+		// ── Enter: open selected (search results only) OR trigger search ─────
 		case "enter":
+			q := strings.TrimSpace(query)
+			if q == "" {
+				// Nothing typed → enter does nothing
+				return m, nil
+			}
+			// Query present: open selected result if any, otherwise search now
 			addr := m.selectedAddress()
 			if addr != "" {
 				return m, func() tea.Msg {
 					return tui.NavigateMsg{View: "token-fetch", Data: addr}
 				}
 			}
-			// No selection but query is present → trigger search now
-			q := strings.TrimSpace(query)
-			if q != "" {
-				m.searching = true
-				m.searchGen++
-				return m, m.doSearch(q)
-			}
-			return m, nil
+			m.searching = true
+			m.searchGen++
+			return m, m.doSearch(q)
 
 		// ── All other keys go to search input ─────────────────────────────
 		default:
@@ -567,12 +545,12 @@ func viewWindow(cursor, maxRows, total int) (startIdx, endIdx int) {
 func (m Model) Footer() string {
 	if m.searchInput.Value() != "" {
 		return tui.RenderFooter(
-			tui.FooterGroup{{Key: "↑/↓", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "clear/back"}},
+			tui.FooterGroup{{Key: "ctrl+n/p", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "clear/back"}},
 			tui.FooterGroup{{Key: "?", Action: "help"}},
 		)
 	}
 	return tui.RenderFooter(
-		tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "back"}},
+		tui.FooterGroup{{Key: "ctrl+n/p", Action: "navigate"}, {Key: "enter", Action: "search"}, {Key: "esc", Action: "back"}},
 		tui.FooterGroup{{Key: "?", Action: "help"}},
 	)
 }
@@ -583,4 +561,5 @@ func (m Model) GetCursor() int             { return m.cursor }
 func (m Model) GetTokens() []TokenRow      { return m.tokens }
 func (m Model) GetResults() []SearchResult { return m.results }
 func (m Model) IsInSearchMode() bool       { return m.inSearchMode }
+func (m Model) GetSearchValue() string     { return m.searchInput.Value() }
 func (m *Model) SetSize(w, h int)          { m.width = w; m.height = h }

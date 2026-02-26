@@ -97,8 +97,8 @@ func TestViewContainsTokens(t *testing.T) {
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel()
 	footer := m.Footer()
-	if !strings.Contains(footer, "menu") {
-		t.Error("Footer should contain menu in status bar")
+	if !strings.Contains(footer, "wallets") {
+		t.Error("Footer should contain wallets in status bar")
 	}
 	if !strings.Contains(footer, "help") {
 		t.Error("Footer should contain help in status bar")
@@ -350,8 +350,8 @@ func TestWalletStatus_ResponsiveView_Narrow(t *testing.T) {
 		t.Error("View should not be empty at narrow width")
 	}
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "menu") {
-		t.Error("narrow view should contain menu")
+	if !strings.Contains(footer, "wallets") {
+		t.Error("narrow view should contain wallets")
 	}
 }
 
@@ -368,7 +368,7 @@ func TestWalletStatus_ResponsiveView_Wide(t *testing.T) {
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "menu") {
-		t.Error("wide view should contain menu")
+	if !strings.Contains(footer, "wallets") {
+		t.Error("wide view should contain wallets")
 	}
 }

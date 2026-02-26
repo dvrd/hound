@@ -307,7 +307,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg {
 				return tui.NavigateMsg{View: "send", Data: m.address}
 			}
-		case "w":
+		case "x":
 			return m, func() tea.Msg {
 				return tui.NavigateMsg{View: "swap", Data: m.address}
 			}
@@ -574,8 +574,8 @@ func (m Model) Footer() string {
 	}
 	return tui.RenderFooter(
 		tui.FooterGroup{
-			{Key: "m", Action: "menu"}, {Key: "s", Action: "send"},
-			{Key: "w", Action: "swap"}, {Key: "h", Action: "history"},
+			{Key: "m", Action: "wallets"}, {Key: "s", Action: "send"},
+			{Key: "x", Action: "swap"}, {Key: "h", Action: "history"},
 			{Key: "t", Action: "tokens"},
 		},
 		tui.FooterGroup{

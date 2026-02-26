@@ -180,30 +180,71 @@ func TestCursorNavigation(t *testing.T) {
 		t.Errorf("initial cursor = %d, want 0", m.GetCursor())
 	}
 
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	// ctrl+n moves down
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
 	model := updated.(tokenlist.Model)
 	if model.GetCursor() != 1 {
-		t.Errorf("cursor after j = %d, want 1", model.GetCursor())
+		t.Errorf("cursor after ctrl+n = %d, want 1", model.GetCursor())
 	}
 
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	// ctrl+n at boundary stays put
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
 	model = updated.(tokenlist.Model)
 	if model.GetCursor() != 1 {
-		t.Errorf("cursor after second j = %d, want 1 (boundary)", model.GetCursor())
+		t.Errorf("cursor after second ctrl+n = %d, want 1 (boundary)", model.GetCursor())
+	}
+
+	// ctrl+p moves up
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	model = updated.(tokenlist.Model)
+	if model.GetCursor() != 0 {
+		t.Errorf("cursor after ctrl+p = %d, want 0", model.GetCursor())
+	}
+}
+
+func TestJKTypedIntoSearch(t *testing.T) {
+	// j and k should go into the search input, not navigate
+	m := loadedModel()
+
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	model := updated.(tokenlist.Model)
+	if model.GetCursor() != 0 {
+		t.Errorf("j should not navigate — cursor = %d, want 0", model.GetCursor())
+	}
+	if model.GetSearchValue() != "j" {
+		t.Errorf("j should be typed into search input, got %q", model.GetSearchValue())
 	}
 
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	model = updated.(tokenlist.Model)
-	if model.GetCursor() != 0 {
-		t.Errorf("cursor after k = %d, want 0", model.GetCursor())
+	if model.GetSearchValue() != "jk" {
+		t.Errorf("k should be typed into search input, got %q", model.GetSearchValue())
+	}
+}
+
+func TestEnterWithEmptyQueryDoesNothing(t *testing.T) {
+	// enter with no query typed should be a no-op even when tokens are loaded
+	m := loadedModel()
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Error("enter with empty query should not return a command")
 	}
 }
 
 func TestEnterNavigatesToTokenFetch(t *testing.T) {
-	m := loadedModel()
+	// enter opens a search result when a query is active and a result is selected
+	m, srv := modelWithJupiter(t, jupiterTwoResults)
+	defer srv.Close()
+
+	m = sendChars(m, "sol")
+	updated, _ := m.Update(searchResultsMsgFor("sol", []tokenlist.SearchResult{
+		{Symbol: "BONK", Name: "Bonk", Address: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263"},
+	}))
+	m = updated.(tokenlist.Model)
+
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if cmd == nil {
-		t.Fatal("enter should return a command")
+		t.Fatal("enter on search result should return a command")
 	}
 	msg := cmd()
 	navMsg, ok := msg.(tui.NavigateMsg)
@@ -335,9 +376,9 @@ func TestSearchResetsCursor(t *testing.T) {
 	m := searchModel()
 
 	// Move cursor to index 2
-	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
 	m = updated.(tokenlist.Model)
-	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
 	m = updated.(tokenlist.Model)
 	if m.GetCursor() != 2 {
 		t.Fatalf("precondition: cursor should be 2, got %d", m.GetCursor())

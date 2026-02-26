@@ -178,13 +178,9 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			a.helpVisible = true
 			return a, nil
-		case "m":
-			// Global menu — accessible from any view.
-			addr := ""
-			if ap, ok := a.currentView.(interface{ WalletAddress() string }); ok {
-				addr = ap.WalletAddress()
-			}
-			return a.navigate(NavigateMsg{View: "menu", Data: addr})
+		case "m", "w":
+			// Global wallets — accessible from any view.
+			return a.navigate(NavigateMsg{View: "wallet-list"})
 		}
 		// Fall through to current view for all other keys
 
@@ -463,7 +459,7 @@ func renderHelp(viewName string) string {
 		{"?", "Toggle help"},
 		{"ctrl+q", "Quit"},
 		{"esc", "Go back"},
-		{"m", "Open menu"},
+		{"m/w", "Wallets"},
 	}
 
 	// Per-view bindings.
@@ -472,7 +468,7 @@ func renderHelp(viewName string) string {
 			{"j/k", "Navigate tokens"},
 			{"h", "History"},
 			{"s", "Send"},
-			{"w", "Swap"},
+			{"x", "Swap"},
 			{"t", "Token list"},
 			{"<", "Hide token"},
 			{">", "Unhide token"},
@@ -488,17 +484,13 @@ func renderHelp(viewName string) string {
 			{"i", "Import wallet"},
 			{"d", "Delete wallet"},
 			{"h", "History"},
-			{"w", "Swap"},
+			{"x", "Swap"},
 			{"S", "Send"},
 			{"r", "Refresh"},
 		},
 		"history": {
 			{"j/k", "Navigate"},
 			{"n", "Next page"},
-		},
-		"menu": {
-			{"j/k", "Navigate"},
-			{"enter", "Select"},
 		},
 		"token-list": {
 			{"j/k / ↑/↓", "Navigate"},
