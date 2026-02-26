@@ -190,7 +190,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.err = nil
 				m.step--
-				return m, m.focusCurrentStep()
+				m, cmd := m.focusCurrentStep()
+				return m, cmd
 			}
 			return m, nil
 		}
@@ -227,17 +228,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) focusCurrentStep() tea.Cmd {
+func (m Model) focusCurrentStep() (Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch m.step {
 	case StepRecipient:
-		return m.recipientInput.Focus()
+		cmd = m.recipientInput.Focus()
 	case StepAmount:
-		return m.amountInput.Focus()
+		cmd = m.amountInput.Focus()
 	case StepPassword:
-		return m.passwordInput.Focus()
-	default:
-		return nil
+		cmd = m.passwordInput.Focus()
 	}
+	return m, cmd
 }
 
 func (m Model) updateSelectToken(msg tea.KeyMsg) (tea.Model, tea.Cmd) {

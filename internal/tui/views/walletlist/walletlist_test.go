@@ -381,6 +381,28 @@ func TestWalletList_ResponsiveView_Wide(t *testing.T) {
 	}
 }
 
+func TestFooterExactBindings(t *testing.T) {
+	m := newTestModel()
+	footer := m.Footer()
+
+	required := []string{
+		"enter", "status",
+		"S", "send",
+		"x", "swap",
+		"h", "history",
+		"t", "tokens",
+		"i", "import",
+		"d", "delete",
+		"r", "refresh",
+		"?", "help",
+	}
+	for _, want := range required {
+		if !strings.Contains(footer, want) {
+			t.Errorf("Footer missing %q; full footer: %q", want, footer)
+		}
+	}
+}
+
 func TestWalletList_CappedVisibleRows(t *testing.T) {
 	wallets := make([]models.Wallet, 20)
 	for i := range wallets {
