@@ -1,6 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!-- Dark background -->
-  <rect width="32" height="32" rx="6" fill="#0a0a0f"/>
   <!-- Outer hexagon (cyan) -->
   <polygon points="16,2 28,9 28,21 16,30 4,21 4,9" stroke="rgba(0,245,255,0.7)" stroke-width="1.2" fill="none"/>
   <!-- Inner hexagon (purple) -->
