@@ -273,20 +273,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
-		case "l":
-			if query == "" {
-				addr := m.selectedAddress()
-				if addr == "" {
-					return m, nil
-				}
-				return m, func() tea.Msg {
-					return tui.NavigateMsg{View: "token-fetch", Data: addr}
-				}
-			}
-			var cmd tea.Cmd
-			m.searchInput, cmd = m.searchInput.Update(msg)
-			return m, m.afterInput(cmd)
-
 		// ── Enter: open selected (search results only) OR trigger search ─────
 		case "enter":
 			q := strings.TrimSpace(query)

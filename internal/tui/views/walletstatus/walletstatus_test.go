@@ -100,8 +100,8 @@ func TestViewContainsStatusBar(t *testing.T) {
 	if !strings.Contains(footer, "wallets") {
 		t.Error("Footer should contain wallets in status bar")
 	}
-	if !strings.Contains(footer, "help") {
-		t.Error("Footer should contain help in status bar")
+	if !strings.Contains(footer, "quit") {
+		t.Error("Footer should contain quit in status bar")
 	}
 }
 
@@ -259,10 +259,10 @@ func TestFilterLabel(t *testing.T) {
 	m := loadedModel()
 
 	// Footer is now nav-only; filter state is shown in the view body (sort line).
-	// Just verify the footer is non-empty and contains the help binding.
+	// Just verify the footer is non-empty and contains the enter/navigate hint.
 	footer := m.Footer()
-	if !strings.Contains(footer, "?") {
-		t.Error("Footer should contain ? help binding")
+	if !strings.Contains(footer, "token detail") {
+		t.Error("Footer should contain token detail hint")
 	}
 
 	// Filter still works — verify via view content after toggling.

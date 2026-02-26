@@ -178,7 +178,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			a.helpVisible = true
 			return a, nil
-		case "m", "w":
+		case "w":
 			// Global wallets — accessible from any view.
 			return a.navigate(NavigateMsg{View: "wallet-list"})
 		}
@@ -345,12 +345,6 @@ func (a App) View() string {
 		content = "Hound TUI — Coming soon. Press q to quit."
 	}
 
-	// Overlay help
-	if a.helpVisible {
-		helpContent := renderHelp(a.currentViewName)
-		content = content + "\n\n" + helpContent
-	}
-
 	// Extract footer from view if it implements FooterProvider.
 	// The footer is rendered pinned to the bottom of the content area,
 	// separate from the scrollable content.
@@ -397,6 +391,18 @@ func (a App) View() string {
 	// D: Splice view name into the top border line.
 	if title, ok := viewTitles[a.currentViewName]; ok && title != "" {
 		rendered = injectBorderTitle(rendered, " "+title+" ")
+	}
+
+	// Help overlay — rendered on top of everything using lipgloss.Place so it
+	// doesn't push any content. The box is centered in the full terminal area.
+	if a.helpVisible {
+		helpBox := renderHelp(a.currentViewName)
+		rendered = lipgloss.Place(
+			a.width, a.height,
+			lipgloss.Center, lipgloss.Center,
+			helpBox,
+			lipgloss.WithWhitespaceChars(" "),
+		)
 	}
 
 	// E: Floating notification — rendered below the box, auto-dismisses after 3s.
@@ -459,7 +465,7 @@ func renderHelp(viewName string) string {
 		{"?", "Toggle help"},
 		{"ctrl+q", "Quit"},
 		{"esc", "Go back"},
-		{"m/w", "Wallets"},
+		{"w", "Wallets"},
 	}
 
 	// Per-view bindings.

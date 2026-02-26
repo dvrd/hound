@@ -504,20 +504,17 @@ func (m Model) View() string {
 			}
 			b.WriteString(cursor + style.Render(line) + "\n")
 		}
-		b.WriteString("\n" + tui.StyleMuted.Render("Use j/k to navigate, Enter to select, Esc to cancel"))
 
 	case StepRecipient:
 		b.WriteString(fmt.Sprintf("Sending: %s\n\n", tui.StyleBold.Render(m.selectedToken.Symbol)))
 		b.WriteString("Enter recipient address:\n\n")
-		b.WriteString(m.recipientInput.View() + "\n\n")
-		b.WriteString(tui.StyleMuted.Render("Press Enter to continue, Esc to go back"))
+		b.WriteString(m.recipientInput.View() + "\n")
 
 	case StepAmount:
 		b.WriteString(fmt.Sprintf("Sending %s to %s\n\n", tui.StyleBold.Render(m.selectedToken.Symbol), tui.TruncateAddress(m.recipient)))
 		b.WriteString(fmt.Sprintf("Available: %g %s\n\n", m.selectedToken.Amount, m.selectedToken.Symbol))
 		b.WriteString("Enter amount (or MAX):\n\n")
-		b.WriteString(m.amountInput.View() + "\n\n")
-		b.WriteString(tui.StyleMuted.Render("Press Enter to continue, Esc to go back"))
+		b.WriteString(m.amountInput.View() + "\n")
 
 	case StepReview:
 		b.WriteString("Review Transaction\n\n")
@@ -525,12 +522,10 @@ func (m Model) View() string {
 		b.WriteString(fmt.Sprintf("  Amount:    %s\n", tui.StyleBold.Render(m.amountDisplay+" "+m.selectedToken.Symbol)))
 		b.WriteString(fmt.Sprintf("  To:        %s\n", tui.StyleBold.Render(tui.TruncateAddress(m.recipient))))
 		b.WriteString(fmt.Sprintf("  Fee:       %s\n", tui.StyleMuted.Render(fmt.Sprintf("~%g SOL", float64(m.estimatedFee)/1e9))))
-		b.WriteString("\n" + tui.StyleMuted.Render("Press Enter to confirm, Esc to go back"))
 
 	case StepPassword:
 		b.WriteString("Enter wallet password to sign transaction:\n\n")
-		b.WriteString(m.passwordInput.View() + "\n\n")
-		b.WriteString(tui.StyleMuted.Render("Press Enter to send, Esc to go back"))
+		b.WriteString(m.passwordInput.View() + "\n")
 
 	case StepSending:
 		b.WriteString(m.spinner.View() + "\n")
@@ -553,10 +548,41 @@ func (m Model) View() string {
 			b.WriteString(fmt.Sprintf("Signature: %s\n", m.signature))
 			b.WriteString(fmt.Sprintf("Explorer:  https://solscan.io/tx/%s\n", m.signature))
 		}
-		b.WriteString("\n" + tui.StyleMuted.Render("Press any key to continue"))
 	}
 
 	return b.String()
+}
+
+// Footer implements tui.FooterProvider — returns the pinned status bar text.
+func (m Model) Footer() string {
+	switch m.step {
+	case StepSelectToken:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "enter", Action: "select"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
+		)
+	case StepRecipient, StepAmount:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "enter", Action: "continue"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
+		)
+	case StepReview:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "enter", Action: "confirm"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
+		)
+	case StepPassword:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "enter", Action: "send"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
+		)
+	case StepResult:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "any key", Action: "back"}},
+		)
+	default:
+		return ""
+	}
 }
 
 // CurrentStep returns the current step for testing.

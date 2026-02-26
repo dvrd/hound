@@ -314,6 +314,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			// Copy wallet address to clipboard directly — no extra view needed.
 			return m, copyAddressToClipboard(m.address)
+		case "enter":
+			tokens := m.visibleTokens()
+			if m.cursor < len(tokens) {
+				mint := tokens[m.cursor].Mint
+				return m, func() tea.Msg {
+					return tui.NavigateMsg{View: "token-fetch", Data: mint}
+				}
+			}
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
@@ -574,12 +582,15 @@ func (m Model) Footer() string {
 	}
 	return tui.RenderFooter(
 		tui.FooterGroup{
-			{Key: "m", Action: "wallets"}, {Key: "s", Action: "send"},
+			{Key: "enter", Action: "token detail"}, {Key: "j/k", Action: "navigate"},
+		},
+		tui.FooterGroup{
+			{Key: "w", Action: "wallets"}, {Key: "s", Action: "send"},
 			{Key: "x", Action: "swap"}, {Key: "h", Action: "history"},
 			{Key: "t", Action: "tokens"},
 		},
 		tui.FooterGroup{
-			{Key: "?", Action: "help"},
+			{Key: "ctrl+q", Action: "quit"},
 		},
 	)
 }

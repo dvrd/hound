@@ -355,8 +355,7 @@ func (m Model) View() string {
 		} else {
 			b.WriteString(tui.StyleMuted.Render("Jupiter auto"))
 		}
-		b.WriteString("\n\n")
-		b.WriteString(tui.StyleMuted.Render("[tab]next field [enter]get quote [esc]back"))
+		b.WriteString("\n")
 
 	case PhaseQuoting:
 		b.WriteString(m.spinner.View() + "\n")
@@ -366,8 +365,7 @@ func (m Model) View() string {
 
 	case PhasePassword:
 		b.WriteString("Enter wallet password to sign transaction:\n\n")
-		b.WriteString(m.passwordInput.View() + "\n\n")
-		b.WriteString(tui.StyleMuted.Render("[enter]execute [esc]back"))
+		b.WriteString(m.passwordInput.View() + "\n")
 
 	case PhaseExecuting:
 		b.WriteString(m.spinner.View() + "\n")
@@ -426,9 +424,8 @@ func (m Model) renderQuoteReview(b *strings.Builder) {
 
 	b.WriteString("\n")
 	if m.dryRun {
-		b.WriteString(tui.StyleWarning.Render("DRY RUN - no transaction will be executed") + "\n\n")
+		b.WriteString(tui.StyleWarning.Render("DRY RUN - no transaction will be executed") + "\n")
 	}
-	b.WriteString(tui.StyleMuted.Render("[enter]confirm [esc]back"))
 }
 
 func (m Model) renderResult(b *strings.Builder) {
@@ -463,8 +460,33 @@ func (m Model) renderResult(b *strings.Builder) {
 		b.WriteString(fmt.Sprintf("  Route:     %s\n", m.quote.RouteLabel(inputLabel, outputLabel)))
 	}
 
-	b.WriteString("\n")
-	b.WriteString(tui.StyleMuted.Render("Press any key to continue"))
+}
+
+// Footer implements tui.FooterProvider — returns the pinned status bar text.
+func (m Model) Footer() string {
+	switch m.phase {
+	case PhaseInput:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "tab", Action: "next field"}, {Key: "enter", Action: "get quote"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
+		)
+	case PhaseReview:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "enter", Action: "confirm"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
+		)
+	case PhasePassword:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "enter", Action: "execute"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
+		)
+	case PhaseResult:
+		return tui.RenderFooter(
+			tui.FooterGroup{{Key: "any key", Action: "back"}},
+		)
+	default:
+		return ""
+	}
 }
 
 // GetPhase returns the current phase for testing.
