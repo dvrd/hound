@@ -111,7 +111,7 @@ func TestApp_HelpConsumesKeys(t *testing.T) {
 	model, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
 	a := model.(tui.App)
 
-	// 'q' should NOT quit when help is visible
+	// 'q' should NOT quit when help is visible — it closes the help instead.
 	model, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	a = model.(tui.App)
 	if cmd != nil {
@@ -120,9 +120,9 @@ func TestApp_HelpConsumesKeys(t *testing.T) {
 			t.Error("q should not quit when help is visible")
 		}
 	}
-	// Help should still be visible (q was consumed)
-	if !a.IsHelpVisible() {
-		t.Error("help should still be visible after 'q' (consumed)")
+	// Help should be closed by 'q' (pager-style dismiss).
+	if a.IsHelpVisible() {
+		t.Error("help should be closed after 'q' (pager dismiss)")
 	}
 }
 

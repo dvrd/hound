@@ -258,8 +258,8 @@ func TestEmptyTokens(t *testing.T) {
 func TestFilterLabel(t *testing.T) {
 	m := loadedModel()
 
-	// Footer is now nav-only; filter state is shown in the view body (sort line).
-	// Just verify the footer is non-empty and contains the enter/navigate hint.
+	// Footer is nav-only; filter state is shown in the view body (sort line).
+	// Verify the footer contains the expected nav keys.
 	footer := m.Footer()
 	if !strings.Contains(footer, "token detail") {
 		t.Error("Footer should contain token detail hint")

@@ -250,16 +250,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Second esc (empty search): navigate back to main menu
 			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 
-		case "h":
-			if query == "" {
-				// Only exit with h when not typing
-				return m, func() tea.Msg { return tui.NavigateBackMsg{} }
-			}
-			// h is a valid search character — fall through to input
-			var cmd tea.Cmd
-			m.searchInput, cmd = m.searchInput.Update(msg)
-			return m, m.afterInput(cmd)
-
 		// ── Cursor navigation — always active ──────────────────────────────
 		case "up", "ctrl+p":
 			if m.cursor > 0 {

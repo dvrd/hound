@@ -56,6 +56,7 @@ type App struct {
 	width           int
 	height          int
 	helpVisible     bool
+	helpScroll      int // scroll offset for help overlay (lines from top)
 	errorMsg        string
 	errorShown      bool
 	ready           bool
@@ -158,10 +159,21 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
-		// Help overlay consumes keys when visible
+		// Help overlay consumes all keys when visible.
 		if a.helpVisible {
-			if msg.String() == "?" || msg.String() == "esc" {
+			switch msg.String() {
+			case "?", "esc", "q":
 				a.helpVisible = false
+				a.helpScroll = 0
+			case "j", "down":
+				a.helpScroll++
+				if max := helpMaxScroll(a.currentViewName, a.height); a.helpScroll > max {
+					a.helpScroll = max
+				}
+			case "k", "up":
+				if a.helpScroll > 0 {
+					a.helpScroll--
+				}
 			}
 			return a, nil
 		}
@@ -175,6 +187,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, tea.Quit
 		case "?":
 			a.helpVisible = true
+			a.helpScroll = 0
 			return a, nil
 		case "w":
 			// Global wallets — accessible from any view.
@@ -330,6 +343,40 @@ func (a App) innerHeight() int {
 	return h
 }
 
+// helpLineCount returns the total number of content lines the help overlay
+// would render for the given view name. This mirrors the allLines construction
+// in renderHelp so that Update() can clamp helpScroll without calling renderHelp.
+func helpLineCount(viewName string) int {
+	global := 4 // ?/q/esc, j/k, ctrl+q, w
+	viewExtra := map[string]int{
+		"wallet-status": 1 + 13, // section header + 13 bindings
+		"wallet-list":   1 + 8,
+		"history":       1 + 2,
+		"token-list":    1 + 4,
+	}
+	return global + viewExtra[viewName]
+}
+
+// helpMaxScroll returns the maximum valid helpScroll value for the given
+// terminal height and view name. Returns 0 when all lines fit on screen.
+func helpMaxScroll(viewName string, termH int) int {
+	const chrome = 6
+	maxModalH := termH - 4
+	if maxModalH < chrome+1 {
+		maxModalH = chrome + 1
+	}
+	visibleRows := maxModalH - chrome
+	total := helpLineCount(viewName)
+	if visibleRows > total {
+		visibleRows = total
+	}
+	max := total - visibleRows
+	if max < 0 {
+		return 0
+	}
+	return max
+}
+
 // View renders the app.
 func (a App) View() string {
 	if !a.ready {
@@ -392,9 +439,9 @@ func (a App) View() string {
 	}
 
 	// Help overlay — rendered on top of everything using lipgloss.Place so it
-	// doesn't push any content. The box is centered in the full terminal area.
+	// doesn't push any content. The modal is capped to terminal dimensions.
 	if a.helpVisible {
-		helpBox := renderHelp(a.currentViewName)
+		helpBox := renderHelp(a.currentViewName, a.width, a.height, a.helpScroll)
 		rendered = lipgloss.Place(
 			a.width, a.height,
 			lipgloss.Center, lipgloss.Center,
@@ -445,30 +492,37 @@ func injectBorderTitle(rendered, title string) string {
 	return newTop + "\n" + lines[1]
 }
 
-// renderHelp renders a view-aware help overlay.
-func renderHelp(viewName string) string {
+// renderHelp renders a view-aware help overlay that is responsive to the
+// available terminal dimensions and supports scrolling with j/k.
+//
+// Layout budget:
+//   - modal width  = min(50, termW-4)   — 2 cols margin each side
+//   - modal height = min(allLines+4, termH-4) — 2 rows margin top+bottom
+//   - border(2) + padding(2) = 4 rows of chrome consumed inside the box
+//   - visible content rows = modalHeight - 4
+func renderHelp(viewName string, termW, termH, scroll int) string {
 	keyStyle := lipgloss.NewStyle().
 		Foreground(ColorPrimary).
 		Bold(true).
-		Width(10)
+		Width(12)
 	descStyle := lipgloss.NewStyle().
 		Foreground(ColorText)
 	sectionStyle := lipgloss.NewStyle().
 		Foreground(ColorSubtext).
-		Bold(true).
-		MarginTop(1)
+		Bold(true)
 
 	// Global bindings always shown.
 	global := []struct{ key, desc string }{
-		{"?", "Toggle help"},
+		{"?/q/esc", "Close help"},
+		{"j/k", "Scroll"},
 		{"ctrl+q", "Quit"},
-		{"esc", "Go back"},
 		{"w", "Wallets"},
 	}
 
 	// Per-view bindings.
 	viewBindings := map[string][]struct{ key, desc string }{
 		"wallet-status": {
+			{"enter", "Token detail"},
 			{"j/k", "Navigate tokens"},
 			{"h", "History"},
 			{"s", "Send"},
@@ -480,7 +534,7 @@ func renderHelp(viewName string) string {
 			{"r", "Refresh"},
 			{"R", "Rename wallet"},
 			{"c", "Copy address"},
-			{"1/2/3", "Sort by value/symbol/balance"},
+			{"1/2/3", "Sort mode"},
 		},
 		"wallet-list": {
 			{"j/k", "Navigate wallets"},
@@ -497,38 +551,107 @@ func renderHelp(viewName string) string {
 			{"n", "Next page"},
 		},
 		"token-list": {
-			{"j/k / ↑/↓", "Navigate"},
+			{"↑/↓ ctrl+n/p", "Navigate"},
 			{"enter", "Open token"},
 			{"type", "Search tokens"},
+			{"esc", "Clear / back"},
 		},
 	}
 
-	var rows string
+	// Build all content lines (unstyled for slicing, styled when rendering).
+	type line struct {
+		key, desc string
+		isSection bool
+	}
+	var allLines []line
 
-	// Global section
 	for _, b := range global {
-		rows += keyStyle.Render(b.key) + descStyle.Render(b.desc) + "\n"
+		allLines = append(allLines, line{key: b.key, desc: b.desc})
+	}
+	if vb, ok := viewBindings[viewName]; ok {
+		allLines = append(allLines, line{isSection: true, desc: "This view"})
+		for _, b := range vb {
+			allLines = append(allLines, line{key: b.key, desc: b.desc})
+		}
 	}
 
-	// View-specific section
-	if vb, ok := viewBindings[viewName]; ok {
-		rows += sectionStyle.Render("This view") + "\n"
-		for _, b := range vb {
-			rows += keyStyle.Render(b.key) + descStyle.Render(b.desc) + "\n"
+	// Determine modal dimensions.
+	modalW := termW - 4
+	if modalW > 52 {
+		modalW = 52
+	}
+	if modalW < 30 {
+		modalW = 30
+	}
+
+	// chrome: border top+bottom (2) + padding top+bottom (2) + title row (1) + blank (1) = 6
+	const chrome = 6
+	maxModalH := termH - 4
+	if maxModalH < chrome+1 {
+		maxModalH = chrome + 1
+	}
+	visibleRows := maxModalH - chrome
+	if visibleRows > len(allLines) {
+		visibleRows = len(allLines)
+	}
+
+	// Clamp scroll so we never go past the last page.
+	maxScroll := len(allLines) - visibleRows
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if scroll > maxScroll {
+		scroll = maxScroll
+	}
+
+	// Slice the visible window.
+	end := scroll + visibleRows
+	if end > len(allLines) {
+		end = len(allLines)
+	}
+	visible := allLines[scroll:end]
+
+	// Render visible lines.
+	var rows string
+	for _, l := range visible {
+		if l.isSection {
+			rows += sectionStyle.Render(l.desc) + "\n"
+		} else {
+			rows += keyStyle.Render(l.key) + descStyle.Render(l.desc) + "\n"
 		}
+	}
+
+	// Scroll indicators.
+	indicatorStyle := lipgloss.NewStyle().Foreground(ColorSubtext)
+	scrollBar := ""
+	if scroll > 0 && scroll < maxScroll {
+		scrollBar = indicatorStyle.Render("↑↓ more")
+	} else if scroll > 0 {
+		scrollBar = indicatorStyle.Render("↑ more above")
+	} else if scroll < maxScroll {
+		scrollBar = indicatorStyle.Render("↓ more below")
+	}
+	if scrollBar != "" {
+		rows += scrollBar + "\n"
 	}
 
 	titleStyle := lipgloss.NewStyle().
 		Bold(true).
-		Foreground(ColorPrimary).
-		MarginBottom(1)
+		Foreground(ColorPrimary)
+
+	contentW := modalW - 6 // border(2) + padding(4)
+	if contentW < 10 {
+		contentW = 10
+	}
 
 	box := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(ColorBorder).
-		Padding(1, 2)
+		Padding(1, 2).
+		Width(contentW)
 
-	return box.Render(titleStyle.Render("Keyboard Shortcuts") + "\n" + rows)
+	title := titleStyle.Render("Keyboard Shortcuts")
+	return box.Render(title + "\n\n" + rows)
 }
 
 // ViewStackDepth returns the number of views on the navigation stack.
