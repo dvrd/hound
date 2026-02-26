@@ -35,6 +35,7 @@ type Model struct {
 	spinner    components.SpinnerModel
 	err        error
 	partialErr error // set when some wallet refreshes failed
+	help       components.HelpModel
 }
 
 // New creates a new wallet list view.
@@ -45,6 +46,18 @@ func New(walletMgr *wallet.WalletManager, db *database.Database) Model {
 		portfolios: make(map[string]models.PortfolioBalance),
 		loading:    true,
 		spinner:    components.NewSpinner("Loading wallets..."),
+		help: components.NewHelp("Wallet List", []components.KeyBinding{
+			{Key: "↑/↓ j/k", Description: "navigate"},
+			{Key: "enter", Description: "open status"},
+			{Key: "S", Description: "send"},
+			{Key: "x", Description: "swap"},
+			{Key: "h", Description: "history"},
+			{Key: "t", Description: "tokens"},
+			{Key: "i", Description: "import wallet"},
+			{Key: "d", Description: "delete wallet"},
+			{Key: "r", Description: "refresh portfolios"},
+			{Key: "?", Description: "toggle help"},
+		}),
 	}
 }
 
@@ -104,6 +117,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// Let the help overlay consume '?' before other key handling.
+		var helpCmd tea.Cmd
+		m.help, helpCmd = m.help.Update(msg)
+		if helpCmd != nil {
+			return m, helpCmd
+		}
+		// If help is visible, swallow all other keys.
+		if m.help.Visible() {
+			return m, nil
+		}
+
 		switch msg.String() {
 		case "up", "k":
 			if m.cursor > 0 {
@@ -202,6 +226,11 @@ func (m Model) refreshAll() tea.Cmd {
 
 // View renders the wallet list.
 func (m Model) View() string {
+	// Help overlay takes priority over all other content.
+	if overlay := m.help.View(); overlay != "" {
+		return overlay
+	}
+
 	var b strings.Builder
 
 	title := tui.StyleTitle.Render("Hound - Wallet Manager")
@@ -327,8 +356,7 @@ func (m Model) Footer() string {
 		tui.FooterGroup{
 			{Key: "enter", Action: "status"}, {Key: "S", Action: "send"},
 			{Key: "x", Action: "swap"}, {Key: "h", Action: "history"},
-			{Key: "t", Action: "tokens"}, {Key: "i", Action: "import"},
-			{Key: "d", Action: "delete"}, {Key: "r", Action: "refresh"},
+			{Key: "t", Action: "tokens"},
 		},
 		tui.FooterGroup{
 			{Key: "?", Action: "help"},

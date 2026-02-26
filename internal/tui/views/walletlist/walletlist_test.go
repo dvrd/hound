@@ -385,21 +385,54 @@ func TestFooterExactBindings(t *testing.T) {
 	m := newTestModel()
 	footer := m.Footer()
 
+	// These keys belong in the footer (primary nav).
 	required := []string{
 		"enter", "status",
 		"S", "send",
 		"x", "swap",
 		"h", "history",
 		"t", "tokens",
-		"i", "import",
-		"d", "delete",
-		"r", "refresh",
 		"?", "help",
 	}
 	for _, want := range required {
 		if !strings.Contains(footer, want) {
 			t.Errorf("Footer missing %q; full footer: %q", want, footer)
 		}
+	}
+
+	// i/d/r are hidden from the footer — they live in the help modal only.
+	hiddenFromFooter := []string{"import", "delete", "refresh"}
+	for _, bad := range hiddenFromFooter {
+		if strings.Contains(footer, bad) {
+			t.Errorf("Footer should not contain %q (should be help-modal only); full footer: %q", bad, footer)
+		}
+	}
+}
+
+func TestHelpModalContainsHiddenKeys(t *testing.T) {
+	m := newTestModel()
+
+	// Before toggling: view is normal, help not visible.
+	view := m.View()
+	if strings.Contains(view, "import wallet") {
+		t.Error("help modal should not be visible before pressing ?")
+	}
+
+	// Toggle help on.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	helpView := updated.(tea.Model).View()
+
+	for _, want := range []string{"import", "delete", "refresh"} {
+		if !strings.Contains(helpView, want) {
+			t.Errorf("help modal missing %q", want)
+		}
+	}
+
+	// Toggle help off — normal view returns.
+	updated2, _ := updated.(tea.Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("?")})
+	normalView := updated2.(tea.Model).View()
+	if strings.Contains(normalView, "import wallet") {
+		t.Error("help modal should be hidden after second ? press")
 	}
 }
 
