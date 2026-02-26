@@ -291,6 +291,52 @@ func TestSwapItemDisplay(t *testing.T) {
 	}
 }
 
+func TestFooterExactBindings(t *testing.T) {
+	m := history.New("addr123", nil, nil)
+	footer := m.Footer()
+
+	required := []string{"w", "wallets", "s", "status", "x", "swap", "t", "tokens", "?", "help"}
+	for _, want := range required {
+		if !strings.Contains(footer, want) {
+			t.Errorf("Footer missing %q; full footer: %q", want, footer)
+		}
+	}
+
+	// "send" must not appear — s maps to status in history view
+	if strings.Contains(footer, "send") {
+		t.Errorf("Footer should not contain %q; full footer: %q", "send", footer)
+	}
+}
+
+func TestNavKeys(t *testing.T) {
+	tests := []struct {
+		key      string
+		wantView string
+	}{
+		{"s", "wallet-status"},
+		{"w", "wallet-list"},
+		{"x", "swap"},
+		{"t", "token-list"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			m := history.New("addr123", nil, nil)
+			_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(tt.key)})
+			if cmd == nil {
+				t.Fatalf("key %q should return a command", tt.key)
+			}
+			msg := cmd()
+			nav, ok := msg.(tui.NavigateMsg)
+			if !ok {
+				t.Fatalf("key %q: expected NavigateMsg, got %T", tt.key, msg)
+			}
+			if nav.View != tt.wantView {
+				t.Errorf("key %q: View = %q, want %q", tt.key, nav.View, tt.wantView)
+			}
+		})
+	}
+}
+
 func TestHistory_ResponsiveView_Narrow(t *testing.T) {
 	m := history.New("addr123", nil, nil)
 

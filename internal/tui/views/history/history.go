@@ -117,6 +117,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.spinner = components.NewSpinner("Loading more...")
 				return m, tea.Batch(m.spinner.Init(), m.loadActivity())
 			}
+		case "s":
+			addr := m.walletAddr
+			return m, func() tea.Msg { return tui.NavigateMsg{View: "wallet-status", Data: addr} }
+		case "w":
+			return m, func() tea.Msg { return tui.NavigateMsg{View: "wallet-list"} }
+		case "x":
+			addr := m.walletAddr
+			return m, func() tea.Msg { return tui.NavigateMsg{View: "swap", Data: addr} }
+		case "t":
+			return m, func() tea.Msg { return tui.NavigateMsg{View: "token-list"} }
 		}
 	}
 
@@ -286,7 +296,7 @@ func (m Model) View() string {
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
 	nav := tui.FooterGroup{
-		{Key: "w", Action: "wallets"}, {Key: "s", Action: "send"},
+		{Key: "w", Action: "wallets"}, {Key: "s", Action: "status"},
 		{Key: "x", Action: "swap"}, {Key: "t", Action: "tokens"},
 	}
 	if !m.noMorePages {
