@@ -80,10 +80,12 @@ func NewApp(
 			lastView, _ := db.GetAppState("last_view")
 			lastAddr, _ := db.GetAppState("last_addr")
 
-			// Only restore views that make sense as entry points.
-			// Transient views (wallet-import, wallet-delete, etc.) fall back to wallet-status.
+			// Only restore views that make sense as standalone entry points.
+			// wallet-status and menu are self-contained roots.
+			// Everything else (swap, history, send, token-list) needs a parent
+			// on the stack to go back to — restoring them strands the user.
 			switch lastView {
-			case "wallet-status", "menu", "swap", "history", "token-list", "send":
+			case "wallet-status", "menu":
 				initialView = lastView
 				if lastAddr != "" {
 					initialData = lastAddr
@@ -229,8 +231,14 @@ func (a App) navigate(msg NavigateMsg) (tea.Model, tea.Cmd) {
 	a.currentView = newView
 
 	// Persist the new view so next launch restores here.
+	// Only save restorable entry points — views that make sense with an empty
+	// stack (wallet-status, menu). Non-restorable views (history, swap, send,
+	// token-list) require a parent on the stack; saving them would strand the
+	// user on next launch.
 	addr, _ := msg.Data.(string)
-	a.saveState(msg.View, addr)
+	if msg.View == "wallet-status" || msg.View == "menu" {
+		a.saveState(msg.View, addr)
+	}
 
 	// Pass size to new view
 	var cmd tea.Cmd
