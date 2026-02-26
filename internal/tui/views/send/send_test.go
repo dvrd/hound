@@ -37,6 +37,14 @@ func testPortfolio() models.PortfolioBalance {
 				Amount:   0,
 				Decimals: 6,
 			},
+			{
+				Mint:     "DustMint11111111111111111111111111111111111",
+				Symbol:   "DUST",
+				Amount:   1000.0,
+				Decimals: 6,
+				USDPrice: 0.0005,
+				USDValue: 0.50, // below $1 threshold — must be filtered out
+			},
 		},
 		TotalUSD: 850.0,
 	}
@@ -55,6 +63,29 @@ func TestNew(t *testing.T) {
 	m := newTestModel()
 	if m.CurrentStep() != send.StepSelectToken {
 		t.Errorf("initial step = %d, want StepSelectToken (0)", m.CurrentStep())
+	}
+}
+
+func TestDustTokensFilteredFromTokenList(t *testing.T) {
+	m := newTestModel()
+	view := m.View()
+
+	// SOL ($750) and USDC ($100) must appear
+	if !strings.Contains(view, "SOL") {
+		t.Error("SOL should appear in token list")
+	}
+	if !strings.Contains(view, "USDC") {
+		t.Error("USDC ($100) should appear in token list")
+	}
+
+	// DUST ($0.50) has balance but USD value < $1 — must be hidden
+	if strings.Contains(view, "DUST") {
+		t.Error("DUST ($0.50) should be hidden from token list (below $1 threshold)")
+	}
+
+	// ZERO (zero balance) must also be hidden
+	if strings.Contains(view, "ZERO") {
+		t.Error("ZERO (zero balance) should be hidden from token list")
 	}
 }
 

@@ -91,11 +91,11 @@ type Model struct {
 
 // New creates a new send wizard.
 func New(walletAddr string, transferSvc *services.TransferService, rpcClient *blockchain.RPCClient, portfolio models.PortfolioBalance) Model {
-	// Build token list: SOL first, then SPL tokens with balance > 0
+	// Build token list: SOL first, then SPL tokens with balance > 0 and USD value >= $1
 	var tokens []models.TokenBalance
 	tokens = append(tokens, portfolio.SOLBalance)
 	for _, t := range portfolio.TokenBalances {
-		if t.Amount > 0 {
+		if t.Amount > 0 && t.USDValue >= 1.0 {
 			tokens = append(tokens, t)
 		}
 	}
