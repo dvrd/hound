@@ -266,4 +266,9 @@ CREATE TABLE IF NOT EXISTS hidden_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_hidden_tokens_wallet ON hidden_tokens(wallet_address);
+
+CREATE TABLE IF NOT EXISTS app_state (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 `

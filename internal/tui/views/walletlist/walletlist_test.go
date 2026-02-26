@@ -342,26 +342,6 @@ func TestSendKeyNavigatesToSend(t *testing.T) {
 	}
 }
 
-func TestReceiveKeyNavigatesToReceive(t *testing.T) {
-	m := loadedModel(sampleWallets(), samplePortfolios())
-
-	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
-	if cmd == nil {
-		t.Fatal("R should return a command")
-	}
-	msg := cmd()
-	nav, ok := msg.(tui.NavigateMsg)
-	if !ok {
-		t.Fatalf("expected NavigateMsg, got %T", msg)
-	}
-	if nav.View != "receive" {
-		t.Errorf("NavigateMsg.View = %q, want %q", nav.View, "receive")
-	}
-	if nav.Data != "7xKXabc1234567890abcdef9mPq" {
-		t.Errorf("NavigateMsg.Data = %v, want wallet address", nav.Data)
-	}
-}
-
 func TestWalletList_ResponsiveView_Narrow(t *testing.T) {
 	m := walletlist.New(nil, nil)
 	model, _ := m.Update(walletlist.WalletsLoadedMsg{

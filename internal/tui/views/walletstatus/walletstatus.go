@@ -70,15 +70,12 @@ type FilterMode int
 
 const (
 	FilterDefault FilterMode = iota // hide dust (<$1) and zero-balance tokens
-	FilterDust                      // show dust but still hide zero-balance tokens
 	FilterAll                       // show everything including zero-balance tokens
 )
 
 // String returns the status-bar label for each filter mode.
 func (f FilterMode) String() string {
 	switch f {
-	case FilterDust:
-		return "show dust"
 	case FilterAll:
 		return "show all"
 	default:
@@ -257,8 +254,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.renameInput = ri
 			return m, ri.Focus()
 		case "a":
-			// Cycle filter: hide dust → show dust → show all → hide dust
-			m.filterMode = (m.filterMode + 1) % 3
+			// Toggle filter: hide dust ↔ show all
+			if m.filterMode == FilterDefault {
+				m.filterMode = FilterAll
+			} else {
+				m.filterMode = FilterDefault
+			}
 			m.clampCursor()
 		case "t":
 			return m, func() tea.Msg {
@@ -304,6 +305,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			return m, func() tea.Msg {
 				return tui.NavigateMsg{View: "send", Data: m.address}
+			}
+		case "w":
+			return m, func() tea.Msg {
+				return tui.NavigateMsg{View: "swap", Data: m.address}
+			}
+		case "H":
+			return m, func() tea.Msg {
+				return tui.NavigateMsg{View: "history", Data: m.address}
 			}
 		case "c":
 			// Copy wallet address to clipboard directly — no extra view needed.
@@ -378,14 +387,9 @@ func (m Model) visibleTokens() []models.TokenBalance {
 		if m.hiddenMints[t.Mint] && !m.showHidden {
 			continue
 		}
-		// Filter 2: value filter — controlled by filterMode
-		// FilterDefault: hide dust (<$1) and zero-balance tokens
-		// FilterDust:    show dust but hide zero-balance tokens
-		// FilterAll:     show everything
-		if m.filterMode == FilterDefault && t.USDValue < 1.0 {
-			continue
-		}
-		if m.filterMode != FilterAll && t.USDValue == 0 && t.Amount == 0 {
+		// Filter 2: value filter — FilterDefault hides dust (<$1) and zero-balance;
+		// FilterAll shows everything.
+		if m.filterMode == FilterDefault && (t.USDValue < 1.0 || (t.USDValue == 0 && t.Amount == 0)) {
 			continue
 		}
 		tokens = append(tokens, t)
@@ -590,9 +594,9 @@ func (m Model) Footer() string {
 		hiddenLabel = "[u]hidden*"
 	}
 	if m.width > 0 && m.width < 80 {
-		return fmt.Sprintf("[s]end [c]opy [r]ef [R]en [t]ok %s %s [h]ide [U]nhide [1][2][3] [esc]", filterLabel, hiddenLabel)
+		return fmt.Sprintf("[m]enu [s]end [w]ap [H]ist [c]opy [r]ef [R]en [t]ok %s %s [h]ide [U]nhide [1][2][3] [q]uit", filterLabel, hiddenLabel)
 	}
-	return fmt.Sprintf("[s]end [c]opy addr [r]efresh [R]ename [t]okens %s %s [h]ide [U]nhide [1]value [2]symbol [3]balance [esc]back", filterLabel, hiddenLabel)
+	return fmt.Sprintf("[m]enu [s]end [w]swap [H]istory [c]opy addr [r]efresh [R]ename [t]okens %s %s [h]ide [U]nhide [1]value [2]symbol [3]balance [q]uit", filterLabel, hiddenLabel)
 }
 
 // SetSize updates the view dimensions.
@@ -609,6 +613,12 @@ func (m Model) GetSortMode() SortMode {
 // GetFilterMode returns the current filter mode for testing.
 func (m Model) GetFilterMode() FilterMode {
 	return m.filterMode
+}
+
+// WalletAddress returns the wallet address for this view.
+// Used by the app shell to seed the menu with the correct address.
+func (m Model) WalletAddress() string {
+	return m.address
 }
 
 // IsRenaming returns whether the rename mode is active for testing.

@@ -158,13 +158,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return tui.NavigateMsg{View: "send", Data: addr}
 				}
 			}
-		case "R":
-			if len(m.wallets) > 0 {
-				addr := m.wallets[m.cursor].Address
-				return m, func() tea.Msg {
-					return tui.NavigateMsg{View: "receive", Data: addr}
-				}
-			}
 		case "q":
 			return m, tea.Quit
 		case "r":
@@ -336,9 +329,9 @@ func (m Model) View() string {
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
 	if m.width > 0 && m.width < 80 {
-		return "[i]mp [s]tat [d]el [t]ok [S]end [R]ecv [w]swap [h]ist [r]ef [q]uit"
+		return "[m]enu [i]mp [s]tat [d]el [t]ok [S]end [w]swap [h]ist [r]ef [q]uit"
 	}
-	return "[i]mport [s]tatus [d]elete [t]okens [S]end [R]eceive [w]swap [h]istory [r]efresh [q]uit"
+	return "[m]enu [i]mport [s]tatus [d]elete [t]okens [S]end [w]swap [h]istory [r]efresh [q]uit"
 }
 
 // SelectedWallet returns the currently selected wallet, if any.

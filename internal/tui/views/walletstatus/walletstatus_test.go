@@ -100,8 +100,8 @@ func TestViewContainsStatusBar(t *testing.T) {
 	if !strings.Contains(footer, "[r]efresh") {
 		t.Error("Footer should contain [r]efresh in status bar")
 	}
-	if !strings.Contains(footer, "[esc]back") {
-		t.Error("Footer should contain [esc]back in status bar")
+	if !strings.Contains(footer, "[q]uit") {
+		t.Error("Footer should contain [q]uit in status bar")
 	}
 }
 
@@ -165,25 +165,18 @@ func TestCycleFilterMode(t *testing.T) {
 		t.Error("filterMode should be FilterDefault initially")
 	}
 
-	// First press: FilterDefault → FilterDust
+	// First press: FilterDefault → FilterAll
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(walletstatus.Model)
-	if model.GetFilterMode() != walletstatus.FilterDust {
-		t.Errorf("filterMode should be FilterDust after first 'a', got %v", model.GetFilterMode())
-	}
-
-	// Second press: FilterDust → FilterAll
-	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
-	model = updated.(walletstatus.Model)
 	if model.GetFilterMode() != walletstatus.FilterAll {
-		t.Errorf("filterMode should be FilterAll after second 'a', got %v", model.GetFilterMode())
+		t.Errorf("filterMode should be FilterAll after first 'a', got %v", model.GetFilterMode())
 	}
 
-	// Third press: FilterAll → FilterDefault
+	// Second press: FilterAll → FilterDefault
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model = updated.(walletstatus.Model)
 	if model.GetFilterMode() != walletstatus.FilterDefault {
-		t.Errorf("filterMode should be FilterDefault after third 'a', got %v", model.GetFilterMode())
+		t.Errorf("filterMode should be FilterDefault after second 'a', got %v", model.GetFilterMode())
 	}
 }
 
@@ -270,7 +263,7 @@ func TestFilterLabel(t *testing.T) {
 		t.Error("Footer should not show asterisk when filter is default")
 	}
 
-	// After one press (FilterDust): asterisk appears
+	// After one press (FilterAll): asterisk appears
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(walletstatus.Model)
 	if !strings.Contains(model.Footer(), "[a]filter*") {
@@ -352,8 +345,8 @@ func TestWalletStatus_ResponsiveView_Narrow(t *testing.T) {
 		t.Error("View should not be empty at narrow width")
 	}
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[s]end [c]opy") {
-		t.Error("narrow view should use abbreviated status bar")
+	if !strings.Contains(footer, "[m]enu") {
+		t.Error("narrow view should contain [m]enu")
 	}
 }
 
@@ -370,7 +363,7 @@ func TestWalletStatus_ResponsiveView_Wide(t *testing.T) {
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 
 	footer := model.(interface{ Footer() string }).Footer()
-	if !strings.Contains(footer, "[s]end [c]opy addr") {
-		t.Error("wide view should use full status bar")
+	if !strings.Contains(footer, "[m]enu") {
+		t.Error("wide view should contain [m]enu")
 	}
 }

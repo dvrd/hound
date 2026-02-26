@@ -67,17 +67,36 @@ func NewApp(
 	}
 
 	// Create initial view eagerly so it's available before Init() is called.
-	// Skip the wallet list entirely when there is exactly one wallet — go straight
-	// to wallet-status so the user isn't forced through a one-item list.
+	// Resolution order:
+	//   1. Restore last view from app_state (persisted on previous exit).
+	//   2. Skip wallet-list when there is exactly one wallet — go straight to wallet-status.
+	//   3. Fall back to wallet-list.
 	if factory != nil {
 		initialView := "wallet-list"
 		var initialData interface{}
+
 		if db != nil {
-			if wallets, err := db.GetAllWallets(); err == nil && len(wallets) == 1 {
-				initialView = "wallet-status"
-				initialData = wallets[0].Address
+			// Attempt to restore persisted state.
+			lastView, _ := db.GetAppState("last_view")
+			lastAddr, _ := db.GetAppState("last_addr")
+
+			// Only restore views that make sense as entry points.
+			// Transient views (wallet-import, wallet-delete, etc.) fall back to wallet-status.
+			switch lastView {
+			case "wallet-status", "menu", "swap", "history", "token-list", "send":
+				initialView = lastView
+				if lastAddr != "" {
+					initialData = lastAddr
+				}
+			default:
+				// No persisted state or unrestorable view — use single-wallet shortcut.
+				if wallets, err := db.GetAllWallets(); err == nil && len(wallets) == 1 {
+					initialView = "wallet-status"
+					initialData = wallets[0].Address
+				}
 			}
 		}
+
 		app.currentView = factory(initialView, initialData)
 	}
 
@@ -126,12 +145,29 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "ctrl+c":
 			return a, tea.Quit
+		case "q":
+			// Global quit — only when at the root view (stack empty).
+			// When navigated into a sub-view (send, swap, import, etc.) the user
+			// must use esc to go back; q is passed to the view as a normal key.
+			if len(a.viewStack) == 0 {
+				// Save current view before quitting so next launch restores here.
+				if ap, ok := a.currentView.(interface{ WalletAddress() string }); ok {
+					a.saveState("wallet-status", ap.WalletAddress())
+				}
+				return a, tea.Quit
+			}
 		case "?":
 			a.helpVisible = true
 			return a, nil
+		case "m":
+			// Global menu — accessible from any view.
+			addr := ""
+			if ap, ok := a.currentView.(interface{ WalletAddress() string }); ok {
+				addr = ap.WalletAddress()
+			}
+			return a.navigate(NavigateMsg{View: "menu", Data: addr})
 		}
-		// "q" to quit is handled by individual views (e.g., wallet list)
-		// so it doesn't interfere with text input views
+		// Fall through to current view for all other keys
 
 	case NavigateMsg:
 		return a.navigate(msg)
@@ -165,6 +201,13 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return a, tea.Batch(cmds...)
 }
 
+// rootViews are views that act as navigation roots — pressing q from them quits.
+// When navigating to a root view, the stack is cleared rather than pushed.
+var rootViews = map[string]bool{
+	"wallet-list":   true,
+	"wallet-status": true,
+}
+
 func (a App) navigate(msg NavigateMsg) (tea.Model, tea.Cmd) {
 	if a.viewFactory == nil {
 		return a, nil
@@ -175,11 +218,19 @@ func (a App) navigate(msg NavigateMsg) (tea.Model, tea.Cmd) {
 		return a, nil
 	}
 
-	// Push current view to stack
-	if a.currentView != nil {
+	// Root views (wallet-list, wallet-status) clear the stack so that q always
+	// quits from them, regardless of how deep the navigation history is.
+	// All other views push the current view onto the stack for back navigation.
+	if rootViews[msg.View] {
+		a.viewStack = nil
+	} else if a.currentView != nil {
 		a.viewStack = append(a.viewStack, a.currentView)
 	}
 	a.currentView = newView
+
+	// Persist the new view so next launch restores here.
+	addr, _ := msg.Data.(string)
+	a.saveState(msg.View, addr)
 
 	// Pass size to new view
 	var cmd tea.Cmd
@@ -349,4 +400,14 @@ func (a App) IsErrorVisible() bool {
 // GetCurrentView returns the current view model for testing.
 func (a App) GetCurrentView() tea.Model {
 	return a.currentView
+}
+
+// saveState persists the current view name and wallet address to the DB.
+// Errors are silently ignored — state persistence is best-effort.
+func (a App) saveState(view, addr string) {
+	if a.db == nil {
+		return
+	}
+	_ = a.db.SetAppState("last_view", view)
+	_ = a.db.SetAppState("last_addr", addr)
 }

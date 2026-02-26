@@ -260,28 +260,32 @@ func TestApp_MultipleNavigations(t *testing.T) {
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a := model.(tui.App)
 
-	// Navigate forward twice
+	// wallet-import is a non-root view — pushes onto stack (depth 1).
 	model, _ = a.Update(tui.NavigateMsg{View: "wallet-import"})
 	a = model.(tui.App)
+	if a.ViewStackDepth() != 1 {
+		t.Errorf("after wallet-import: ViewStackDepth = %d, want 1", a.ViewStackDepth())
+	}
+
+	// wallet-status is a root view — clears the stack (depth 0).
 	model, _ = a.Update(tui.NavigateMsg{View: "wallet-status", Data: "addr123"})
 	a = model.(tui.App)
-
-	if a.ViewStackDepth() != 2 {
-		t.Errorf("ViewStackDepth = %d, want 2", a.ViewStackDepth())
+	if a.ViewStackDepth() != 0 {
+		t.Errorf("after wallet-status: ViewStackDepth = %d, want 0", a.ViewStackDepth())
 	}
 
-	// Navigate back once
-	model, _ = a.Update(tui.NavigateBackMsg{})
+	// Navigate forward into a non-root view (depth 1).
+	model, _ = a.Update(tui.NavigateMsg{View: "swap"})
 	a = model.(tui.App)
 	if a.ViewStackDepth() != 1 {
-		t.Errorf("ViewStackDepth = %d, want 1", a.ViewStackDepth())
+		t.Errorf("after swap: ViewStackDepth = %d, want 1", a.ViewStackDepth())
 	}
 
-	// Navigate back again
+	// Navigate back once — back to wallet-status (depth 0).
 	model, _ = a.Update(tui.NavigateBackMsg{})
 	a = model.(tui.App)
 	if a.ViewStackDepth() != 0 {
-		t.Errorf("ViewStackDepth = %d, want 0", a.ViewStackDepth())
+		t.Errorf("after back: ViewStackDepth = %d, want 0", a.ViewStackDepth())
 	}
 }
 
@@ -458,8 +462,12 @@ func TestApp_DeepStackUnwind(t *testing.T) {
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a := model.(tui.App)
 
-	// Push 3 views
-	views := []string{"wallet-import", "wallet-status", "token-list"}
+	// wallet-import (non-root) → depth 1
+	// wallet-status (root)     → clears stack, depth 0
+	// token-list   (non-root)  → depth 1
+	// swap         (non-root)  → depth 2
+	// history      (non-root)  → depth 3
+	views := []string{"wallet-import", "wallet-status", "token-list", "swap", "history"}
 	for _, v := range views {
 		model, _ = a.Update(tui.NavigateMsg{View: v})
 		a = model.(tui.App)
@@ -468,12 +476,12 @@ func TestApp_DeepStackUnwind(t *testing.T) {
 		t.Fatalf("ViewStackDepth = %d, want 3", a.ViewStackDepth())
 	}
 
-	// Unwind all the way
+	// Unwind all the way back to wallet-status (depth 0)
 	for i := 2; i >= 0; i-- {
 		model, _ = a.Update(tui.NavigateBackMsg{})
 		a = model.(tui.App)
 		if a.ViewStackDepth() != i {
-			t.Errorf("after back #%d: ViewStackDepth = %d, want %d", 3-i, a.ViewStackDepth(), i)
+			t.Errorf("after back: ViewStackDepth = %d, want %d", a.ViewStackDepth(), i)
 		}
 	}
 
@@ -799,23 +807,23 @@ func TestApp_NavigateStack_InterleavedPushPop(t *testing.T) {
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	a := model.(tui.App)
 
-	// Push 2
+	// Push 2 non-root views (depth 2)
 	model, _ = a.Update(tui.NavigateMsg{View: "wallet-import"})
 	a = model.(tui.App)
-	model, _ = a.Update(tui.NavigateMsg{View: "wallet-status"})
+	model, _ = a.Update(tui.NavigateMsg{View: "swap"})
 	a = model.(tui.App)
 	if a.ViewStackDepth() != 2 {
 		t.Fatalf("depth = %d, want 2", a.ViewStackDepth())
 	}
 
-	// Pop 1
+	// Pop 1 (depth 1)
 	model, _ = a.Update(tui.NavigateBackMsg{})
 	a = model.(tui.App)
 	if a.ViewStackDepth() != 1 {
 		t.Fatalf("depth = %d, want 1", a.ViewStackDepth())
 	}
 
-	// Push 2 more
+	// Push 2 more non-root views (depth 3)
 	model, _ = a.Update(tui.NavigateMsg{View: "token-list"})
 	a = model.(tui.App)
 	model, _ = a.Update(tui.NavigateMsg{View: "history"})
