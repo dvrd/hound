@@ -36,7 +36,6 @@ var viewTitles = map[string]string{
 	"wallet-list":   "Wallets",
 	"wallet-status": "Portfolio",
 	"history":       "History",
-	"menu":          "Menu",
 	"swap":          "Swap",
 	"send":          "Send",
 	"token-list":    "Tokens",
@@ -104,7 +103,6 @@ func NewApp(
 
 			// Only restore wallet-status — it's the only view that makes sense
 			// as a standalone entry point with an empty stack.
-			// menu is a transient overlay, not a startup screen.
 			// Everything else (swap, history, send, token-list) needs a parent
 			// on the stack to go back to — restoring them strands the user.
 			switch lastView {
@@ -261,7 +259,7 @@ func (a App) navigate(msg NavigateMsg) (tea.Model, tea.Cmd) {
 
 	// Persist the new view so next launch restores here.
 	// Only save wallet-status — the only view that makes sense as a standalone
-	// entry point. menu is transient; history/swap/send/token-list need a parent.
+	// entry point. history/swap/send/token-list need a parent on the stack.
 	addr, _ := msg.Data.(string)
 	if msg.View == "wallet-status" {
 		a.saveState(msg.View, addr)

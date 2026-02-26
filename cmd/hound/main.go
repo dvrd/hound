@@ -17,7 +17,6 @@ import (
 	"github.com/dvrd/hound/internal/swap"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/views/history"
-	"github.com/dvrd/hound/internal/tui/views/menu"
 	"github.com/dvrd/hound/internal/tui/views/send"
 	"github.com/dvrd/hound/internal/tui/views/swapview"
 	"github.com/dvrd/hound/internal/tui/views/tokenadd"
@@ -190,16 +189,6 @@ func makeViewFactory(d *deps) tui.ViewFactory {
 			}
 			portfolio, _ := d.walletMgr.GetCachedPortfolio(addr)
 			m := send.New(addr, d.transferSvc, d.rpcClient, portfolio)
-			return m
-
-		case "menu":
-			addr, _ := data.(string)
-			if addr == "" {
-				if pw, err := d.walletMgr.GetPrimaryWallet(); err == nil {
-					addr = pw.Address
-				}
-			}
-			m := menu.New(addr)
 			return m
 
 		case "history":
