@@ -582,15 +582,12 @@ func (m Model) Footer() string {
 	}
 	return tui.RenderFooter(
 		tui.FooterGroup{
-			{Key: "enter", Action: "token detail"}, {Key: "j/k", Action: "navigate"},
-		},
-		tui.FooterGroup{
 			{Key: "w", Action: "wallets"}, {Key: "s", Action: "send"},
 			{Key: "x", Action: "swap"}, {Key: "h", Action: "history"},
 			{Key: "t", Action: "tokens"},
 		},
 		tui.FooterGroup{
-			{Key: "ctrl+q", Action: "quit"},
+			{Key: "?", Action: "help"},
 		},
 	)
 }

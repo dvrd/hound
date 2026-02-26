@@ -162,8 +162,8 @@ func TestTokenInfoLoadedMsg_Error(t *testing.T) {
 		t.Error("View should show error when TokenInfoLoadedMsg has error")
 	}
 	footer := model.Footer()
-	if !strings.Contains(footer, "[esc]back") {
-		t.Error("Error view should still show [esc]back in footer")
+	if !strings.Contains(footer, "wallets") {
+		t.Error("Error view should show wallets in footer")
 	}
 }
 
@@ -177,8 +177,11 @@ func TestWindowSizeMsg(t *testing.T) {
 func TestViewStatusBar(t *testing.T) {
 	m := loadedModel()
 	footer := m.Footer()
-	if !strings.Contains(footer, "[esc]back") {
-		t.Error("Footer should contain [esc]back in status bar")
+	if !strings.Contains(footer, "wallets") {
+		t.Error("Footer should contain wallets in status bar")
+	}
+	if !strings.Contains(footer, "help") {
+		t.Error("Footer should contain help in status bar")
 	}
 }
 
@@ -343,10 +346,10 @@ func TestPopulatedWithZeroPriceHistory_NoSparkline(t *testing.T) {
 	}
 }
 
-func TestLoadingView_FooterHasEscBack(t *testing.T) {
+func TestLoadingView_FooterHasNav(t *testing.T) {
 	m := newTestModel()
 	footer := m.Footer()
-	if !strings.Contains(footer, "[esc]back") {
-		t.Errorf("loading footer should contain '[esc]back', got %q", footer)
+	if !strings.Contains(footer, "wallets") {
+		t.Errorf("loading footer should contain 'wallets', got %q", footer)
 	}
 }

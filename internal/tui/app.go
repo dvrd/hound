@@ -347,12 +347,13 @@ func (a App) innerHeight() int {
 // would render for the given view name. This mirrors the allLines construction
 // in renderHelp so that Update() can clamp helpScroll without calling renderHelp.
 func helpLineCount(viewName string) int {
-	global := 4 // ?/q/esc, j/k, ctrl+q, w
+	global := 4 // ?/q/esc, j/k scroll, ctrl+q, w
 	viewExtra := map[string]int{
 		"wallet-status": 1 + 13, // section header + 13 bindings
-		"wallet-list":   1 + 8,
-		"history":       1 + 2,
-		"token-list":    1 + 4,
+		"wallet-list":   1 + 9,  // section header + 9 bindings
+		"history":       1 + 3,  // section header + 3 bindings
+		"token-list":    1 + 4,  // section header + 4 bindings
+		"token-fetch":   1 + 2,  // section header + 2 bindings
 	}
 	return global + viewExtra[viewName]
 }
@@ -422,9 +423,12 @@ func (a App) View() string {
 	}
 
 	// Build inner layout: scrollable content area + pinned footer.
+	// No Width on footerStyle: the footer is already pre-rendered with ANSI
+	// color codes by RenderFooter. Applying Width to a pre-styled string causes
+	// lipgloss to pad it to the full inner width, which pushes the box beyond
+	// the terminal width and clips the right edge of the footer.
 	footerStyle := lipgloss.NewStyle().
-		Foreground(ColorSubtext).
-		Width(w)
+		Foreground(ColorSubtext)
 
 	inner := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Height(a.innerHeight()).Width(w).Render(content),
@@ -514,47 +518,53 @@ func renderHelp(viewName string, termW, termH, scroll int) string {
 	// Global bindings always shown.
 	global := []struct{ key, desc string }{
 		{"?/q/esc", "Close help"},
-		{"j/k", "Scroll"},
+		{"j/k", "Scroll help"},
 		{"ctrl+q", "Quit"},
-		{"w", "Wallets"},
+		{"w", "Go to wallets"},
 	}
 
 	// Per-view bindings.
 	viewBindings := map[string][]struct{ key, desc string }{
 		"wallet-status": {
+			{"j/k ↑/↓", "Navigate tokens"},
 			{"enter", "Token detail"},
-			{"j/k", "Navigate tokens"},
-			{"h", "History"},
 			{"s", "Send"},
 			{"x", "Swap"},
+			{"h", "History"},
 			{"t", "Token list"},
-			{"<", "Hide token"},
-			{">", "Unhide token"},
-			{"a", "Toggle filter"},
 			{"r", "Refresh"},
 			{"R", "Rename wallet"},
 			{"c", "Copy address"},
-			{"1/2/3", "Sort mode"},
+			{"a", "Toggle dust filter"},
+			{"1/2/3", "Sort by value/symbol/balance"},
+			{"<", "Hide token"},
+			{">", "Unhide token"},
 		},
 		"wallet-list": {
-			{"j/k", "Navigate wallets"},
+			{"j/k ↑/↓", "Navigate wallets"},
 			{"s/enter", "Open wallet"},
+			{"S", "Send"},
+			{"x", "Swap"},
+			{"h", "History"},
+			{"t", "Token list"},
 			{"i", "Import wallet"},
 			{"d", "Delete wallet"},
-			{"h", "History"},
-			{"x", "Swap"},
-			{"S", "Send"},
-			{"r", "Refresh"},
+			{"r", "Refresh all"},
 		},
 		"history": {
-			{"j/k", "Navigate"},
+			{"j/k ↑/↓", "Navigate"},
 			{"n", "Next page"},
+			{"esc", "Back"},
 		},
 		"token-list": {
-			{"↑/↓ ctrl+n/p", "Navigate"},
+			{"↑/↓ ctrl+n/p", "Navigate results"},
 			{"enter", "Open token"},
-			{"type", "Search tokens"},
-			{"esc", "Clear / back"},
+			{"esc", "Clear search / back"},
+			{"type anything", "Search tokens"},
+		},
+		"token-fetch": {
+			{"esc", "Back"},
+			{"t", "Token list"},
 		},
 	}
 

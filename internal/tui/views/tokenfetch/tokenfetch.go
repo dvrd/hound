@@ -80,6 +80,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "esc":
 			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
+		case "t":
+			return m, func() tea.Msg { return tui.NavigateMsg{View: "token-list"} }
 		}
 	}
 
@@ -182,7 +184,12 @@ func (m Model) View() string {
 
 // Footer returns the pinned footer keybinding line for the App chrome.
 func (m Model) Footer() string {
-	return "[esc]back"
+	return tui.RenderFooter(
+		tui.FooterGroup{
+			{Key: "w", Action: "wallets"}, {Key: "t", Action: "tokens"},
+		},
+		tui.FooterGroup{{Key: "?", Action: "help"}},
+	)
 }
 
 // GetInfo returns the loaded token info for testing.

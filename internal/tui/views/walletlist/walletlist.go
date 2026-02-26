@@ -325,12 +325,11 @@ func (m Model) View() string {
 func (m Model) Footer() string {
 	return tui.RenderFooter(
 		tui.FooterGroup{
-			{Key: "s", Action: "status"}, {Key: "i", Action: "import"},
-			{Key: "d", Action: "delete"}, {Key: "h", Action: "history"},
-			{Key: "x", Action: "swap"}, {Key: "S", Action: "send"},
+			{Key: "s", Action: "status"}, {Key: "x", Action: "swap"},
+			{Key: "h", Action: "history"}, {Key: "t", Action: "tokens"},
 		},
 		tui.FooterGroup{
-			{Key: "?", Action: "help"}, {Key: "ctrl+q", Action: "quit"},
+			{Key: "?", Action: "help"},
 		},
 	)
 }

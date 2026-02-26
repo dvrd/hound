@@ -285,14 +285,15 @@ func (m Model) View() string {
 
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
-	if m.noMorePages {
-		return tui.RenderFooter(
-			tui.FooterGroup{{Key: "esc", Action: "back"}},
-			tui.FooterGroup{{Key: "?", Action: "help"}},
-		)
+	nav := tui.FooterGroup{
+		{Key: "w", Action: "wallets"}, {Key: "s", Action: "send"},
+		{Key: "x", Action: "swap"}, {Key: "t", Action: "tokens"},
+	}
+	if !m.noMorePages {
+		nav = append(nav, tui.FooterBinding{Key: "n", Action: "next page"})
 	}
 	return tui.RenderFooter(
-		tui.FooterGroup{{Key: "n", Action: "next page"}, {Key: "esc", Action: "back"}},
+		nav,
 		tui.FooterGroup{{Key: "?", Action: "help"}},
 	)
 }

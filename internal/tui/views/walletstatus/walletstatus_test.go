@@ -100,8 +100,30 @@ func TestViewContainsStatusBar(t *testing.T) {
 	if !strings.Contains(footer, "wallets") {
 		t.Error("Footer should contain wallets in status bar")
 	}
-	if !strings.Contains(footer, "quit") {
-		t.Error("Footer should contain quit in status bar")
+	if !strings.Contains(footer, "help") {
+		t.Error("Footer should contain help in status bar")
+	}
+}
+
+// TestFooterExactBindings verifies the walletstatus footer shows exactly the
+// expected keys: w wallets  s send  x swap  h history  t tokens  │  ? help
+func TestFooterExactBindings(t *testing.T) {
+	m := loadedModel()
+	footer := m.Footer()
+
+	expected := []string{"w", "wallets", "s", "send", "x", "swap", "h", "history", "t", "tokens", "?", "help"}
+	for _, want := range expected {
+		if !strings.Contains(footer, want) {
+			t.Errorf("Footer missing %q\nfull footer: %s", want, footer)
+		}
+	}
+
+	// Must NOT contain keys from previous iterations that were removed.
+	banned := []string{"m wallets", "enter", "j/k", "navigate", "ctrl+q", "quit"}
+	for _, bad := range banned {
+		if strings.Contains(footer, bad) {
+			t.Errorf("Footer should not contain %q\nfull footer: %s", bad, footer)
+		}
 	}
 }
 
@@ -261,8 +283,8 @@ func TestFilterLabel(t *testing.T) {
 	// Footer is nav-only; filter state is shown in the view body (sort line).
 	// Verify the footer contains the expected nav keys.
 	footer := m.Footer()
-	if !strings.Contains(footer, "token detail") {
-		t.Error("Footer should contain token detail hint")
+	if !strings.Contains(footer, "help") {
+		t.Error("Footer should contain help hint")
 	}
 
 	// Filter still works — verify via view content after toggling.

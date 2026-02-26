@@ -521,12 +521,16 @@ func viewWindow(cursor, maxRows, total int) (startIdx, endIdx int) {
 func (m Model) Footer() string {
 	if m.searchInput.Value() != "" {
 		return tui.RenderFooter(
-			tui.FooterGroup{{Key: "ctrl+n/p", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "clear/back"}},
+			tui.FooterGroup{
+				{Key: "↑/↓", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "clear"},
+			},
 			tui.FooterGroup{{Key: "?", Action: "help"}},
 		)
 	}
 	return tui.RenderFooter(
-		tui.FooterGroup{{Key: "ctrl+n/p", Action: "navigate"}, {Key: "enter", Action: "search"}, {Key: "esc", Action: "back"}},
+		tui.FooterGroup{
+			{Key: "↑/↓", Action: "navigate"}, {Key: "enter", Action: "search"}, {Key: "esc", Action: "back"},
+		},
 		tui.FooterGroup{{Key: "?", Action: "help"}},
 	)
 }
