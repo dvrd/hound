@@ -56,10 +56,9 @@ type SearchResult struct {
 // ─── Styles ──────────────────────────────────────────────────────────────────
 
 var (
-	searchBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(tui.ColorPrimary).
-			Padding(0, 1)
+	searchPromptStyle = lipgloss.NewStyle().
+				Foreground(tui.ColorPrimary).
+				Bold(true)
 
 	savedBadgeStyle = lipgloss.NewStyle().
 			Foreground(tui.ColorSuccess).
@@ -222,9 +221,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		// The search box border (2) + padding (2) + outer container margin (2)
-		// = 6 total cols to subtract so the box never overflows the terminal.
-		w := m.width - 6
+		// Prompt "/ " is 2 chars; leave at least 2 cols spare.
+		w := m.width - 4
 		if w < 10 {
 			w = 10
 		}
@@ -402,14 +400,22 @@ func (m Model) View() string {
 		return b.String()
 	}
 
-	// ── Search box — single line, no overflow ───────────────────────────────
-	// We render only the input inside the box. The "searching…" indicator
-	// goes below the box to avoid expanding its height.
-	b.WriteString(searchBoxStyle.Render(m.searchInput.View()) + "\n")
+	// ── Search bar — prompt prefix + input, no border box ──────────────────
+	// A lipgloss border box at full content width causes wrapping artifacts.
+	// Instead: colored prompt glyph + the raw textinput, then a separator line.
+	// Use m.width-2 for the separator — exact-width strings can wrap due to
+	// lipgloss off-by-one when the app container Width == content width.
+	prompt := searchPromptStyle.Render("/ ")
+	indicator := ""
 	if m.searching {
-		b.WriteString(tui.StyleMuted.Render("  searching…") + "\n")
+		indicator = "  " + tui.StyleMuted.Render("searching…")
 	}
-	b.WriteString("\n")
+	b.WriteString(prompt + m.searchInput.View() + indicator + "\n")
+	sepW := m.width - 4
+	if sepW < 4 {
+		sepW = 4
+	}
+	b.WriteString(tui.StyleMuted.Render(strings.Repeat("─", sepW)) + "\n")
 
 	// ── Content ─────────────────────────────────────────────────────────────
 	if m.inSearchMode {
@@ -431,19 +437,26 @@ func (m Model) renderSavedTokens(b *strings.Builder) {
 	if w <= 0 {
 		w = 80
 	}
-	colSym := max(6, w*13/100)
-	colName := max(10, w*28/100)
-	colPools := max(5, w*8/100)
-	colLiq := max(10, w*18/100)
+	// StyleTableHeader and StyleTableRow both have Padding(0,1) = 2 cols.
+	// RenderRow prefixes 2 chars ("  " or "┃ "). Total overhead = 4 cols.
+	// Subtract so the rendered row fits exactly in w.
+	cw := w - 4
+	if cw < 20 {
+		cw = 20
+	}
+	colSym := max(6, cw*15/100)
+	colName := max(10, cw*32/100)
+	colPools := max(5, cw*9/100)
+	colLiq := max(10, cw*21/100)
 
-	headerFmt := fmt.Sprintf("  %%-%ds %%-%ds %%%ds %%%ds", colSym, colName, colPools, colLiq)
+	headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds", colSym, colName, colPools, colLiq)
 	b.WriteString(tui.StyleTableHeader.Render(fmt.Sprintf(headerFmt, "Symbol", "Name", "Pools", "Liquidity")) + "\n")
-	b.WriteString(tui.TableSeparator(w) + "\n")
+	b.WriteString(tui.TableSeparator(w-4) + "\n")
 
 	maxRows := len(m.tokens)
 	if m.height > 0 {
-		// Title(1) + blank(1) + searchbox(3) + blank(1) + header(1) + sep(1) + footer(1) = 9
-		visible := m.height - 9
+		// Title(1) + blank(1) + search(1) + sep(1) + blank(1) + header(1) + sep(1) + footer(1) = 8
+		visible := m.height - 8
 		if visible < 1 {
 			visible = 1
 		}
@@ -486,17 +499,23 @@ func (m Model) renderSearchResults(b *strings.Builder) {
 	if w <= 0 {
 		w = 80
 	}
-	colSym := max(6, w*13/100)
-	colName := max(12, w*30/100)
-	colAddr := max(12, w*20/100)
+	// Same 4-col overhead as saved view (padding + RenderRow prefix).
+	// Badge "●" is 3 chars (including the space before it), reserve that too.
+	cw := w - 4 - 3
+	if cw < 24 {
+		cw = 24
+	}
+	colSym := max(6, cw*15/100)
+	colName := max(12, cw*35/100)
+	colAddr := max(12, cw*24/100)
 
-	headerFmt := fmt.Sprintf("  %%-%ds %%-%ds %%-%ds %%s", colSym, colName, colAddr)
-	b.WriteString(tui.StyleTableHeader.Render(fmt.Sprintf(headerFmt, "Symbol", "Name", "Address", "")) + "\n")
-	b.WriteString(tui.TableSeparator(w) + "\n")
+	headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%-%ds", colSym, colName, colAddr)
+	b.WriteString(tui.StyleTableHeader.Render(fmt.Sprintf(headerFmt, "Symbol", "Name", "Address")) + "\n")
+	b.WriteString(tui.TableSeparator(w-4) + "\n")
 
 	maxRows := len(m.results)
 	if m.height > 0 {
-		visible := m.height - 9
+		visible := m.height - 8
 		if visible < 1 {
 			visible = 1
 		}
@@ -506,19 +525,18 @@ func (m Model) renderSearchResults(b *strings.Builder) {
 	}
 
 	startIdx, endIdx := viewWindow(m.cursor, maxRows, len(m.results))
-	rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%-%ds %%s", colSym, colName, colAddr)
+	rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%-%ds", colSym, colName, colAddr)
 	for i := startIdx; i < endIdx; i++ {
 		r := m.results[i]
 		badge := ""
 		if r.Saved {
-			badge = savedBadgeStyle.Render("●")
+			badge = " " + savedBadgeStyle.Render("●")
 		}
 		row := fmt.Sprintf(rowFmt,
 			tui.Truncate(r.Symbol, colSym),
 			tui.Truncate(r.Name, colName),
 			tui.TruncateAddress(r.Address),
-			badge,
-		)
+		) + badge
 		b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 	}
 
@@ -549,11 +567,13 @@ func viewWindow(cursor, maxRows, total int) (startIdx, endIdx int) {
 func (m Model) Footer() string {
 	if m.searchInput.Value() != "" {
 		return tui.RenderFooter(
-			tui.FooterGroup{{Key: "↑/↓", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "clear"}, {Key: "esc×2", Action: "back"}},
+			tui.FooterGroup{{Key: "↑/↓", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "clear/back"}},
+			tui.FooterGroup{{Key: "?", Action: "help"}},
 		)
 	}
 	return tui.RenderFooter(
 		tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "enter", Action: "open"}, {Key: "esc", Action: "back"}},
+		tui.FooterGroup{{Key: "?", Action: "help"}},
 	)
 }
 

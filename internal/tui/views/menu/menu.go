@@ -94,6 +94,7 @@ func (m Model) View() string {
 // Footer implements tui.FooterProvider.
 func (m Model) Footer() string {
 	return tui.RenderFooter(
-		tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "l/enter", Action: "select"}, {Key: "h/esc", Action: "back"}},
+		tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "enter", Action: "select"}, {Key: "esc", Action: "back"}},
+		tui.FooterGroup{{Key: "?", Action: "help"}},
 	)
 }

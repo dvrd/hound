@@ -97,11 +97,11 @@ func TestViewContainsTokens(t *testing.T) {
 func TestViewContainsStatusBar(t *testing.T) {
 	m := loadedModel()
 	footer := m.Footer()
-	if !strings.Contains(footer, "refresh") {
-		t.Error("Footer should contain refresh in status bar")
+	if !strings.Contains(footer, "menu") {
+		t.Error("Footer should contain menu in status bar")
 	}
-	if !strings.Contains(footer, "quit") {
-		t.Error("Footer should contain quit in status bar")
+	if !strings.Contains(footer, "help") {
+		t.Error("Footer should contain help in status bar")
 	}
 }
 
@@ -258,16 +258,18 @@ func TestEmptyTokens(t *testing.T) {
 func TestFilterLabel(t *testing.T) {
 	m := loadedModel()
 
-	// Default: no asterisk
-	if strings.Contains(m.Footer(), "filter*") {
-		t.Error("Footer should not show asterisk when filter is default")
+	// Footer is now nav-only; filter state is shown in the view body (sort line).
+	// Just verify the footer is non-empty and contains the help binding.
+	footer := m.Footer()
+	if !strings.Contains(footer, "?") {
+		t.Error("Footer should contain ? help binding")
 	}
 
-	// After one press (FilterAll): asterisk appears
+	// Filter still works — verify via view content after toggling.
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
 	model := updated.(walletstatus.Model)
-	if !strings.Contains(model.Footer(), "filter*") {
-		t.Error("Footer should show filter* when filter is non-default")
+	if model.GetFilterMode() != walletstatus.FilterAll {
+		t.Error("pressing a should toggle filter to FilterAll")
 	}
 }
 
@@ -322,9 +324,12 @@ func TestRenameViewContainsInput(t *testing.T) {
 
 func TestStatusBarContainsRename(t *testing.T) {
 	m := loadedModel()
-	footer := m.Footer()
-	if !strings.Contains(footer, "rename") {
-		t.Error("Footer should contain rename")
+	// Footer is now nav-only; rename (R) is in the ? help overlay.
+	// Verify the rename key still works functionally.
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	model := updated.(walletstatus.Model)
+	if !model.IsRenaming() {
+		t.Error("pressing R should enter rename mode")
 	}
 }
 

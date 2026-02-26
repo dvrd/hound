@@ -100,7 +100,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.String() {
-		case "esc", "h":
+		case "esc":
 			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 		case "up", "k":
 			if m.cursor > 0 {
@@ -287,11 +287,13 @@ func (m Model) View() string {
 func (m Model) Footer() string {
 	if m.noMorePages {
 		return tui.RenderFooter(
-			tui.FooterGroup{{Key: "j/k", Action: "navigate"}, {Key: "h/esc", Action: "back"}},
+			tui.FooterGroup{{Key: "esc", Action: "back"}},
+			tui.FooterGroup{{Key: "?", Action: "help"}},
 		)
 	}
 	return tui.RenderFooter(
-		tui.FooterGroup{{Key: "n", Action: "next page"}, {Key: "j/k", Action: "navigate"}, {Key: "h/esc", Action: "back"}},
+		tui.FooterGroup{{Key: "n", Action: "next page"}, {Key: "esc", Action: "back"}},
+		tui.FooterGroup{{Key: "?", Action: "help"}},
 	)
 }
 

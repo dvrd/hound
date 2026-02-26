@@ -313,9 +313,11 @@ func (a App) navigateBack() (tea.Model, tea.Cmd) {
 }
 
 // innerWidth returns the usable content width after subtracting App chrome.
-// StyleApp has Padding(1,2) = 4 cols + RoundedBorder = 2 cols = 6 total.
+// StyleApp has Padding(1,2) and RoundedBorder. In lipgloss, .Width() sets the
+// content width and padding is included inside that budget — only the border
+// (1 col left + 1 col right = 2 cols) is added on top. So we subtract 2.
 func (a App) innerWidth() int {
-	w := a.width - 6
+	w := a.width - 2
 	if w < 20 {
 		return 20
 	}
@@ -349,7 +351,7 @@ func (a App) View() string {
 
 	// Overlay help
 	if a.helpVisible {
-		helpContent := renderHelp()
+		helpContent := renderHelp(a.currentViewName)
 		content = content + "\n\n" + helpContent
 	}
 
@@ -443,24 +445,81 @@ func injectBorderTitle(rendered, title string) string {
 	return newTop + "\n" + lines[1]
 }
 
-// renderHelp renders a simple help overlay.
-func renderHelp() string {
+// renderHelp renders a view-aware help overlay.
+func renderHelp(viewName string) string {
 	keyStyle := lipgloss.NewStyle().
 		Foreground(ColorPrimary).
 		Bold(true).
-		Width(8)
+		Width(10)
 	descStyle := lipgloss.NewStyle().
 		Foreground(ColorText)
+	sectionStyle := lipgloss.NewStyle().
+		Foreground(ColorSubtext).
+		Bold(true).
+		MarginTop(1)
 
-	bindings := []struct{ key, desc string }{
+	// Global bindings always shown.
+	global := []struct{ key, desc string }{
 		{"?", "Toggle help"},
-		{"q", "Quit"},
+		{"ctrl+q", "Quit"},
 		{"esc", "Go back"},
+		{"m", "Open menu"},
+	}
+
+	// Per-view bindings.
+	viewBindings := map[string][]struct{ key, desc string }{
+		"wallet-status": {
+			{"j/k", "Navigate tokens"},
+			{"h", "History"},
+			{"s", "Send"},
+			{"w", "Swap"},
+			{"t", "Token list"},
+			{"<", "Hide token"},
+			{">", "Unhide token"},
+			{"a", "Toggle filter"},
+			{"r", "Refresh"},
+			{"R", "Rename wallet"},
+			{"c", "Copy address"},
+			{"1/2/3", "Sort by value/symbol/balance"},
+		},
+		"wallet-list": {
+			{"j/k", "Navigate wallets"},
+			{"s/enter", "Open wallet"},
+			{"i", "Import wallet"},
+			{"d", "Delete wallet"},
+			{"h", "History"},
+			{"w", "Swap"},
+			{"S", "Send"},
+			{"r", "Refresh"},
+		},
+		"history": {
+			{"j/k", "Navigate"},
+			{"n", "Next page"},
+		},
+		"menu": {
+			{"j/k", "Navigate"},
+			{"enter", "Select"},
+		},
+		"token-list": {
+			{"j/k / ↑/↓", "Navigate"},
+			{"enter", "Open token"},
+			{"type", "Search tokens"},
+		},
 	}
 
 	var rows string
-	for _, b := range bindings {
+
+	// Global section
+	for _, b := range global {
 		rows += keyStyle.Render(b.key) + descStyle.Render(b.desc) + "\n"
+	}
+
+	// View-specific section
+	if vb, ok := viewBindings[viewName]; ok {
+		rows += sectionStyle.Render("This view") + "\n"
+		for _, b := range vb {
+			rows += keyStyle.Render(b.key) + descStyle.Render(b.desc) + "\n"
+		}
 	}
 
 	titleStyle := lipgloss.NewStyle().

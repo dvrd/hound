@@ -267,6 +267,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return tui.NavigateMsg{View: "token-list"}
 			}
 		case "h":
+			return m, func() tea.Msg {
+				return tui.NavigateMsg{View: "history", Data: m.address}
+			}
+		case "<":
 			// Hide the token under the cursor
 			tokens := m.visibleTokens()
 			if len(tokens) > 0 && m.cursor < len(tokens) {
@@ -277,12 +281,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.hiddenMints[t.Mint] = true
 				m.clampCursor()
 			}
-		case "u":
-			// Toggle showing hidden tokens (to unhide one, navigate to it and press h again)
-			m.showHidden = !m.showHidden
-			m.clampCursor()
-		case "U":
-			// Unhide the token under the cursor (only useful when showHidden = true)
+		case ">":
+			// Unhide the token under the cursor
 			tokens := m.visibleTokens()
 			if len(tokens) > 0 && m.cursor < len(tokens) {
 				t := tokens[m.cursor]
@@ -310,10 +310,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "w":
 			return m, func() tea.Msg {
 				return tui.NavigateMsg{View: "swap", Data: m.address}
-			}
-		case "H":
-			return m, func() tea.Msg {
-				return tui.NavigateMsg{View: "history", Data: m.address}
 			}
 		case "c":
 			// Copy wallet address to clipboard directly — no extra view needed.
@@ -554,9 +550,6 @@ func (m Model) View() string {
 	// Sort indicator + active filters + refresh time
 	b.WriteString("\n")
 	sortLine := fmt.Sprintf("Sort: %s  filter:%s", m.sortMode.String(), m.filterMode.String())
-	if m.showHidden {
-		sortLine += "  showing hidden"
-	}
 	if !m.lastRefresh.IsZero() {
 		sortLine += fmt.Sprintf("  |  %s", m.lastRefresh.Format("15:04:05"))
 	}
@@ -579,31 +572,14 @@ func (m Model) Footer() string {
 			tui.FooterGroup{{Key: "r", Action: "retry"}, {Key: "esc", Action: "back"}},
 		)
 	}
-	filterStar := ""
-	if m.filterMode != FilterDefault {
-		filterStar = "*"
-	}
-	hiddenStar := ""
-	if m.showHidden {
-		hiddenStar = "*"
-	}
 	return tui.RenderFooter(
 		tui.FooterGroup{
 			{Key: "m", Action: "menu"}, {Key: "s", Action: "send"},
-			{Key: "w", Action: "swap"}, {Key: "H", Action: "history"},
+			{Key: "w", Action: "swap"}, {Key: "h", Action: "history"},
+			{Key: "t", Action: "tokens"},
 		},
 		tui.FooterGroup{
-			{Key: "c", Action: "copy"}, {Key: "r", Action: "refresh"},
-			{Key: "R", Action: "rename"}, {Key: "t", Action: "tokens"},
-		},
-		tui.FooterGroup{
-			{Key: "a", Action: "filter" + filterStar},
-			{Key: "h", Action: "hide"}, {Key: "U", Action: "unhide"},
-			{Key: "u", Action: "hidden" + hiddenStar},
-		},
-		tui.FooterGroup{
-			{Key: "1", Action: "value"}, {Key: "2", Action: "symbol"},
-			{Key: "3", Action: "balance"}, {Key: "q", Action: "quit"},
+			{Key: "?", Action: "help"},
 		},
 	)
 }

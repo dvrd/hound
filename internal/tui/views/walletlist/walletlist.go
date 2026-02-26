@@ -158,8 +158,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return tui.NavigateMsg{View: "send", Data: addr}
 				}
 			}
-		case "q":
-			return m, tea.Quit
 		case "r":
 			if m.walletMgr != nil {
 				m.loading = true
@@ -327,13 +325,12 @@ func (m Model) View() string {
 func (m Model) Footer() string {
 	return tui.RenderFooter(
 		tui.FooterGroup{
-			{Key: "m", Action: "menu"}, {Key: "i", Action: "import"},
-			{Key: "s", Action: "status"}, {Key: "d", Action: "delete"},
+			{Key: "s", Action: "status"}, {Key: "i", Action: "import"},
+			{Key: "d", Action: "delete"}, {Key: "h", Action: "history"},
+			{Key: "w", Action: "swap"}, {Key: "S", Action: "send"},
 		},
 		tui.FooterGroup{
-			{Key: "t", Action: "tokens"}, {Key: "S", Action: "send"},
-			{Key: "w", Action: "swap"}, {Key: "h", Action: "history"},
-			{Key: "r", Action: "refresh"}, {Key: "q", Action: "quit"},
+			{Key: "?", Action: "help"}, {Key: "ctrl+q", Action: "quit"},
 		},
 	)
 }

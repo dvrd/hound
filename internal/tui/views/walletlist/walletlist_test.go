@@ -253,8 +253,8 @@ func TestViewContainsStatusBar(t *testing.T) {
 	if !strings.Contains(footer, "import") {
 		t.Error("Footer should contain import in status bar")
 	}
-	if !strings.Contains(footer, "quit") {
-		t.Error("Footer should contain quit in status bar")
+	if !strings.Contains(footer, "ctrl+q") {
+		t.Error("Footer should contain ctrl+q in status bar")
 	}
 }
 

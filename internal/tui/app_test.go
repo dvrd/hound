@@ -302,8 +302,8 @@ func TestApp_ForwardsInnerDimensions(t *testing.T) {
 	model, _ := app.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
 	_ = model
 
-	if capturedWidth != 94 {
-		t.Errorf("inner width = %d, want 94", capturedWidth)
+	if capturedWidth != 98 {
+		t.Errorf("inner width = %d, want 98", capturedWidth)
 	}
 	if capturedHeight != 35 {
 		t.Errorf("inner height = %d, want 35", capturedHeight)
@@ -349,8 +349,8 @@ func TestApp_NavigateForwardsInnerDimensions(t *testing.T) {
 	model, _ = a.Update(tui.NavigateMsg{View: "wallet-import"})
 	_ = model
 
-	if capturedWidth != 74 {
-		t.Errorf("navigate inner width = %d, want 74", capturedWidth)
+	if capturedWidth != 78 {
+		t.Errorf("navigate inner width = %d, want 78", capturedWidth)
 	}
 	if capturedHeight != 19 {
 		t.Errorf("navigate inner height = %d, want 19", capturedHeight)
@@ -789,9 +789,9 @@ func TestApp_NavigateBack_PassesSizeToRestoredView(t *testing.T) {
 	model, _ = a.Update(tui.NavigateBackMsg{})
 	_ = model
 
-	// innerWidth(100) = 100-6 = 94, innerHeight(40) = 40-4-1 = 35
-	if lastWidth != 94 {
-		t.Errorf("restored view width = %d, want 94", lastWidth)
+	// innerWidth(100) = 100-2 = 98, innerHeight(40) = 40-4-1 = 35
+	if lastWidth != 98 {
+		t.Errorf("restored view width = %d, want 98", lastWidth)
 	}
 	if lastHeight != 35 {
 		t.Errorf("restored view height = %d, want 35", lastHeight)
@@ -852,10 +852,10 @@ func TestApp_InnerDimensions_Clamp(t *testing.T) {
 		width, height int
 		wantW, wantH  int
 	}{
-		{"normal", 80, 24, 74, 19},
-		{"large", 200, 60, 194, 55},
+		{"normal", 80, 24, 78, 19},
+		{"large", 200, 60, 198, 55},
 		{"tiny width", 10, 30, 20, 25}, // width clamped to 20
-		{"tiny height", 80, 5, 74, 5},  // height clamped to 5
+		{"tiny height", 80, 5, 78, 5},  // height clamped to 5
 		{"both tiny", 5, 5, 20, 5},     // both clamped
 	}
 
