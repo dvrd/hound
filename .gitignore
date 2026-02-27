@@ -27,6 +27,9 @@ Thumbs.db
 # Config (user-specific)
 .hound/
 
+# Environment variables (contains secrets)
+.env
+
 # Agent/tool directories (not source)
 PRPs/
 .logs/

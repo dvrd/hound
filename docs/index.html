@@ -1310,7 +1310,7 @@
             <div class="hero-overline">
               <span class="overline-bar" aria-hidden="true"></span>
               <span class="overline-text">Solana Terminal Interface</span>
-              <span class="overline-version">v1.0</span>
+              <span class="overline-version">v0.23.1</span>
             </div>
 
             <h1 class="hero-headline" id="hero-headline">
@@ -1537,32 +1537,25 @@
               <span class="eyebrow-text">Get started</span>
             </div>
             <h2 class="section-title reveal reveal-d1" id="install-title">
-              Up in three<br/>
-              <span class="dim">commands.</span>
+              Up in one<br/>
+              <span class="dim">command.</span>
             </h2>
             <p class="section-sub reveal reveal-d2" style="margin-bottom:0">
-              Requires <a href="https://go.dev/dl/" target="_blank" rel="noopener noreferrer" style="color:var(--neon-cyan);text-decoration:underline;text-underline-offset:3px">Go 1.25+</a> and <a href="https://taskfile.dev" target="_blank" rel="noopener noreferrer" style="color:var(--neon-purple);text-decoration:underline;text-underline-offset:3px">Task</a>. macOS &amp; Linux.
+              Via <a href="https://brew.sh" target="_blank" rel="noopener noreferrer" style="color:var(--neon-cyan);text-decoration:underline;text-underline-offset:3px">Homebrew</a>. macOS &amp; Linux.
             </p>
 
             <div class="steps reveal reveal-d3">
               <div class="step">
                 <div class="step-num" aria-hidden="true">01</div>
                 <div class="step-body">
-                  <div class="step-title">Clone the repository</div>
-                  <div class="step-desc">git clone github.com/dvrd/hound</div>
+                  <div class="step-title">Install via Homebrew</div>
+                  <div class="step-desc">brew install dvrd/hound/hound</div>
                 </div>
               </div>
               <div class="step">
                 <div class="step-num" aria-hidden="true">02</div>
                 <div class="step-body">
-                  <div class="step-title">Build the binary</div>
-                  <div class="step-desc">compiles to ./bin/hound</div>
-                </div>
-              </div>
-              <div class="step">
-                <div class="step-num" aria-hidden="true">03</div>
-                <div class="step-body">
-                  <div class="step-title">Install system-wide</div>
+                  <div class="step-title">Launch</div>
                   <div class="step-desc">run hound from anywhere</div>
                 </div>
               </div>
@@ -1584,21 +1577,7 @@
               <div class="code-body">
                 <div class="cl">
                   <span class="cl-prompt">$</span>
-                  <span class="cl-cmd">git clone https://github.com/dvrd/hound.git</span>
-                </div>
-                <div class="cl">
-                  <span class="cl-prompt">$</span>
-                  <span class="cl-cmd">cd hound</span>
-                </div>
-                <hr class="cl-sep"/>
-                <div class="cl">
-                  <span class="cl-prompt">$</span>
-                  <span class="cl-cmd">task <span class="cl-flag">build</span></span>
-                </div>
-                <div class="cl cl-output">→ ./bin/hound compiled</div>
-                <div class="cl">
-                  <span class="cl-prompt">$</span>
-                  <span class="cl-cmd">task <span class="cl-flag">install</span></span>
+                  <span class="cl-cmd">brew install <span class="cl-flag">dvrd/hound/hound</span></span>
                 </div>
                 <div class="cl cl-output">→ installed to /usr/local/bin</div>
                 <hr class="cl-sep"/>
@@ -1719,7 +1698,7 @@
     revealEls.forEach(el => revealObs.observe(el));
 
     // ── Copy code ─────────────────────────────────────────────────────────
-    const CMDS = `git clone https://github.com/dvrd/hound.git\ncd hound\ntask build\ntask install\nhound`;
+    const CMDS = `brew install dvrd/hound/hound`;
 
     function copyCode() {
       const btn = document.getElementById('copy-btn');

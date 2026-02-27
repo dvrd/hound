@@ -54,7 +54,7 @@ func loadedModel() history.Model {
 			Slot:         150,
 		},
 	}
-	updated, _ := m.Update(history.ActivityLoadedMsg{Items: items})
+	updated, _ := m.Update(history.ActivityLoadedMsg{Result: services.ActivityResult{Items: items, LastSig: items[len(items)-1].Signature, HasMore: false}})
 	return updated.(history.Model)
 }
 
@@ -171,7 +171,7 @@ func TestActivityLoadedMsg_Error(t *testing.T) {
 
 func TestEmptyHistory(t *testing.T) {
 	m := newTestModel()
-	updated, _ := m.Update(history.ActivityLoadedMsg{Items: nil})
+	updated, _ := m.Update(history.ActivityLoadedMsg{Result: services.ActivityResult{}})
 	model := updated.(history.Model)
 	view := model.View()
 	if !strings.Contains(view, "No transaction history") {
@@ -350,7 +350,7 @@ func TestHistory_ResponsiveView_Narrow(t *testing.T) {
 			Signature: fmt.Sprintf("sig%d", i),
 		}
 	}
-	model, _ := m.Update(history.ActivityLoadedMsg{Items: items})
+	model, _ := m.Update(history.ActivityLoadedMsg{Result: services.ActivityResult{Items: items, LastSig: items[len(items)-1].Signature, HasMore: true}})
 
 	model, _ = model.Update(tea.WindowSizeMsg{Width: 60, Height: 15})
 

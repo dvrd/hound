@@ -351,7 +351,7 @@ func helpLineCount(viewName string) int {
 	viewExtra := map[string]int{
 		"wallet-status": 1 + 13, // section header + 13 bindings
 		"wallet-list":   1 + 9,  // section header + 9 bindings
-		"history":       1 + 3,  // section header + 3 bindings
+		"history":       1 + 4,  // section header + 4 bindings
 		"token-list":    1 + 4,  // section header + 4 bindings
 		"token-fetch":   1 + 2,  // section header + 2 bindings
 	}
@@ -554,6 +554,7 @@ func renderHelp(viewName string, termW, termH, scroll int) string {
 		"history": {
 			{"j/k ↑/↓", "Navigate"},
 			{"n", "Next page"},
+			{"p", "Previous page"},
 			{"esc", "Back"},
 		},
 		"token-list": {

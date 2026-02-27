@@ -11,7 +11,7 @@ import (
 )
 
 // maxConcurrentTxFetches limits parallel GetTransaction calls to avoid rate limiting.
-const maxConcurrentTxFetches = 5
+const maxConcurrentTxFetches = 10
 
 // ActivityItem represents a unified transaction history entry.
 type ActivityItem struct {
@@ -36,23 +36,33 @@ func NewActivityService(db *database.Database) *ActivityService {
 	return &ActivityService{db: db}
 }
 
-// GetActivity fetches on-chain activity for an address and merges with local swap history.
-func (s *ActivityService) GetActivity(ctx context.Context, rpcClient *blockchain.RPCClient, address string, limit int, before string) ([]ActivityItem, error) {
+// ActivityResult holds the result of a single page fetch.
+type ActivityResult struct {
+	Items   []ActivityItem
+	LastSig string // last RPC signature — use as cursor for next page
+	HasMore bool   // true when the RPC returned a full page (more may exist)
+}
+
+// GetActivity fetches one page of on-chain activity starting after `before`.
+// Pass before="" for the first page. Use result.LastSig as `before` for subsequent pages.
+func (s *ActivityService) GetActivity(ctx context.Context, rpcClient *blockchain.RPCClient, address string, limit int, before string) (ActivityResult, error) {
 	if rpcClient == nil {
-		return nil, fmt.Errorf("get activity: RPC client is nil")
+		return ActivityResult{}, fmt.Errorf("get activity: RPC client is nil")
 	}
 
-	// 1. Fetch signatures
+	// 1. Fetch signatures for this page.
 	sigs, err := blockchain.GetSignaturesForAddress(ctx, rpcClient, address, limit, before)
 	if err != nil {
-		return nil, fmt.Errorf("get activity: %w", err)
+		return ActivityResult{}, fmt.Errorf("get activity: %w", err)
 	}
-
 	if len(sigs) == 0 {
-		return nil, nil
+		return ActivityResult{}, nil
 	}
 
-	// 2. Fan-out: fetch transaction details concurrently with bounded parallelism
+	lastSig := sigs[len(sigs)-1].Signature
+	hasMore := len(sigs) == limit
+
+	// 2. Fan-out: fetch transaction details concurrently with bounded parallelism.
 	type indexedResult struct {
 		index int
 		item  ActivityItem
@@ -67,24 +77,20 @@ func (s *ActivityService) GetActivity(ctx context.Context, rpcClient *blockchain
 		wg.Add(1)
 		go func(idx int, signature string) {
 			defer wg.Done()
-
-			sem <- struct{}{}        // acquire semaphore
-			defer func() { <-sem }() // release semaphore
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
 			detail, err := blockchain.GetTransaction(ctx, rpcClient, signature)
 			if err != nil || detail == nil {
-				// Skip transactions we can't fetch (same as before, but concurrent)
 				return
 			}
-
 			item := classifyTransaction(detail, address)
 			results[idx] = indexedResult{index: idx, item: item, ok: true}
 		}(i, sig.Signature)
 	}
-
 	wg.Wait()
 
-	// 3. Collect successful results (preserving order)
+	// 3. Collect successful results (preserving order).
 	items := make([]ActivityItem, 0, len(sigs))
 	for _, r := range results {
 		if r.ok {
@@ -92,7 +98,7 @@ func (s *ActivityService) GetActivity(ctx context.Context, rpcClient *blockchain
 		}
 	}
 
-	// 4. Merge with local swap history
+	// 4. Merge with local swap history.
 	if s.db != nil {
 		swapEntries, err := s.db.GetSwapHistory(address, limit)
 		if err == nil {
@@ -108,12 +114,12 @@ func (s *ActivityService) GetActivity(ctx context.Context, rpcClient *blockchain
 		}
 	}
 
-	// 5. Sort by timestamp descending
+	// 5. Sort by timestamp descending.
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].Timestamp > items[j].Timestamp
 	})
 
-	return items, nil
+	return ActivityResult{Items: items, LastSig: lastSig, HasMore: hasMore}, nil
 }
 
 // classifyTransaction analyzes a transaction and returns an ActivityItem.

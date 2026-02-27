@@ -308,18 +308,18 @@ func TestGetActivityParallel(t *testing.T) {
 	client := blockchain.NewRPCClient(server.URL, nil)
 	svc := NewActivityService(nil)
 
-	items, err := svc.GetActivity(context.Background(), client, "testAddr", 10, "")
+	result, err := svc.GetActivity(context.Background(), client, "testAddr", 10, "")
 	if err != nil {
 		t.Fatalf("GetActivity failed: %v", err)
 	}
 
 	// sig2 returns null, so we should get 2 items
-	if len(items) != 2 {
-		t.Fatalf("expected 2 items (sig2 is null), got %d", len(items))
+	if len(result.Items) != 2 {
+		t.Fatalf("expected 2 items (sig2 is null), got %d", len(result.Items))
 	}
 
 	// Should be sorted by timestamp descending
-	if items[0].Timestamp < items[1].Timestamp {
-		t.Errorf("items not sorted by timestamp descending: %d, %d", items[0].Timestamp, items[1].Timestamp)
+	if result.Items[0].Timestamp < result.Items[1].Timestamp {
+		t.Errorf("items not sorted by timestamp descending: %d, %d", result.Items[0].Timestamp, result.Items[1].Timestamp)
 	}
 }

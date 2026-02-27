@@ -15,24 +15,30 @@ import (
 
 // ActivityLoadedMsg is sent when activity history has been loaded.
 type ActivityLoadedMsg struct {
-	Items []services.ActivityItem
-	Err   error
+	Result     services.ActivityResult
+	Err        error
+	TargetPage int // the page number this load was for
 }
 
 // Model is the activity history view.
 type Model struct {
-	items         []services.ActivityItem
-	cursor        int
-	walletAddr    string
-	activitySvc   *services.ActivityService
-	rpcClient     *blockchain.RPCClient
-	lastSignature string // pagination cursor
-	noMorePages   bool
-	loading       bool
-	spinner       components.SpinnerModel
-	width         int
-	height        int
-	err           error
+	items       []services.ActivityItem
+	cursor      int
+	walletAddr  string
+	activitySvc *services.ActivityService
+	rpcClient   *blockchain.RPCClient
+	// Pagination: cursors[i] is the `before` value used to load page i+1.
+	// cursors[0] = "" (first page), cursors[1] = LastSig of page 1, etc.
+	cursors []string
+	// pageCache stores loaded items per page (1-indexed) so going back never re-fetches.
+	pageCache   map[int][]services.ActivityItem
+	page        int // 1-based current page number
+	noMorePages bool
+	loading     bool
+	spinner     components.SpinnerModel
+	width       int
+	height      int
+	err         error
 }
 
 // New creates a new activity history view.
@@ -43,28 +49,35 @@ func New(walletAddr string, activitySvc *services.ActivityService, rpcClient *bl
 		rpcClient:   rpcClient,
 		loading:     true,
 		spinner:     components.NewSpinner("Loading history..."),
+		cursors:     []string{""}, // cursors[0] = "" → page 1
+		pageCache:   make(map[int][]services.ActivityItem),
+		page:        1,
 	}
 }
 
-const pageSize = 20
+const pageSize = 100
 
 // Init starts loading history.
 func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.spinner.Init(), m.loadActivity())
+	return tea.Batch(m.spinner.Init(), m.loadPage("", 1))
 }
 
-func (m Model) loadActivity() tea.Cmd {
+// loadPage fetches one page using `before` as the cursor.
+// targetPage is echoed back in ActivityLoadedMsg so Update can commit the page
+// number only on success — preventing drift when the RPC call fails.
+func (m Model) loadPage(before string, targetPage int) tea.Cmd {
+	svc := m.activitySvc
+	rpc := m.rpcClient
+	addr := m.walletAddr
 	return func() tea.Msg {
-		if m.activitySvc == nil || m.rpcClient == nil {
-			return ActivityLoadedMsg{Err: fmt.Errorf("activity service not available")}
+		if svc == nil || rpc == nil {
+			return ActivityLoadedMsg{Err: fmt.Errorf("activity service not available"), TargetPage: targetPage}
 		}
-
-		items, err := m.activitySvc.GetActivity(context.Background(), m.rpcClient, m.walletAddr, pageSize, m.lastSignature)
+		result, err := svc.GetActivity(context.Background(), rpc, addr, pageSize, before)
 		if err != nil {
-			return ActivityLoadedMsg{Err: err}
+			return ActivityLoadedMsg{Err: err, TargetPage: targetPage}
 		}
-
-		return ActivityLoadedMsg{Items: items}
+		return ActivityLoadedMsg{Result: result, TargetPage: targetPage}
 	}
 }
 
@@ -76,20 +89,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.spinner.SetDone()
 		if msg.Err != nil {
 			m.err = msg.Err
+			// Don't touch m.page or m.items — keep existing data visible.
 			return m, nil
 		}
-		if len(msg.Items) == 0 {
-			m.noMorePages = true
-			return m, nil
-		}
-		isFirstLoad := len(m.items) == 0
-		m.items = append(m.items, msg.Items...)
-		if isFirstLoad {
-			m.cursor = 0
-		}
-		m.lastSignature = m.items[len(m.items)-1].Signature
-		if len(msg.Items) < pageSize {
-			m.noMorePages = true
+		// Commit the page number only on success.
+		m.page = msg.TargetPage
+		m.err = nil
+		// Replace current page items (not append) and cache them.
+		m.items = msg.Result.Items
+		m.pageCache[m.page] = msg.Result.Items
+		m.cursor = 0
+		m.noMorePages = !msg.Result.HasMore
+		// Push next-page cursor if we don't already have it.
+		// cursors[page-1] = cursor used to reach this page.
+		// cursors[page]   = cursor to use for the next page.
+		if msg.Result.HasMore && len(m.cursors) <= m.page {
+			m.cursors = append(m.cursors, msg.Result.LastSig)
 		}
 		return m, nil
 
@@ -111,11 +126,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case "n":
-			// Load more (next page)
-			if !m.noMorePages && m.lastSignature != "" {
+			// Next page — only if more pages exist.
+			// cursors[m.page] is the `before` cursor for page m.page+1.
+			if !m.noMorePages && m.page < len(m.cursors) {
+				targetPage := m.page + 1
+				before := m.cursors[m.page]
 				m.loading = true
-				m.spinner = components.NewSpinner("Loading more...")
-				return m, tea.Batch(m.spinner.Init(), m.loadActivity())
+				m.spinner = components.NewSpinner(fmt.Sprintf("Loading page %d...", targetPage))
+				return m, tea.Batch(m.spinner.Init(), m.loadPage(before, targetPage))
+			}
+		case "p":
+			// Previous page — serve from cache (no RPC call needed).
+			if m.page > 1 {
+				targetPage := m.page - 1
+				if cached, ok := m.pageCache[targetPage]; ok {
+					m.page = targetPage
+					m.items = cached
+					m.cursor = 0
+					m.noMorePages = false // we know there's at least the page we came from
+				}
 			}
 		case "s":
 			addr := m.walletAddr
@@ -199,14 +228,28 @@ func (m Model) View() string {
 	title := tui.StyleTitle.Render("History")
 	b.WriteString(title + "\n\n")
 
-	if m.loading {
+	// Initial load (no data yet): show spinner only.
+	if m.loading && len(m.items) == 0 {
 		b.WriteString(m.spinner.View() + "\n")
 		return b.String()
 	}
 
 	if m.err != nil {
 		b.WriteString(tui.StyleError.Render("Error: "+m.err.Error()) + "\n")
-		return b.String()
+		// Fall through to show existing items below the error.
+	}
+
+	// Page indicator / loading status line.
+	if m.loading {
+		b.WriteString(m.spinner.View() + "\n\n")
+	} else {
+		pageInfo := fmt.Sprintf("Page %d", m.page)
+		if m.noMorePages && m.page == 1 {
+			pageInfo = ""
+		}
+		if pageInfo != "" {
+			b.WriteString(tui.StyleMuted.Render(pageInfo) + "\n\n")
+		}
 	}
 
 	if len(m.items) == 0 {
@@ -298,9 +341,6 @@ func (m Model) Footer() string {
 	nav := tui.FooterGroup{
 		{Key: "w", Action: "wallets"}, {Key: "s", Action: "status"},
 		{Key: "x", Action: "swap"}, {Key: "t", Action: "tokens"},
-	}
-	if !m.noMorePages {
-		nav = append(nav, tui.FooterBinding{Key: "n", Action: "next page"})
 	}
 	return tui.RenderFooter(
 		nav,

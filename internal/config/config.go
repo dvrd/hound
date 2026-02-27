@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	// DefaultRPCEndpoint is the default Solana RPC endpoint.
+	// DefaultRPCEndpoint is the fallback Solana RPC endpoint if HOUND_RPC_ENDPOINT is not set.
 	DefaultRPCEndpoint = "https://api.mainnet-beta.solana.com"
 
 	// ConfigDirName is the name of the configuration directory.
@@ -26,7 +26,7 @@ type Config struct {
 // DefaultConfig creates a Config with default values, reading from environment variables.
 //
 // Environment variables:
-//   - HOUND_RPC_ENDPOINT: Solana RPC endpoint (default: https://api.mainnet-beta.solana.com)
+//   - HOUND_RPC_ENDPOINT: Solana RPC endpoint (default: Helius mainnet)
 func DefaultConfig() Config {
 	rpcEndpoint := os.Getenv("HOUND_RPC_ENDPOINT")
 	if rpcEndpoint == "" {
