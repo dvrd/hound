@@ -2,11 +2,12 @@ package transaction
 
 // Well-known Solana program IDs.
 var (
-	SystemProgramID = mustPubkeyFromBase58("11111111111111111111111111111111")
-	TokenProgramID  = mustPubkeyFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
-	ATAProgramID    = mustPubkeyFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
-	SysvarRentID    = mustPubkeyFromBase58("SysvarRent111111111111111111111111111111111")
-	SOLMint         = mustPubkeyFromBase58("So11111111111111111111111111111111111111112")
+	SystemProgramID        = mustPubkeyFromBase58("11111111111111111111111111111111")
+	TokenProgramID         = mustPubkeyFromBase58("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+	ATAProgramID           = mustPubkeyFromBase58("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+	SysvarRentID           = mustPubkeyFromBase58("SysvarRent111111111111111111111111111111111")
+	SOLMint                = mustPubkeyFromBase58("So11111111111111111111111111111111111111112")
+	ComputeBudgetProgramID = mustPubkeyFromBase58("ComputeBudget111111111111111111111111111111")
 )
 
 func mustPubkeyFromBase58(s string) Pubkey {

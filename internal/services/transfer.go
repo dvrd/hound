@@ -75,11 +75,13 @@ func (s *TransferService) SendSOL(rpcClient *blockchain.RPCClient, fromAddr, toA
 		return "", fmt.Errorf("send SOL: parse blockhash: %w", err)
 	}
 
-	// 7. Build instruction
-	transferIx := transaction.SystemTransfer(fromPubkey, toPubkey, lamports)
+	// 7. Build instructions (ComputeBudget first, then transfer)
+	var instructions []transaction.Instruction
+	instructions = append(instructions, transaction.PriorityFeeInstructions(transaction.PriorityFeeMedium)...)
+	instructions = append(instructions, transaction.SystemTransfer(fromPubkey, toPubkey, lamports))
 
 	// 8. Build message
-	msg := transaction.NewMessage(fromPubkey, []transaction.Instruction{transferIx}, blockhash)
+	msg := transaction.NewMessage(fromPubkey, instructions, blockhash)
 
 	// 9. Sign
 	tx, err := transaction.NewTransaction(msg, []ed25519.PrivateKey{privKey})
@@ -172,8 +174,9 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 		return "", fmt.Errorf("send SPL: check recipient ATA: %w", err)
 	}
 
-	// 9. Build instructions
+	// 9. Build instructions (ComputeBudget first, then optional ATA create, then transfer)
 	var instructions []transaction.Instruction
+	instructions = append(instructions, transaction.PriorityFeeInstructions(transaction.PriorityFeeMedium)...)
 	if accountData == nil {
 		// ATA doesn't exist, create it
 		createIx, err := transaction.CreateATAInstruction(fromPubkey, toPubkey, mintPubkey)
