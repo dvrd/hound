@@ -202,23 +202,29 @@ func TestCursorNavigation(t *testing.T) {
 	}
 }
 
-func TestJKTypedIntoSearch(t *testing.T) {
-	// j and k should go into the search input, not navigate
+func TestJKNavigateInSavedTokensMode(t *testing.T) {
+	// j and k navigate the saved-tokens list when NOT in search mode.
+	// They only type into the search input when inSearchMode is active.
 	m := loadedModel()
 
+	// j should move cursor down in saved-tokens mode
 	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	model := updated.(tokenlist.Model)
-	if model.GetCursor() != 0 {
-		t.Errorf("j should not navigate — cursor = %d, want 0", model.GetCursor())
+	if model.GetCursor() != 1 {
+		t.Errorf("j should navigate down in saved-tokens mode — cursor = %d, want 1", model.GetCursor())
 	}
-	if model.GetSearchValue() != "j" {
-		t.Errorf("j should be typed into search input, got %q", model.GetSearchValue())
+	if model.GetSearchValue() != "" {
+		t.Errorf("j should not type into search in saved-tokens mode, got %q", model.GetSearchValue())
 	}
 
+	// k should move cursor back up
 	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'k'}})
 	model = updated.(tokenlist.Model)
-	if model.GetSearchValue() != "jk" {
-		t.Errorf("k should be typed into search input, got %q", model.GetSearchValue())
+	if model.GetCursor() != 0 {
+		t.Errorf("k should navigate up in saved-tokens mode — cursor = %d, want 0", model.GetCursor())
+	}
+	if model.GetSearchValue() != "" {
+		t.Errorf("k should not type into search in saved-tokens mode, got %q", model.GetSearchValue())
 	}
 }
 

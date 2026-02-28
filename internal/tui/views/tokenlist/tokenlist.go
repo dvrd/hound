@@ -263,6 +263,29 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 
+		// j/k navigate in saved-tokens mode; in search mode they type into the input.
+		case "j":
+			if !m.inSearchMode {
+				if max := m.listLen() - 1; m.cursor < max {
+					m.cursor++
+				}
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			return m, m.afterInput(cmd)
+
+		case "k":
+			if !m.inSearchMode {
+				if m.cursor > 0 {
+					m.cursor--
+				}
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.searchInput, cmd = m.searchInput.Update(msg)
+			return m, m.afterInput(cmd)
+
 		// ── Enter: open selected (search results only) OR trigger search ─────
 		case "enter":
 			q := strings.TrimSpace(query)
