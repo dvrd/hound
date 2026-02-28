@@ -99,8 +99,11 @@ func (s *ActivityService) GetActivity(ctx context.Context, rpcClient *blockchain
 	}
 
 	// 4. Merge with local swap history.
+	// Fetch all swap records (not just the current page's limit) so that swaps
+	// on page 2+ are correctly tagged. Swap history is sparse so this is cheap.
 	if s.db != nil {
-		swapEntries, err := s.db.GetSwapHistory(address, limit)
+		const maxSwapLookup = 10000
+		swapEntries, err := s.db.GetSwapHistory(address, maxSwapLookup)
 		if err == nil {
 			sigToSwap := make(map[string]bool, len(swapEntries))
 			for _, entry := range swapEntries {
