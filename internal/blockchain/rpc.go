@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -119,6 +120,20 @@ func (c *RPCClient) Call(ctx context.Context, method string, params []interface{
 		// Check HTTP status (transport failure)
 		if resp.StatusCode != http.StatusOK {
 			lastErr = fmt.Errorf("RPC HTTP %d from %s", resp.StatusCode, endpoint)
+			// On 429 Too Many Requests, honour the Retry-After header before rotating.
+			if resp.StatusCode == http.StatusTooManyRequests {
+				delay := 1 * time.Second
+				if ra := resp.Header.Get("Retry-After"); ra != "" {
+					if secs, parseErr := strconv.Atoi(ra); parseErr == nil && secs > 0 {
+						delay = time.Duration(secs) * time.Second
+					}
+				}
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(delay):
+				}
+			}
 			c.rotateEndpointSafe(maxAttempts)
 			continue
 		}

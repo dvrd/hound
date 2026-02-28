@@ -243,6 +243,75 @@ func TestCallConcurrentNoDeadlock(t *testing.T) {
 	}
 }
 
+// TestCall429_RotatesToBackupAfterDelay verifies that a 429 from the primary
+// causes the client to wait (briefly) then rotate to the backup endpoint.
+func TestCall429_RotatesToBackupAfterDelay(t *testing.T) {
+	var primaryHits, backupHits atomic.Int32
+
+	// Primary always returns 429 with a tiny Retry-After
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		primaryHits.Add(1)
+		w.Header().Set("Retry-After", "0") // 0 → parsed as 0, falls back to 1s default; use "" to test default
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer primary.Close()
+
+	// Backup succeeds
+	backup := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backupHits.Add(1)
+		resp := blockchain.RPCResponse{
+			JSONRPC: "2.0",
+			ID:      1,
+			Result:  json.RawMessage(`{"value": 42}`),
+		}
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer backup.Close()
+
+	client := blockchain.NewRPCClient(primary.URL, []string{backup.URL})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	result, err := client.Call(ctx, "getBalance", nil)
+	if err != nil {
+		t.Fatalf("expected success from backup, got error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil result from backup")
+	}
+	if primaryHits.Load() == 0 {
+		t.Error("primary should have been hit at least once")
+	}
+	if backupHits.Load() == 0 {
+		t.Error("backup should have been hit after primary 429")
+	}
+}
+
+// TestCall429_ContextCancelDuring429Wait verifies context cancellation is
+// respected while waiting out a 429 Retry-After delay.
+func TestCall429_ContextCancelDuring429Wait(t *testing.T) {
+	// Primary always returns 429 with a long Retry-After
+	primary := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "60") // 60s — context should cancel first
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer primary.Close()
+
+	client := blockchain.NewRPCClient(primary.URL, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	_, err := client.Call(ctx, "getBalance", nil)
+	if err == nil {
+		t.Fatal("expected error from context cancellation during 429 wait")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context error, got: %v", err)
+	}
+}
+
 // M2: Verify context cancellation aborts in-flight request.
 func TestCallContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
