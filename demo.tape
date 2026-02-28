@@ -1,4 +1,4 @@
-# Hound demo — Solana wallet TUI
+# Hound demo — Solana wallet TUI v1.0.0
 Output demo.gif
 
 Set Shell "bash"
@@ -9,53 +9,89 @@ Set Theme "Catppuccin Mocha"
 Set Padding 20
 Set PlaybackSpeed 1.0
 
-# Show version
-Type "./bin/hound version"
-Enter
-Sleep 1s
-
-# Show help
-Type "./bin/hound --help"
-Enter
-Sleep 1.5s
-
-# Launch TUI
+# Launch TUI — wallets preload in background
 Type "./bin/hound"
 Enter
-Sleep 3s
+Sleep 4s
 
-# Navigate into first wallet
+# Open first wallet → portfolio / walletstatus
 Enter
 Sleep 3s
 
-# Sort by symbol
-Type "2"
-Sleep 1s
+# ── History ──────────────────────────────────────────────────────────────────
 
-# Sort by value
-Type "1"
-Sleep 1s
+# Navigate to history
+Type "h"
+Sleep 3s
 
-# Toggle show all tokens
-Type "a"
-Sleep 1s
+# Scroll down through transactions
+Down
+Sleep 400ms
+Down
+Sleep 400ms
+Down
+Sleep 400ms
+Down
+Sleep 400ms
+Down
+Sleep 600ms
 
-# Toggle back
-Type "a"
-Sleep 1s
+# Scroll back up
+Up
+Sleep 400ms
+Up
+Sleep 400ms
+Up
+Sleep 800ms
 
-# Go back to wallet list
+# Back to walletstatus
 Escape
 Sleep 1.5s
 
-# Navigate to token list
+# ── Token list ───────────────────────────────────────────────────────────────
+
+# Navigate to token list from walletstatus
 Type "t"
 Sleep 2s
 
-# Go back
+# Scroll through tokens
+Down
+Sleep 400ms
+Down
+Sleep 400ms
+Down
+Sleep 400ms
+Down
+Sleep 600ms
+Up
+Sleep 400ms
+Up
+Sleep 800ms
+
+# ── Token detail ─────────────────────────────────────────────────────────────
+
+# Open token detail for selected token
+Enter
+Sleep 5s
+
+# Scroll down through detail (price chart / holders)
+Down
+Sleep 600ms
+Down
+Sleep 600ms
+Down
+Sleep 600ms
+Down
+Sleep 800ms
+
+# Back to token list
+Escape
+Sleep 1s
+
+# Back to walletstatus
 Escape
 Sleep 1s
 
 # Quit
-Type "q"
+Ctrl+Q
 Sleep 500ms
