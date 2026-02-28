@@ -29,6 +29,7 @@ type Model struct {
 	db           *database.Database
 	width        int
 	height       int
+	cursor       int // scroll offset into the content lines
 	err          error
 }
 
@@ -82,6 +83,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 		case "t":
 			return m, func() tea.Msg { return tui.NavigateMsg{View: "token-list"} }
+		case "up", "k":
+			if m.cursor > 0 {
+				m.cursor--
+			}
+			return m, nil
+		case "down", "j":
+			m.cursor++
+			return m, nil
 		}
 	}
 
@@ -170,23 +179,51 @@ func (m Model) View() string {
 		add("")
 	}
 
-	// Cap to available terminal height (leave 4 lines for border + footer).
-	maxLines := len(lines)
+	// Scroll window: show avail lines starting from m.cursor.
+	avail := len(lines)
 	if m.height > 4 {
-		avail := m.height - 4
-		if avail < maxLines {
-			maxLines = avail
+		avail = m.height - 4
+		if avail < 1 {
+			avail = 1
 		}
 	}
 
-	return strings.Join(lines[:maxLines], "\n") + "\n"
+	total := len(lines)
+	// Clamp cursor so we never scroll past the last possible window.
+	maxCursor := total - avail
+	if maxCursor < 0 {
+		maxCursor = 0
+	}
+	cursor := m.cursor
+	if cursor > maxCursor {
+		cursor = maxCursor
+	}
+
+	endIdx := cursor + avail
+	if endIdx > total {
+		endIdx = total
+	}
+
+	var out strings.Builder
+	out.WriteString(strings.Join(lines[cursor:endIdx], "\n"))
+	out.WriteString("\n")
+	if total > avail {
+		hidden := total - avail - cursor
+		if hidden < 0 {
+			hidden = 0
+		}
+		if hidden > 0 {
+			out.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden)) + "\n")
+		}
+	}
+	return out.String()
 }
 
 // Footer returns the pinned footer keybinding line for the App chrome.
 func (m Model) Footer() string {
 	return tui.RenderFooter(
 		tui.FooterGroup{
-			{Key: "w", Action: "wallets"}, {Key: "t", Action: "tokens"},
+			{Key: "j/k", Action: "scroll"}, {Key: "w", Action: "wallets"}, {Key: "t", Action: "tokens"},
 		},
 		tui.FooterGroup{{Key: "?", Action: "help"}},
 	)
