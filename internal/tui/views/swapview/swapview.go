@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/dvrd/hound/internal/dex"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/swap"
@@ -59,6 +61,34 @@ type SwapExecutedMsg struct {
 	Err    error
 }
 
+// TokenSearchResult is a single Jupiter token search result.
+type TokenSearchResult struct {
+	Symbol  string
+	Name    string
+	Address string
+}
+
+// TokenSearchResultMsg is sent when a Jupiter token search completes.
+// Exported so tests can inject results directly via Update.
+type TokenSearchResultMsg struct {
+	Query   string
+	Results []TokenSearchResult
+	Err     error
+}
+
+// tokenSearchDebounceMsg fires after debounce delay (internal).
+type tokenSearchDebounceMsg struct {
+	gen int
+}
+
+// tokenPickTarget identifies which mint (input or output) a token search is resolving.
+type tokenPickTarget int
+
+const (
+	pickingInput  tokenPickTarget = 0
+	pickingOutput tokenPickTarget = 1
+)
+
 // Model is the swap view.
 type Model struct {
 	phase         SwapPhase
@@ -75,13 +105,28 @@ type Model struct {
 	spinner       components.SpinnerModel
 	swapClient    *swap.SwapClient
 	swapSvc       *services.SwapService
+	jupiterClient *dex.JupiterClient
 	width         int
 	height        int
 	err           error
+
+	// Token search state (used during PhaseInput to pick tokens by symbol)
+	pickTarget    tokenPickTarget // which mint we're picking
+	searchInput   textinput.Model // symbol search field
+	searchGen     int             // debounce generation
+	searching     bool            // true while Jupiter fetch in flight
+	searchResults []TokenSearchResult
+	searchCursor  int
+	searchErr     error
+	// Resolved display labels (shown in review / quote)
+	inputSymbol  string
+	outputSymbol string
+	// Whether we're in token-pick mode (overlaid on PhaseInput)
+	pickingToken bool
 }
 
 // New creates a new swap view.
-func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapService, dryRun bool) Model {
+func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapService, dryRun bool, jupiterClient ...*dex.JupiterClient) Model {
 	im := textinput.New()
 	im.Placeholder = "Input token mint (e.g. SOL mint)"
 	im.CharLimit = 64
@@ -111,6 +156,17 @@ func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapS
 	pi.CharLimit = 128
 	pi.Width = 40
 
+	// Token symbol search input (used in pick-token overlay)
+	search := textinput.New()
+	search.Placeholder = "Search by symbol or name..."
+	search.CharLimit = 32
+	search.Width = 40
+
+	var jc *dex.JupiterClient
+	if len(jupiterClient) > 0 {
+		jc = jupiterClient[0]
+	}
+
 	return Model{
 		phase:         PhaseInput,
 		inputMint:     im,
@@ -118,9 +174,11 @@ func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapS
 		amountInput:   ai,
 		slippageInput: si,
 		passwordInput: pi,
+		searchInput:   search,
 		walletAddr:    walletAddr,
 		swapClient:    swapClient,
 		swapSvc:       swapSvc,
+		jupiterClient: jc,
 		dryRun:        dryRun,
 	}
 }
@@ -155,6 +213,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.phase = PhaseResult
 		return m, nil
 
+	case TokenSearchResultMsg:
+		if msg.Query != strings.TrimSpace(m.searchInput.Value()) {
+			return m, nil // stale result
+		}
+		m.searching = false
+		m.searchErr = msg.Err
+		m.searchResults = msg.Results
+		m.searchCursor = 0
+		return m, nil
+
+	case tokenSearchDebounceMsg:
+		if msg.gen != m.searchGen {
+			return m, nil // stale debounce
+		}
+		q := strings.TrimSpace(m.searchInput.Value())
+		if q == "" {
+			return m, nil
+		}
+		m.searching = true
+		return m, m.doTokenSearch(q)
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -163,6 +242,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		if msg.String() == "esc" {
+			// If we're in token-pick overlay, close it
+			if m.pickingToken {
+				m.pickingToken = false
+				m.searchInput.SetValue("")
+				m.searchResults = nil
+				m.searchErr = nil
+				m.searchCursor = 0
+				return m, nil
+			}
 			switch m.phase {
 			case PhaseInput:
 				return m, func() tea.Msg { return tui.NavigateBackMsg{} }
@@ -178,6 +266,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				return m, nil
 			}
+		}
+
+		// Token-pick overlay handles its own keys
+		if m.pickingToken {
+			return m.updateTokenPick(msg)
 		}
 
 		switch m.phase {
@@ -203,6 +296,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
+	case "s":
+		// Open token-search overlay for whichever mint field is focused (0=input, 1=output).
+		if m.focusIndex == 0 || m.focusIndex == 1 {
+			if m.focusIndex == 0 {
+				m.pickTarget = pickingInput
+			} else {
+				m.pickTarget = pickingOutput
+			}
+			m.pickingToken = true
+			m.searchInput.SetValue("")
+			m.searchResults = nil
+			m.searchErr = nil
+			m.searchCursor = 0
+			m.searchGen = 0
+			cmd := m.searchInput.Focus()
+			return m, cmd
+		}
+		// If focus is on amount/slippage, fall through to normal input handling.
+		var cmd tea.Cmd
+		switch m.focusIndex {
+		case 2:
+			m.amountInput, cmd = m.amountInput.Update(msg)
+		case 3:
+			m.slippageInput, cmd = m.slippageInput.Update(msg)
+		}
+		return m, cmd
 	case "tab", "shift+tab":
 		if msg.String() == "tab" {
 			m.focusIndex = (m.focusIndex + 1) % 4
@@ -342,10 +461,16 @@ func (m Model) View() string {
 
 	switch m.phase {
 	case PhaseInput:
+		if m.pickingToken {
+			m.renderTokenPick(&b)
+			break
+		}
 		b.WriteString("Input Token:\n")
-		b.WriteString(m.inputMint.View() + "\n\n")
+		b.WriteString(m.inputMint.View() + "\n")
+		b.WriteString(tui.StyleMuted.Render("  press s to search by symbol") + "\n\n")
 		b.WriteString("Output Token:\n")
-		b.WriteString(m.outputMint.View() + "\n\n")
+		b.WriteString(m.outputMint.View() + "\n")
+		b.WriteString(tui.StyleMuted.Render("  press s to search by symbol") + "\n\n")
 		b.WriteString("Amount:\n")
 		b.WriteString(m.amountInput.View() + "\n\n")
 		b.WriteString("Slippage (bps, 0=auto):\n")
@@ -464,12 +589,126 @@ func (m Model) renderResult(b *strings.Builder) {
 
 }
 
+// doTokenSearch calls Jupiter's token search API and returns results as a TokenSearchResultMsg.
+func (m Model) doTokenSearch(query string) tea.Cmd {
+	return func() tea.Msg {
+		if m.jupiterClient == nil {
+			return TokenSearchResultMsg{Query: query, Err: fmt.Errorf("Jupiter client not available")}
+		}
+		raw, err := m.jupiterClient.LookupTokenList(query)
+		if err != nil {
+			return TokenSearchResultMsg{Query: query, Err: err}
+		}
+		results := make([]TokenSearchResult, len(raw))
+		for i, r := range raw {
+			results[i] = TokenSearchResult{
+				Symbol:  r.Symbol,
+				Name:    r.Name,
+				Address: r.Address,
+			}
+		}
+		return TokenSearchResultMsg{Query: query, Results: results}
+	}
+}
+
+// scheduleSearch returns a command that fires a tokenSearchDebounceMsg after 300 ms.
+func (m Model) scheduleSearch() tea.Cmd {
+	gen := m.searchGen
+	return tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg {
+		return tokenSearchDebounceMsg{gen: gen}
+	})
+}
+
+// updateTokenPick handles key events while the token-pick overlay is open.
+func (m Model) updateTokenPick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "up", "k":
+		if m.searchCursor > 0 {
+			m.searchCursor--
+		}
+		return m, nil
+	case "down", "j":
+		if m.searchCursor < len(m.searchResults)-1 {
+			m.searchCursor++
+		}
+		return m, nil
+	case "enter":
+		if len(m.searchResults) > 0 {
+			picked := m.searchResults[m.searchCursor]
+			if m.pickTarget == pickingInput {
+				m.inputMint.SetValue(picked.Address)
+				m.inputSymbol = picked.Symbol
+			} else {
+				m.outputMint.SetValue(picked.Address)
+				m.outputSymbol = picked.Symbol
+			}
+		}
+		m.pickingToken = false
+		m.searchInput.SetValue("")
+		m.searchResults = nil
+		m.searchErr = nil
+		m.searchCursor = 0
+		return m, nil
+	default:
+		var cmd tea.Cmd
+		m.searchInput, cmd = m.searchInput.Update(msg)
+		m.searchGen++
+		return m, tea.Batch(cmd, m.scheduleSearch())
+	}
+}
+
+// renderTokenPick renders the token-search overlay on top of PhaseInput.
+func (m Model) renderTokenPick(b *strings.Builder) {
+	label := "Input Token"
+	if m.pickTarget == pickingOutput {
+		label = "Output Token"
+	}
+	b.WriteString(tui.StyleBold.Render(fmt.Sprintf("Pick %s", label)) + "\n")
+	b.WriteString(m.searchInput.View() + "\n\n")
+
+	if m.searching {
+		b.WriteString(tui.StyleMuted.Render("Searching...") + "\n")
+		return
+	}
+	if m.searchErr != nil {
+		b.WriteString(tui.StyleError.Render("Error: "+m.searchErr.Error()) + "\n")
+		return
+	}
+	if len(m.searchResults) == 0 {
+		q := strings.TrimSpace(m.searchInput.Value())
+		if q != "" {
+			b.WriteString(tui.StyleMuted.Render("No results") + "\n")
+		}
+		return
+	}
+
+	max := 8
+	for i, r := range m.searchResults {
+		if i >= max {
+			b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  … %d more", len(m.searchResults)-max)) + "\n")
+			break
+		}
+		cursor := "  "
+		if i == m.searchCursor {
+			cursor = tui.StyleTableRowSelected.Render(">") + " "
+		}
+		line := fmt.Sprintf("%s%s  %s", cursor, tui.StyleBold.Render(r.Symbol), tui.StyleMuted.Render(r.Name))
+		b.WriteString(line + "\n")
+	}
+}
+
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
 func (m Model) Footer() string {
 	switch m.phase {
 	case PhaseInput:
+		if m.pickingToken {
+			return tui.RenderFooter(
+				tui.FooterGroup{{Key: "↑↓/jk", Action: "navigate"}, {Key: "enter", Action: "select"}},
+				tui.FooterGroup{{Key: "esc", Action: "cancel"}, {Key: "ctrl+q", Action: "quit"}},
+			)
+		}
 		return tui.RenderFooter(
-			tui.FooterGroup{{Key: "tab", Action: "next field"}, {Key: "enter", Action: "get quote"}},
+			tui.FooterGroup{{Key: "tab", Action: "next field"}, {Key: "s", Action: "search token"}, {Key: "enter", Action: "get quote"}},
 			tui.FooterGroup{{Key: "esc", Action: "back"}, {Key: "ctrl+q", Action: "quit"}},
 		)
 	case PhaseReview:
@@ -514,6 +753,41 @@ func (m Model) GetResult() models.SwapTransactionResult {
 // IsDryRun returns whether the swap is in dry-run mode.
 func (m Model) IsDryRun() bool {
 	return m.dryRun
+}
+
+// IsPickingToken returns true when the token-search overlay is open.
+func (m Model) IsPickingToken() bool {
+	return m.pickingToken
+}
+
+// SearchResultCount returns the number of token search results currently loaded.
+func (m Model) SearchResultCount() int {
+	return len(m.searchResults)
+}
+
+// SearchCursor returns the current selection cursor in the token-pick overlay.
+func (m Model) SearchCursor() int {
+	return m.searchCursor
+}
+
+// InputMintValue returns the current value of the input mint field.
+func (m Model) InputMintValue() string {
+	return m.inputMint.Value()
+}
+
+// OutputMintValue returns the current value of the output mint field.
+func (m Model) OutputMintValue() string {
+	return m.outputMint.Value()
+}
+
+// InputSymbol returns the resolved display symbol for the input token.
+func (m Model) InputSymbol() string {
+	return m.inputSymbol
+}
+
+// OutputSymbol returns the resolved display symbol for the output token.
+func (m Model) OutputSymbol() string {
+	return m.outputSymbol
 }
 
 // SetSize updates the view dimensions.

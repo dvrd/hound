@@ -679,3 +679,229 @@ func TestTabInputsAreIndependent(t *testing.T) {
 		t.Error("amount field should contain 'C'")
 	}
 }
+
+// ── Token-search overlay tests ────────────────────────────────────────────────
+
+// TestTokenPick_SKeyOnInputMintField opens the overlay when focused on input mint.
+func TestTokenPick_SKeyOnInputMintField(t *testing.T) {
+	m := newTestModel() // focusIndex=0 by default
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	m2 := updated.(swapview.Model)
+
+	if !m2.IsPickingToken() {
+		t.Fatal("pressing 's' on input mint field should open token-pick overlay")
+	}
+	view := m2.View()
+	if !strings.Contains(view, "Pick") {
+		t.Error("overlay view should contain 'Pick' header")
+	}
+}
+
+// TestTokenPick_SKeyOnAmountField does NOT open overlay when focused on amount.
+func TestTokenPick_SKeyOnAmountField(t *testing.T) {
+	m := newTestModel()
+	// Tab twice to reach amount field (index 2)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m3, _ := m2.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyTab})
+	m4, _ := m3.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	result := m4.(swapview.Model)
+
+	if result.IsPickingToken() {
+		t.Error("pressing 's' on amount field should NOT open token-pick overlay")
+	}
+}
+
+// TestTokenPick_EscClosesOverlay verifies esc closes the overlay without changing mint.
+func TestTokenPick_EscClosesOverlay(t *testing.T) {
+	m := newTestModel()
+	// Open overlay
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if !m2.(swapview.Model).IsPickingToken() {
+		t.Fatal("overlay should be open")
+	}
+	// Close with esc
+	m3, _ := m2.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyEsc})
+	result := m3.(swapview.Model)
+
+	if result.IsPickingToken() {
+		t.Error("esc should close the token-pick overlay")
+	}
+	if result.GetPhase() != swapview.PhaseInput {
+		t.Error("phase should remain PhaseInput after closing overlay")
+	}
+}
+
+// TestTokenPick_InjectResults verifies TokenSearchResultMsg populates results.
+func TestTokenPick_InjectResults(t *testing.T) {
+	m := newTestModel()
+	// Open overlay so searchInput is focused and has empty value (matching query "")
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+
+	// Inject a result whose Query matches current searchInput value ("")
+	msg := swapview.TokenSearchResultMsg{
+		Query: "",
+		Results: []swapview.TokenSearchResult{
+			{Symbol: "SOL", Name: "Wrapped SOL", Address: "So111111111111111111111111111111111111111112"},
+			{Symbol: "USDC", Name: "USD Coin", Address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},
+		},
+	}
+	m3, _ := m2.(swapview.Model).Update(msg)
+	result := m3.(swapview.Model)
+
+	if result.SearchResultCount() != 2 {
+		t.Errorf("expected 2 results, got %d", result.SearchResultCount())
+	}
+	view := result.View()
+	if !strings.Contains(view, "SOL") {
+		t.Error("overlay should display SOL result")
+	}
+	if !strings.Contains(view, "USDC") {
+		t.Error("overlay should display USDC result")
+	}
+}
+
+// TestTokenPick_JKNavigation verifies j/k move the cursor through results.
+func TestTokenPick_JKNavigation(t *testing.T) {
+	m := newTestModel()
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	msg := swapview.TokenSearchResultMsg{
+		Query: "",
+		Results: []swapview.TokenSearchResult{
+			{Symbol: "SOL", Name: "Wrapped SOL", Address: "addr1"},
+			{Symbol: "USDC", Name: "USD Coin", Address: "addr2"},
+			{Symbol: "BONK", Name: "Bonk", Address: "addr3"},
+		},
+	}
+	m3, _ := m2.(swapview.Model).Update(msg)
+
+	// Initial cursor = 0
+	if m3.(swapview.Model).SearchCursor() != 0 {
+		t.Errorf("initial cursor should be 0, got %d", m3.(swapview.Model).SearchCursor())
+	}
+
+	// Press j → cursor = 1
+	m4, _ := m3.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if m4.(swapview.Model).SearchCursor() != 1 {
+		t.Errorf("after j cursor should be 1, got %d", m4.(swapview.Model).SearchCursor())
+	}
+
+	// Press j again → cursor = 2
+	m5, _ := m4.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if m5.(swapview.Model).SearchCursor() != 2 {
+		t.Errorf("after jj cursor should be 2, got %d", m5.(swapview.Model).SearchCursor())
+	}
+
+	// Press j again — should not exceed last index
+	m6, _ := m5.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+	if m6.(swapview.Model).SearchCursor() != 2 {
+		t.Errorf("cursor should clamp at 2, got %d", m6.(swapview.Model).SearchCursor())
+	}
+
+	// Press k → cursor = 1
+	m7, _ := m6.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("k")})
+	if m7.(swapview.Model).SearchCursor() != 1 {
+		t.Errorf("after k cursor should be 1, got %d", m7.(swapview.Model).SearchCursor())
+	}
+}
+
+// TestTokenPick_EnterSelectsInputToken verifies enter writes the mint address to inputMint.
+func TestTokenPick_EnterSelectsInputToken(t *testing.T) {
+	m := newTestModel() // focusIndex=0 → pickingInput
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	msg := swapview.TokenSearchResultMsg{
+		Query: "",
+		Results: []swapview.TokenSearchResult{
+			{Symbol: "SOL", Name: "Wrapped SOL", Address: "So111111111111111111111111111111111111111112"},
+		},
+	}
+	m3, _ := m2.(swapview.Model).Update(msg)
+	m4, _ := m3.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := m4.(swapview.Model)
+
+	if result.IsPickingToken() {
+		t.Error("overlay should close after enter")
+	}
+	if result.InputMintValue() != "So111111111111111111111111111111111111111112" {
+		t.Errorf("inputMint should be set to SOL address, got %q", result.InputMintValue())
+	}
+	if result.InputSymbol() != "SOL" {
+		t.Errorf("inputSymbol should be 'SOL', got %q", result.InputSymbol())
+	}
+}
+
+// TestTokenPick_EnterSelectsOutputToken verifies enter writes to outputMint when overlay opened from index 1.
+func TestTokenPick_EnterSelectsOutputToken(t *testing.T) {
+	m := newTestModel()
+	// Tab to outputMint (focusIndex=1)
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m3, _ := m2.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	if !m3.(swapview.Model).IsPickingToken() {
+		t.Fatal("overlay should open on outputMint field")
+	}
+	msg := swapview.TokenSearchResultMsg{
+		Query: "",
+		Results: []swapview.TokenSearchResult{
+			{Symbol: "USDC", Name: "USD Coin", Address: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},
+		},
+	}
+	m4, _ := m3.(swapview.Model).Update(msg)
+	m5, _ := m4.(swapview.Model).Update(tea.KeyMsg{Type: tea.KeyEnter})
+	result := m5.(swapview.Model)
+
+	if result.IsPickingToken() {
+		t.Error("overlay should close after enter")
+	}
+	if result.OutputMintValue() != "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" {
+		t.Errorf("outputMint should be set to USDC address, got %q", result.OutputMintValue())
+	}
+	if result.OutputSymbol() != "USDC" {
+		t.Errorf("outputSymbol should be 'USDC', got %q", result.OutputSymbol())
+	}
+}
+
+// TestTokenPick_StaleResultIgnored verifies results with mismatched query are dropped.
+func TestTokenPick_StaleResultIgnored(t *testing.T) {
+	m := newTestModel()
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+
+	// Inject result with query "sol" but searchInput is still ""
+	stale := swapview.TokenSearchResultMsg{
+		Query: "sol",
+		Results: []swapview.TokenSearchResult{
+			{Symbol: "SOL", Name: "Wrapped SOL", Address: "addr1"},
+		},
+	}
+	m3, _ := m2.(swapview.Model).Update(stale)
+	result := m3.(swapview.Model)
+
+	if result.SearchResultCount() != 0 {
+		t.Errorf("stale result should be ignored, got %d results", result.SearchResultCount())
+	}
+}
+
+// TestTokenPick_ViewShowsSearchHint verifies PhaseInput view shows 's' hint.
+func TestTokenPick_ViewShowsSearchHint(t *testing.T) {
+	m := newTestModel()
+	view := m.View()
+	if !strings.Contains(view, "press s to search") {
+		t.Error("PhaseInput view should show 's to search' hint on mint fields")
+	}
+}
+
+// TestTokenPick_FooterChangesInOverlay verifies footer shows overlay keys when picking.
+func TestTokenPick_FooterChangesInOverlay(t *testing.T) {
+	m := newTestModel()
+	footerNormal := m.Footer()
+	if !strings.Contains(footerNormal, "search token") {
+		t.Error("normal footer should contain 'search token' hint")
+	}
+
+	m2, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("s")})
+	footerOverlay := m2.(swapview.Model).Footer()
+	if !strings.Contains(footerOverlay, "navigate") {
+		t.Error("overlay footer should contain 'navigate' hint")
+	}
+	if strings.Contains(footerOverlay, "search token") {
+		t.Error("overlay footer should NOT contain 'search token' hint")
+	}
+}
