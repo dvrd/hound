@@ -218,7 +218,7 @@ func runTUI(cmd *cobra.Command, args []string) error {
 	defer cancelPreload()
 	go d.walletMgr.RefreshAllPortfolios(preloadCtx) //nolint:errcheck
 
-	p := tea.NewProgram(app, tea.WithAltScreen())
+	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithInput(os.Stdin))
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("TUI error: %w", err)
 	}
