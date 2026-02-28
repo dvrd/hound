@@ -95,7 +95,9 @@ func New(walletAddr string, transferSvc *services.TransferService, rpcClient *bl
 	var tokens []models.TokenBalance
 	tokens = append(tokens, portfolio.SOLBalance)
 	for _, t := range portfolio.TokenBalances {
-		if t.Amount > 0 && t.USDValue >= 1.0 {
+		// Include any token with a non-zero balance — no USD-value threshold.
+		// Users should be able to send any token they hold, regardless of price.
+		if t.Amount > 0 {
 			tokens = append(tokens, t)
 		}
 	}

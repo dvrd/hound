@@ -67,6 +67,8 @@ func TestNew(t *testing.T) {
 }
 
 func TestDustTokensFilteredFromTokenList(t *testing.T) {
+	// All tokens with a non-zero balance appear regardless of USD value.
+	// Only zero-balance tokens are excluded.
 	m := newTestModel()
 	view := m.View()
 
@@ -78,12 +80,12 @@ func TestDustTokensFilteredFromTokenList(t *testing.T) {
 		t.Error("USDC ($100) should appear in token list")
 	}
 
-	// DUST ($0.50) has balance but USD value < $1 — must be hidden
-	if strings.Contains(view, "DUST") {
-		t.Error("DUST ($0.50) should be hidden from token list (below $1 threshold)")
+	// DUST ($0.50) has a non-zero balance — it should now appear (no USD threshold)
+	if !strings.Contains(view, "DUST") {
+		t.Error("DUST ($0.50) should appear in token list (no USD value threshold)")
 	}
 
-	// ZERO (zero balance) must also be hidden
+	// ZERO (zero balance) must still be hidden
 	if strings.Contains(view, "ZERO") {
 		t.Error("ZERO (zero balance) should be hidden from token list")
 	}
