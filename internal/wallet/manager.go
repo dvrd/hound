@@ -20,6 +20,11 @@ type WalletManager struct {
 	// preloadErrors stores per-wallet errors from the last background refresh.
 	preloadErrors map[string]error
 	preloadErrMu  sync.Mutex
+
+	// refreshing tracks in-flight RefreshPortfolio calls per address to prevent
+	// duplicate concurrent fetches. Guarded by refreshMu.
+	refreshing map[string]bool
+	refreshMu  sync.Mutex
 }
 
 // NewWalletManager creates a new WalletManager.
@@ -28,6 +33,7 @@ func NewWalletManager(db *database.Database, balanceFetcher *BalanceFetcher) *Wa
 		db:             db,
 		balanceFetcher: balanceFetcher,
 		portfolioCache: make(map[string]models.PortfolioBalance),
+		refreshing:     make(map[string]bool),
 		preloadErrors:  make(map[string]error),
 	}
 }
@@ -43,10 +49,28 @@ func (m *WalletManager) GetPrimaryWallet() (models.Wallet, error) {
 }
 
 // RefreshPortfolio fetches live balances and caches the result.
+// If a refresh for the same address is already in-flight, it returns the cached
+// portfolio immediately (or waits for the in-flight call to complete via the cache).
 func (m *WalletManager) RefreshPortfolio(ctx context.Context, address string) (models.PortfolioBalance, error) {
 	if m.balanceFetcher == nil {
 		return models.PortfolioBalance{}, fmt.Errorf("balance fetcher not configured")
 	}
+
+	// Deduplication: skip if a refresh is already in-flight for this address.
+	m.refreshMu.Lock()
+	if m.refreshing[address] {
+		m.refreshMu.Unlock()
+		// Return whatever is cached; the in-flight goroutine will update it.
+		return m.GetCachedPortfolio(address)
+	}
+	m.refreshing[address] = true
+	m.refreshMu.Unlock()
+
+	defer func() {
+		m.refreshMu.Lock()
+		delete(m.refreshing, address)
+		m.refreshMu.Unlock()
+	}()
 
 	portfolio, err := m.balanceFetcher.FetchPortfolioBalance(address)
 	if err != nil {
