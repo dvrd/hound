@@ -29,15 +29,15 @@ func setupTransferTest(t *testing.T) (*database.Database, *services.TransferServ
 	}
 	t.Cleanup(func() { db.Close() })
 
-	keystoreSvc := &services.KeystoreService{}
+	keystoreSvc := services.NewKeystoreService(db)
 	transferSvc := services.NewTransferService(keystoreSvc, db)
 
 	// Import a test wallet
 	words := strings.Split("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about", " ")
 	password := "MyStr0ng!Pass#1"
-	addr, err := keystoreSvc.ImportKeypair(db, words, password, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	addr, err := keystoreSvc.ImportWallet(words, password, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	return db, transferSvc, addr
@@ -184,17 +184,17 @@ func TestTransfer_SendSOL_InsufficientBalance(t *testing.T) {
 	}
 }
 
-func TestTransfer_EstimateFee(t *testing.T) {
+func TestTransfer_EstimateSendFee(t *testing.T) {
 	svc := services.NewTransferService(nil, nil)
 
-	fee := svc.EstimateFee(false)
+	fee := svc.EstimateSendFee(true) // SOL transfer
 	if fee != 5000 {
-		t.Errorf("EstimateFee(false) = %d, want 5000", fee)
+		t.Errorf("EstimateSendFee(SOL) = %d, want 5000", fee)
 	}
 
-	feeWithATA := svc.EstimateFee(true)
+	feeWithATA := svc.EstimateSendFee(false) // SPL transfer (assumes ATA creation)
 	if feeWithATA != 5000+2_039_280 {
-		t.Errorf("EstimateFee(true) = %d, want %d", feeWithATA, 5000+2_039_280)
+		t.Errorf("EstimateSendFee(SPL) = %d, want %d", feeWithATA, 5000+2_039_280)
 	}
 }
 

@@ -64,6 +64,7 @@ type deps struct {
 	rpcClient    *blockchain.RPCClient
 	dexscreener  *dex.DexScreenerClient
 	jupiter      *dex.JupiterClient
+	tokenCatalog *services.TokenCatalog
 	swapClient   *swap.SwapClient
 	swapSvc      *services.SwapService
 	tokenInfoSvc *services.TokenInfoService
@@ -98,10 +99,11 @@ func initDeps() (*deps, error) {
 	router := dex.NewRouter(rpcClient, jupiterClient)
 	// H2: Use PriceService (implements FetchMultiplePrices for batch fetching) instead of router directly.
 	priceSvc := services.NewPriceService(router, dexscreenerClient, jupiterClient)
+	tokenCatalog := services.NewTokenCatalog(jupiterClient, dexscreenerClient, db)
 	balanceFetcher := wallet.NewBalanceFetcher(rpcClient, priceSvc, db).
-		WithMetadataFetcher(jupiterMetadataAdapter{jupiterClient})
+		WithMetadataFetcher(tokenCatalogAdapter{tokenCatalog})
 	walletMgr := wallet.NewWalletManager(db, balanceFetcher)
-	keystoreSvc := &services.KeystoreService{}
+	keystoreSvc := services.NewKeystoreService(db)
 	swapClient := swap.NewSwapClient()
 	swapSvc := services.NewSwapService(swapClient, keystoreSvc, db)
 	tokenInfoSvc := services.NewTokenInfoService(dexscreenerClient, rpcClient)
@@ -116,6 +118,7 @@ func initDeps() (*deps, error) {
 		rpcClient:    rpcClient,
 		dexscreener:  dexscreenerClient,
 		jupiter:      jupiterClient,
+		tokenCatalog: tokenCatalog,
 		swapClient:   swapClient,
 		swapSvc:      swapSvc,
 		tokenInfoSvc: tokenInfoSvc,
@@ -133,7 +136,7 @@ func makeViewFactory(d *deps) tui.ViewFactory {
 			return m
 
 		case "wallet-import":
-			m := walletimport.New(d.db, d.keystoreSvc)
+			m := walletimport.New(d.keystoreSvc)
 			return m
 
 		case "wallet-status":
@@ -156,7 +159,7 @@ func makeViewFactory(d *deps) tui.ViewFactory {
 			return m
 
 		case "token-list":
-			m := tokenlist.New(d.db)
+			m := tokenlist.New(d.tokenCatalog, d.db)
 			return m
 
 		case "token-fetch":
@@ -177,7 +180,7 @@ func makeViewFactory(d *deps) tui.ViewFactory {
 					addr = pw.Address
 				}
 			}
-			m := swapview.New(addr, d.swapClient, d.swapSvc, false)
+			m := swapview.New(addr, d.swapClient, d.swapSvc, false, d.tokenCatalog)
 			return m
 
 		case "send":
@@ -410,19 +413,19 @@ func runHistoryJSON() error {
 	return tui.PrintJSON(result)
 }
 
-// jupiterMetadataAdapter adapts dex.JupiterClient to the wallet.MetadataFetcher interface.
-type jupiterMetadataAdapter struct {
-	client *dex.JupiterClient
+// tokenCatalogAdapter adapts services.TokenCatalog to the wallet.MetadataFetcher interface.
+type tokenCatalogAdapter struct {
+	catalog *services.TokenCatalog
 }
 
-func (a jupiterMetadataAdapter) LookupTokenMetadata(mintAddr string) (wallet.TokenMetadata, error) {
-	meta, err := a.client.LookupTokenMetadata(mintAddr)
+func (a tokenCatalogAdapter) LookupTokenMetadata(mintAddr string) (wallet.TokenMetadata, error) {
+	result, err := a.catalog.LookupMetadata(mintAddr)
 	if err != nil {
 		return wallet.TokenMetadata{}, err
 	}
 	return wallet.TokenMetadata{
-		Symbol:   meta.Symbol,
-		Name:     meta.Name,
-		Decimals: meta.Decimals,
+		Symbol:   result.Symbol,
+		Name:     result.Name,
+		Decimals: result.Decimals,
 	}, nil
 }

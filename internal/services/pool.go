@@ -44,10 +44,8 @@ func (s *PoolService) DiscoverAndStorePools(token models.Token, forceRefresh boo
 
 	// If forceRefresh, delete old pools first
 	if forceRefresh {
-		if err := s.db.DeletePoolsForToken(token.Symbol); err != nil {
-			// Non-fatal: log and continue
-			_ = err
-		}
+		// Best-effort: old pools are stale, continue even if delete fails.
+		_ = s.db.DeletePoolsForToken(token.Symbol)
 	}
 
 	// Store top 3 (or fewer if less available)
@@ -60,10 +58,8 @@ func (s *PoolService) DiscoverAndStorePools(token models.Token, forceRefresh boo
 	for i := 0; i < limit; i++ {
 		pool := dex.PairToPoolInfo(ranked[i])
 		pool.DiscoveredAt = now
-		if err := s.db.InsertPool(token.Symbol, pool); err != nil {
-			// Non-fatal: continue with remaining pools
-			_ = err
-		}
+		// Best-effort: continue storing remaining pools on individual failure.
+		_ = s.db.InsertPool(token.Symbol, pool)
 	}
 
 	// Return best pool (first ranked)

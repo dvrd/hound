@@ -23,7 +23,7 @@ type ActivityLoadedMsg struct {
 // Model is the activity history view.
 type Model struct {
 	items       []services.ActivityItem
-	cursor      int
+	cursor      components.ListCursor
 	walletAddr  string
 	activitySvc *services.ActivityService
 	rpcClient   *blockchain.RPCClient
@@ -98,7 +98,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Replace current page items (not append) and cache them.
 		m.items = msg.Result.Items
 		m.pageCache[m.page] = msg.Result.Items
-		m.cursor = 0
+		m.cursor = components.NewListCursor(len(m.items))
 		m.noMorePages = !msg.Result.HasMore
 		// Push next-page cursor if we don't already have it.
 		// cursors[page-1] = cursor used to reach this page.
@@ -118,13 +118,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			return m, func() tea.Msg { return tui.NavigateBackMsg{} }
 		case "up", "k":
-			if m.cursor > 0 {
-				m.cursor--
-			}
+			m.cursor.Up()
 		case "down", "j":
-			if m.cursor < len(m.items)-1 {
-				m.cursor++
-			}
+			m.cursor.Down()
 		case "n":
 			// Next page — only if more pages exist.
 			// cursors[m.page] is the `before` cursor for page m.page+1.
@@ -142,7 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if cached, ok := m.pageCache[targetPage]; ok {
 					m.page = targetPage
 					m.items = cached
-					m.cursor = 0
+					m.cursor = components.NewListCursor(len(m.items))
 					m.noMorePages = false // we know there's at least the page we came from
 				}
 			}
@@ -279,18 +275,7 @@ func (m Model) View() string {
 		}
 
 		// Determine visible window around cursor
-		startIdx := 0
-		if m.cursor >= maxRows {
-			startIdx = m.cursor - maxRows + 1
-		}
-		endIdx := startIdx + maxRows
-		if endIdx > len(m.items) {
-			endIdx = len(m.items)
-			startIdx = endIdx - maxRows
-			if startIdx < 0 {
-				startIdx = 0
-			}
-		}
+		startIdx, endIdx := components.ViewWindow(m.cursor.Pos(), maxRows, len(m.items))
 
 		for i := startIdx; i < endIdx; i++ {
 			item := m.items[i]
@@ -323,7 +308,7 @@ func (m Model) View() string {
 				statusStr,
 			)
 
-			b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
+			b.WriteString(tui.RenderRow(row, i == m.cursor.Pos()) + "\n")
 		}
 
 		// Scroll indicator
@@ -382,7 +367,7 @@ func FormatRelativeTime(unixTimestamp int64) string {
 
 // GetCursor returns the current cursor position for testing.
 func (m Model) GetCursor() int {
-	return m.cursor
+	return m.cursor.Pos()
 }
 
 // GetItems returns the loaded items for testing.

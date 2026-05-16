@@ -11,12 +11,22 @@ import (
 // InsertWallet inserts a new wallet into the database.
 func (d *Database) InsertWallet(wallet models.Wallet) error {
 	now := time.Now().Unix()
+	return d.insertWallet(d.db, wallet, now)
+}
+
+// InsertWalletTx inserts a wallet within a transaction.
+func (d *Database) InsertWalletTx(tx *sql.Tx, wallet models.Wallet) error {
+	now := time.Now().Unix()
+	return d.insertWallet(tx, wallet, now)
+}
+
+func (d *Database) insertWallet(exec execer, wallet models.Wallet, now int64) error {
 	isPrimary := 0
 	if wallet.IsPrimary {
 		isPrimary = 1
 	}
 
-	_, err := d.db.Exec(
+	_, err := exec.Exec(
 		`INSERT INTO wallets (address, label, is_primary, added_at, wallet_type, derivation_path, account_index)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		wallet.Address, wallet.Label, isPrimary, now,
@@ -218,7 +228,9 @@ func (d *Database) UpdateWalletLabel(address, label string) error {
 	if rows == 0 {
 		return fmt.Errorf("updating wallet label %q: %w", address, models.ErrWalletNotFound)
 	}
-	// Also update encrypted_keypairs label for consistency
-	_, _ = d.db.Exec(`UPDATE encrypted_keypairs SET label = ? WHERE address = ?`, label, address)
+	// Also update encrypted_keypairs label for consistency (best-effort).
+	if _, err := d.db.Exec(`UPDATE encrypted_keypairs SET label = ? WHERE address = ?`, label, address); err != nil {
+		return fmt.Errorf("updating keypair label %q: %w", address, err)
+	}
 	return nil
 }

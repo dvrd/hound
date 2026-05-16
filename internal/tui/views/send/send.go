@@ -12,7 +12,6 @@ import (
 	"github.com/dvrd/hound/internal/blockchain"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
-	"github.com/dvrd/hound/internal/transaction"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/components"
 )
@@ -271,19 +270,12 @@ func (m Model) updateSelectToken(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m Model) updateRecipient(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.String() == "enter" {
 		addr := strings.TrimSpace(m.recipientInput.Value())
-		// Validate: not empty
 		if addr == "" {
 			m.err = fmt.Errorf("recipient address cannot be empty")
 			return m, nil
 		}
-		// M1: Validate base58 address
-		if _, err := transaction.PubkeyFromBase58(addr); err != nil {
-			m.err = fmt.Errorf("invalid Solana address")
-			return m, nil
-		}
-		// Validate: not self
-		if addr == m.walletAddr {
-			m.err = fmt.Errorf("cannot send to your own address")
+		if err := m.transferSvc.ValidateRecipient(addr, m.walletAddr); err != nil {
+			m.err = err
 			return m, nil
 		}
 		m.recipient = addr
@@ -306,35 +298,24 @@ func (m Model) updateAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Estimate fee
+		// Estimate fee and compute balance in base units.
 		m.estimatedFee = m.estimateFee()
-
-		// Handle MAX
-		if strings.EqualFold(input, "MAX") {
-			return m.handleMaxAmount()
-		}
-
-		// Parse amount
-		var amountFloat float64
-		_, err := fmt.Sscanf(input, "%f", &amountFloat)
-		if err != nil || amountFloat <= 0 {
-			m.err = fmt.Errorf("amount must be a positive number")
-			return m, nil
-		}
-
-		// Convert to base units
 		decimals := m.selectedToken.Decimals
-		baseUnits := uint64(math.Round(amountFloat * math.Pow10(decimals)))
+		balance := uint64(math.Round(m.selectedToken.Amount * math.Pow10(decimals)))
+		fee := m.estimatedFee
+		if !m.isSOL {
+			fee = 0 // SPL fee is paid in SOL, not deducted from token balance
+		}
 
-		// Check balance
-		maxBalance := m.maxSendable()
-		if baseUnits > maxBalance {
-			m.err = fmt.Errorf("insufficient balance (max: %s)", m.formatAmount(maxBalance))
+		// Delegate parsing, MAX handling, and balance checking to TransferService.
+		baseUnits, display, _, err := m.transferSvc.ParseTransferAmount(input, decimals, balance, fee)
+		if err != nil {
+			m.err = err
 			return m, nil
 		}
 
 		m.amount = baseUnits
-		m.amountDisplay = input
+		m.amountDisplay = display
 		m.err = nil
 		m.step = StepReview
 		return m, nil
@@ -343,19 +324,6 @@ func (m Model) updateAmount(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.amountInput, cmd = m.amountInput.Update(msg)
 	return m, cmd
-}
-
-func (m Model) handleMaxAmount() (tea.Model, tea.Cmd) {
-	maxBalance := m.maxSendable()
-	if maxBalance == 0 {
-		m.err = fmt.Errorf("insufficient balance after fees")
-		return m, nil
-	}
-	m.amount = maxBalance
-	m.amountDisplay = m.formatAmount(maxBalance)
-	m.err = nil
-	m.step = StepReview
-	return m, nil
 }
 
 func (m Model) updateReview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -433,43 +401,21 @@ func (m Model) doConfirmation(ctx context.Context) tea.Cmd {
 	}
 }
 
-// maxSendable returns the maximum amount that can be sent in base units.
-// For SOL, it subtracts the estimated fee. For SPL tokens, it's the full balance.
-func (m Model) maxSendable() uint64 {
-	decimals := m.selectedToken.Decimals
-	baseBalance := uint64(math.Round(m.selectedToken.Amount * math.Pow10(decimals)))
-
-	if m.isSOL {
-		fee := m.estimateFee()
-		if baseBalance <= fee {
-			return 0
-		}
-		return baseBalance - fee
-	}
-	return baseBalance
-}
-
 // estimateFee returns the estimated fee in lamports.
 // For SPL tokens, always assumes ATA creation (worst-case estimate).
 func (m Model) estimateFee() uint64 {
-	needsATA := !m.isSOL
 	if m.transferSvc != nil {
-		return m.transferSvc.EstimateFee(needsATA)
+		return m.transferSvc.EstimateSendFee(m.isSOL)
 	}
 	// Fallback: base fee
 	fee := uint64(5000)
-	if needsATA {
+	if !m.isSOL {
 		fee += 2_039_280
 	}
 	return fee
 }
 
-// formatAmount converts base units to a human-readable string.
-func (m Model) formatAmount(baseUnits uint64) string {
-	decimals := m.selectedToken.Decimals
-	amount := float64(baseUnits) / math.Pow10(decimals)
-	return fmt.Sprintf("%g %s", amount, m.selectedToken.Symbol)
-}
+
 
 // View renders the send wizard.
 func (m Model) View() string {

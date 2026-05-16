@@ -8,6 +8,11 @@ import (
 	"github.com/dvrd/hound/internal/models"
 )
 
+// execer abstracts *sql.DB and *sql.Tx so insert methods work with either.
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
 // EncryptedKeypairData holds all fields from the encrypted_keypairs table.
 type EncryptedKeypairData struct {
 	Address             string
@@ -32,6 +37,16 @@ func (d EncryptedKeypairData) IsLegacyFormat() bool {
 // InsertEncryptedKeypair inserts a new encrypted keypair into the database.
 func (d *Database) InsertEncryptedKeypair(data EncryptedKeypairData) error {
 	now := time.Now().Unix()
+	return d.insertEncryptedKeypair(d.db, data, now)
+}
+
+// InsertEncryptedKeypairTx inserts an encrypted keypair within a transaction.
+func (d *Database) InsertEncryptedKeypairTx(tx *sql.Tx, data EncryptedKeypairData) error {
+	now := time.Now().Unix()
+	return d.insertEncryptedKeypair(tx, data, now)
+}
+
+func (d *Database) insertEncryptedKeypair(exec execer, data EncryptedKeypairData, now int64) error {
 	isPrimary := 0
 	if data.IsPrimary {
 		isPrimary = 1
@@ -42,7 +57,7 @@ func (d *Database) InsertEncryptedKeypair(data EncryptedKeypairData) error {
 		argonVersion = 1 // default for backward compat
 	}
 
-	_, err := d.db.Exec(
+	_, err := exec.Exec(
 		`INSERT INTO encrypted_keypairs (address, encrypted_private_key, salt, nonce, tag, password_hash, verifier_salt, argon2_version, label, is_primary, created_at, last_used)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		data.Address, data.EncryptedPrivateKey,

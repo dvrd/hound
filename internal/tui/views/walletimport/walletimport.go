@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/dvrd/hound/internal/database"
 	"github.com/dvrd/hound/internal/keystore"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
@@ -92,14 +91,13 @@ type Model struct {
 	label        string
 
 	// Dependencies
-	db          *database.Database
 	keystoreSvc *services.KeystoreService
 	width       int
 	height      int
 }
 
 // New creates a new wallet import wizard.
-func New(db *database.Database, keystoreSvc *services.KeystoreService) Model {
+func New(keystoreSvc *services.KeystoreService) Model {
 	// Seed phrase textarea
 	ta := textarea.New()
 	ta.Placeholder = "Enter your 12 or 24 word seed phrase..."
@@ -143,7 +141,6 @@ func New(db *database.Database, keystoreSvc *services.KeystoreService) Model {
 		labelInput:     li,
 		spinner:        components.NewSpinner("Importing wallet..."),
 		choiceOptions:  []string{"Import existing wallet", "Create new wallet"},
-		db:             db,
 		keystoreSvc:    keystoreSvc,
 	}
 }
@@ -465,11 +462,11 @@ func (m Model) updateLabel(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) doImport() tea.Cmd {
 	return func() tea.Msg {
-		if m.keystoreSvc == nil || m.db == nil {
+		if m.keystoreSvc == nil {
 			return tui.WalletImportedMsg{Err: fmt.Errorf("import service not available")}
 		}
-		addr, err := m.keystoreSvc.ImportKeypair(
-			m.db, m.words, m.password, m.label, true,
+		addr, err := m.keystoreSvc.ImportWallet(
+			m.words, m.password, m.label,
 			m.walletType, m.accountIndex,
 		)
 		return tui.WalletImportedMsg{Address: addr, Err: err}

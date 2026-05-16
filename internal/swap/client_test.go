@@ -1,7 +1,6 @@
 package swap_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -87,7 +86,7 @@ func TestSwapClient_GetQuote(t *testing.T) {
 				if q.FetchedAt.IsZero() {
 					t.Error("expected non-zero FetchedAt")
 				}
-				if q.RawResponse == nil {
+				if q.TransactionPayload == "" {
 					t.Error("expected non-nil RawResponse")
 				}
 			},
@@ -305,13 +304,12 @@ func TestSwapClient_GetQuote_MultiRouteStep(t *testing.T) {
 		t.Errorf("step 1: expected Orca, got %s", quote.RoutePlan[1].DexLabel)
 	}
 
-	// Verify raw response is preserved
-	var raw map[string]interface{}
-	if err := json.Unmarshal(quote.RawResponse, &raw); err != nil {
-		t.Fatalf("failed to unmarshal raw response: %v", err)
+	// Verify structured fields are preserved
+	if quote.TransactionPayload == "" {
+		t.Errorf("expected non-empty TransactionPayload")
 	}
-	if raw["requestId"] != "req-456" {
-		t.Errorf("expected requestId 'req-456' in raw response")
+	if quote.RequestID != "req-456" {
+		t.Errorf("expected RequestID 'req-456', got %q", quote.RequestID)
 	}
 }
 

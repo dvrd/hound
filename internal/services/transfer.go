@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/ed25519"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 
 	"github.com/dvrd/hound/internal/blockchain"
@@ -14,16 +16,72 @@ import (
 
 // TransferService orchestrates SOL and SPL token transfers.
 type TransferService struct {
-	keystoreService *KeystoreService
-	db              *database.Database
+	keyCustodian KeyCustodian
+	db           *database.Database
 }
 
 // NewTransferService creates a new TransferService.
-func NewTransferService(keystoreService *KeystoreService, db *database.Database) *TransferService {
+func NewTransferService(keyCustodian KeyCustodian, db *database.Database) *TransferService {
 	return &TransferService{
-		keystoreService: keystoreService,
-		db:              db,
+		keyCustodian: keyCustodian,
+		db:           db,
 	}
+}
+
+// ValidateRecipient checks that an address is a valid base58 Solana address and is not self.
+func (s *TransferService) ValidateRecipient(addr, selfAddr string) error {
+	_, err := transaction.PubkeyFromBase58(addr)
+	if err != nil {
+		return fmt.Errorf("validate recipient: %w", models.ErrInvalidRecipient)
+	}
+	if addr == selfAddr {
+		return fmt.Errorf("validate recipient: %w", models.ErrSendToSelf)
+	}
+	return nil
+}
+
+// ParseTransferAmount parses a human-readable amount string into base units.
+// Supports "MAX" (case-insensitive) to send the maximum available balance.
+func (s *TransferService) ParseTransferAmount(input string, decimals int, balance, fee uint64) (baseUnits uint64, display string, isMax bool, err error) {
+	if strings.EqualFold(input, "MAX") {
+		if balance <= fee {
+			return 0, "", false, fmt.Errorf("parse amount: insufficient balance after fees: %w", models.ErrInsufficientBalance)
+		}
+		max := balance - fee
+		display = formatMaxAmount(max, decimals)
+		return max, display, true, nil
+	}
+
+	var amountFloat float64
+	_, err = fmt.Sscanf(input, "%f", &amountFloat)
+	if err != nil || amountFloat <= 0 {
+		return 0, "", false, fmt.Errorf("parse amount: must be a positive number")
+	}
+
+	baseUnits = uint64(math.Round(amountFloat * math.Pow10(decimals)))
+	var maxSendable uint64
+	if balance > fee {
+		maxSendable = balance - fee
+	}
+	if baseUnits > maxSendable {
+		return 0, "", false, fmt.Errorf("parse amount: insufficient balance (max: %s): %w", formatMaxAmount(maxSendable, decimals), models.ErrInsufficientBalance)
+	}
+	return baseUnits, input, false, nil
+}
+
+// EstimateSendFee returns the estimated fee in lamports for a transfer.
+// For SPL tokens, always assumes ATA creation (worst-case estimate).
+func (s *TransferService) EstimateSendFee(isSOL bool) uint64 {
+	baseFee := uint64(5000)
+	if !isSOL {
+		baseFee += 2_039_280 // rent exemption for 165-byte token account
+	}
+	return baseFee
+}
+
+func formatMaxAmount(baseUnits uint64, decimals int) string {
+	amount := float64(baseUnits) / math.Pow10(decimals)
+	return fmt.Sprintf("%g", amount)
 }
 
 // SendSOL sends SOL from one address to another.
@@ -41,7 +99,7 @@ func (s *TransferService) SendSOL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}
 
 	// 3. Unlock keypair
-	privKey, err := s.keystoreService.UnlockKeypair(s.db, fromAddr, password)
+	privKey, err := s.keyCustodian.UnlockWallet(fromAddr, password)
 	if err != nil {
 		return "", fmt.Errorf("send SOL: %w", err)
 	}
@@ -113,7 +171,7 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	}
 
 	// 3. Unlock keypair
-	privKey, err := s.keystoreService.UnlockKeypair(s.db, fromAddr, password)
+	privKey, err := s.keyCustodian.UnlockWallet(fromAddr, password)
 	if err != nil {
 		return "", fmt.Errorf("send SPL: %w", err)
 	}
@@ -213,15 +271,7 @@ func (s *TransferService) SendSPL(rpcClient *blockchain.RPCClient, fromAddr, toA
 	return sig, nil
 }
 
-// EstimateFee returns the estimated fee in lamports for a transfer.
-// baseFee is 5000 lamports per signature. If createATA is true, adds rent exemption cost.
-func (s *TransferService) EstimateFee(createATA bool) uint64 {
-	baseFee := uint64(5000)
-	if createATA {
-		baseFee += 2_039_280 // rent exemption for 165-byte token account
-	}
-	return baseFee
-}
+
 
 // AwaitConfirmation polls GetSignatureStatuses until the transaction is confirmed/finalized
 // or the timeout is reached. Returns nil on confirmation, ErrTransactionFailed if the tx

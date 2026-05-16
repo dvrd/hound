@@ -145,21 +145,8 @@ func (m Model) loadPortfolio() tea.Cmd {
 		if m.walletMgr == nil {
 			return tui.PortfolioRefreshedMsg{Err: fmt.Errorf("wallet manager not available")}
 		}
-		// If the background preload recorded an error for this wallet, surface it
-		// immediately so the user sees it rather than a generic cache-miss error.
-		if preloadErr := m.walletMgr.PreloadError(m.address); preloadErr != nil {
-			return tui.PortfolioRefreshedMsg{Err: preloadErr}
-		}
-		// Try cached first — cache is populated either by the walletlist preload
-		// or by a previous refresh in this session.
-		portfolio, err := m.walletMgr.GetCachedPortfolio(m.address)
-		if err != nil {
-			// Cache miss (e.g. app launched directly to wallet-status with 1 wallet).
-			// Fall back to a live fetch so the user sees real data immediately.
-			portfolio, err = m.walletMgr.RefreshPortfolio(context.Background(), m.address)
-			return tui.PortfolioRefreshedMsg{Portfolio: portfolio, Err: err}
-		}
-		return tui.PortfolioRefreshedMsg{Portfolio: portfolio}
+		portfolio, err := m.walletMgr.GetPortfolio(context.Background(), m.address)
+		return tui.PortfolioRefreshedMsg{Portfolio: portfolio, Err: err}
 	}
 }
 
@@ -276,7 +263,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(tokens) > 0 && m.cursor < len(tokens) {
 				t := tokens[m.cursor]
 				if m.db != nil {
-					_ = m.db.HideToken(m.address, t.Mint)
+					if err := m.db.HideToken(m.address, t.Mint); err != nil {
+						return m, func() tea.Msg { return tui.ErrorMsg{Err: err} }
+					}
 				}
 				m.hiddenMints[t.Mint] = true
 				m.clampCursor()
@@ -288,7 +277,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				t := tokens[m.cursor]
 				if m.hiddenMints[t.Mint] {
 					if m.db != nil {
-						_ = m.db.UnhideToken(m.address, t.Mint)
+						if err := m.db.UnhideToken(m.address, t.Mint); err != nil {
+							return m, func() tea.Msg { return tui.ErrorMsg{Err: err} }
+						}
 					}
 					delete(m.hiddenMints, t.Mint)
 					m.clampCursor()

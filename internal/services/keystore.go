@@ -10,18 +10,37 @@ import (
 	"github.com/dvrd/hound/internal/models"
 )
 
-// KeystoreService handles wallet import, unlock, and password update.
-type KeystoreService struct{}
+// KeyCustodian is the interface for wallet custody operations used by service consumers
+// (SwapService, TransferService). It defines the seam where callers cross into the
+// custody module; tests can supply an adapter.
+//
+// Note: UpdateWalletPassword lives on *KeystoreService directly (not on this interface)
+// because no service consumer needs it — it's only called from TUI/CLI flows.
+type KeyCustodian interface {
+	ImportWallet(words []string, password, label string, walletType models.WalletType, accountIndex int) (string, error)
+	UnlockWallet(address, password string) (ed25519.PrivateKey, error)
+}
 
-// ImportKeypair derives a keypair from seed phrase, encrypts it, and stores it in the database.
+// KeystoreService handles wallet import, unlock, and password update.
+// It holds the database reference so callers don't need to supply it per-call —
+// deepening the module by hiding persistence behind the seam.
+type KeystoreService struct {
+	db *database.Database
+}
+
+// NewKeystoreService creates a new KeystoreService with the given database.
+func NewKeystoreService(db *database.Database) *KeystoreService {
+	return &KeystoreService{db: db}
+}
+
+// ImportWallet derives a keypair from seed phrase, encrypts it, and stores both the
+// encrypted keypair and wallet record atomically in a single transaction.
 // Uses dual-salt derivation: encryption_salt for AES key, verifier_salt for password hash.
 // Returns the wallet address.
-func (s *KeystoreService) ImportKeypair(
-	db *database.Database,
+func (s *KeystoreService) ImportWallet(
 	words []string,
 	password string,
 	label string,
-	isPrimary bool,
 	walletType models.WalletType,
 	accountIndex int,
 ) (string, error) {
@@ -81,6 +100,12 @@ func (s *KeystoreService) ImportKeypair(
 	}
 
 	// 11. Build EncryptedKeypairData with dual salts
+	// 11b. Only set as primary if no wallets exist yet.
+	isPrimary := false
+	if count, err := s.db.WalletCount(); err == nil && count == 0 {
+		isPrimary = true
+	}
+
 	ekd := database.EncryptedKeypairData{
 		Address:             address,
 		EncryptedPrivateKey: encrypted.Ciphertext,
@@ -94,8 +119,14 @@ func (s *KeystoreService) ImportKeypair(
 		IsPrimary:           isPrimary,
 	}
 
-	// 12. Insert encrypted keypair
-	if err := db.InsertEncryptedKeypair(ekd); err != nil {
+	// 12. Insert encrypted keypair and wallet atomically in a single transaction.
+	tx, err := s.db.BeginTx()
+	if err != nil {
+		return "", fmt.Errorf("import keypair: begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	if err := s.db.InsertEncryptedKeypairTx(tx, ekd); err != nil {
 		return "", fmt.Errorf("import keypair: insert encrypted keypair: %w", err)
 	}
 
@@ -108,39 +139,41 @@ func (s *KeystoreService) ImportKeypair(
 		DerivationPath: models.GetDerivationPath(walletType, accountIndex),
 		AccountIndex:   accountIndex,
 	}
-	if err := db.InsertWallet(wallet); err != nil {
+	if err := s.db.InsertWalletTx(tx, wallet); err != nil {
 		return "", fmt.Errorf("import keypair: insert wallet: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("import keypair: commit: %w", err)
 	}
 
 	// 14. Return address
 	return address, nil
 }
 
-// UnlockKeypair decrypts a stored keypair using the password.
+// UnlockWallet decrypts a stored keypair using the password.
 // Handles both legacy (single-salt) and modern (dual-salt) formats.
 // Legacy wallets are transparently migrated to dual-salt + V2 params on first unlock.
 // Returns the Ed25519 private key. Caller must zero it when done.
-func (s *KeystoreService) UnlockKeypair(
-	db *database.Database,
+func (s *KeystoreService) UnlockWallet(
 	address string,
 	password string,
 ) (ed25519.PrivateKey, error) {
 	// 1. Get encrypted data
-	ekd, err := db.GetEncryptedKeypair(address)
+	ekd, err := s.db.GetEncryptedKeypair(address)
 	if err != nil {
 		return nil, fmt.Errorf("unlock keypair: %w", err)
 	}
 
 	if ekd.IsLegacyFormat() {
-		return s.unlockAndMigrateLegacy(db, ekd, password)
+		return s.unlockAndMigrateLegacy(ekd, password)
 	}
-	return s.unlockModern(db, ekd, password)
+	return s.unlockModern(ekd, password)
 }
 
 // unlockAndMigrateLegacy handles old-format wallets (verifier_salt IS NULL).
 // Steps: verify with old method → decrypt → re-encrypt with dual salts + V2 → update DB.
 func (s *KeystoreService) unlockAndMigrateLegacy(
-	db *database.Database,
 	ekd database.EncryptedKeypairData,
 	password string,
 ) (ed25519.PrivateKey, error) {
@@ -178,12 +211,12 @@ func (s *KeystoreService) unlockAndMigrateLegacy(
 	newEncSalt, err := keystore.GenerateSalt()
 	if err != nil {
 		// Migration failed but unlock succeeded — return key, skip migration
-		_ = db.UpdateKeypairLastUsed(ekd.Address)
+		_ = s.db.UpdateKeypairLastUsed(ekd.Address)
 		return privKey, nil
 	}
 	newVerSalt, err := keystore.GenerateSalt()
 	if err != nil {
-		_ = db.UpdateKeypairLastUsed(ekd.Address)
+		_ = s.db.UpdateKeypairLastUsed(ekd.Address)
 		return privKey, nil
 	}
 
@@ -194,13 +227,13 @@ func (s *KeystoreService) unlockAndMigrateLegacy(
 
 	newNonce, err := keystore.GenerateNonce()
 	if err != nil {
-		_ = db.UpdateKeypairLastUsed(ekd.Address)
+		_ = s.db.UpdateKeypairLastUsed(ekd.Address)
 		return privKey, nil
 	}
 
 	newEncrypted, err := keystore.Encrypt(plaintext, newKey, newNonce)
 	if err != nil {
-		_ = db.UpdateKeypairLastUsed(ekd.Address)
+		_ = s.db.UpdateKeypairLastUsed(ekd.Address)
 		return privKey, nil
 	}
 
@@ -218,8 +251,8 @@ func (s *KeystoreService) unlockAndMigrateLegacy(
 	}
 
 	// Best-effort migration — if it fails, the old format still works next time
-	_ = db.UpdateEncryptedKeypair(migratedEKD)
-	_ = db.UpdateKeypairLastUsed(ekd.Address)
+	_ = s.db.UpdateEncryptedKeypair(migratedEKD)
+	_ = s.db.UpdateKeypairLastUsed(ekd.Address)
 
 	return privKey, nil
 }
@@ -227,7 +260,6 @@ func (s *KeystoreService) unlockAndMigrateLegacy(
 // unlockModern handles new-format wallets (verifier_salt IS NOT NULL).
 // Steps: verify password with verifier_salt → derive key from encryption salt → decrypt.
 func (s *KeystoreService) unlockModern(
-	db *database.Database,
 	ekd database.EncryptedKeypairData,
 	password string,
 ) (ed25519.PrivateKey, error) {
@@ -267,15 +299,14 @@ func (s *KeystoreService) unlockModern(
 	privKey := ed25519.NewKeyFromSeed(plaintext)
 
 	// Update last_used (best-effort)
-	_ = db.UpdateKeypairLastUsed(ekd.Address)
+	_ = s.db.UpdateKeypairLastUsed(ekd.Address)
 
 	return privKey, nil
 }
 
-// UpdatePassword re-encrypts a keypair with a new password using dual-salt derivation.
+// UpdateWalletPassword re-encrypts a keypair with a new password using dual-salt derivation.
 // Requires the seed phrase to verify identity.
-func (s *KeystoreService) UpdatePassword(
-	db *database.Database,
+func (s *KeystoreService) UpdateWalletPassword(
 	words []string,
 	newPassword string,
 ) (string, error) {
@@ -299,7 +330,7 @@ func (s *KeystoreService) UpdatePassword(
 
 	// 3. Get address, check if wallet exists in DB
 	address := keystore.KeypairToAddress(kp)
-	_, err = db.GetWalletByAddress(address)
+	_, err = s.db.GetWalletByAddress(address)
 	if err != nil {
 		// Try legacy if BIP44 address wasn't found
 		kpLegacy, errLegacy := keystore.DeriveKeypairLegacy(words)
@@ -309,7 +340,7 @@ func (s *KeystoreService) UpdatePassword(
 		defer keystore.ZeroKeypair(&kpLegacy)
 
 		legacyAddr := keystore.KeypairToAddress(kpLegacy)
-		_, errWallet := db.GetWalletByAddress(legacyAddr)
+		_, errWallet := s.db.GetWalletByAddress(legacyAddr)
 		if errWallet != nil {
 			return "", fmt.Errorf("update password: wallet not found: %w", models.ErrWalletNotFound)
 		}
@@ -345,7 +376,7 @@ func (s *KeystoreService) UpdatePassword(
 	}
 
 	// Get existing keypair data for label/isPrimary
-	existingEKD, err := db.GetEncryptedKeypair(address)
+	existingEKD, err := s.db.GetEncryptedKeypair(address)
 	if err != nil {
 		return "", fmt.Errorf("update password: get existing keypair: %w", err)
 	}
@@ -363,7 +394,7 @@ func (s *KeystoreService) UpdatePassword(
 		IsPrimary:           existingEKD.IsPrimary,
 	}
 
-	if err := db.UpdateEncryptedKeypair(ekd); err != nil {
+	if err := s.db.UpdateEncryptedKeypair(ekd); err != nil {
 		return "", fmt.Errorf("update password: update encrypted keypair: %w", err)
 	}
 

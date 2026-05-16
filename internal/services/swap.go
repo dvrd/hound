@@ -1,7 +1,6 @@
 package services
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -12,17 +11,17 @@ import (
 
 // SwapService orchestrates swap execution: quote validation, signing, submission, and history.
 type SwapService struct {
-	swapClient      *swap.SwapClient
-	keystoreService *KeystoreService
-	db              *database.Database
+	swapClient   *swap.SwapClient
+	keyCustodian KeyCustodian
+	db           *database.Database
 }
 
 // NewSwapService creates a new SwapService.
-func NewSwapService(swapClient *swap.SwapClient, keystoreService *KeystoreService, db *database.Database) *SwapService {
+func NewSwapService(swapClient *swap.SwapClient, keyCustodian KeyCustodian, db *database.Database) *SwapService {
 	return &SwapService{
-		swapClient:      swapClient,
-		keystoreService: keystoreService,
-		db:              db,
+		swapClient:   swapClient,
+		keyCustodian: keyCustodian,
+		db:           db,
 	}
 }
 
@@ -34,7 +33,7 @@ func (s *SwapService) ExecuteSwap(quote models.SwapQuote, walletAddr string, pas
 	}
 
 	// Unlock keypair
-	privKey, err := s.keystoreService.UnlockKeypair(s.db, walletAddr, password)
+	privKey, err := s.keyCustodian.UnlockWallet(walletAddr, password)
 	if err != nil {
 		return models.SwapTransactionResult{}, fmt.Errorf("execute swap: unlock keypair: %w", err)
 	}
@@ -45,27 +44,19 @@ func (s *SwapService) ExecuteSwap(quote models.SwapQuote, walletAddr string, pas
 		}
 	}()
 
-	// Extract transaction base64 and requestId from raw response
-	var rawResp struct {
-		Transaction string `json:"transaction"`
-		RequestID   string `json:"requestId"`
-	}
-	if err := json.Unmarshal(quote.RawResponse, &rawResp); err != nil {
-		return models.SwapTransactionResult{}, fmt.Errorf("execute swap: parse raw response: %w", models.ErrInvalidTransaction)
-	}
-
-	if rawResp.Transaction == "" {
+	// Validate the quote has a transaction payload.
+	if quote.TransactionPayload == "" {
 		return models.SwapTransactionResult{}, fmt.Errorf("execute swap: no transaction in quote: %w", models.ErrInvalidTransaction)
 	}
 
 	// Sign transaction
-	signedTx, err := swap.SignTransaction(rawResp.Transaction, privKey)
+	signedTx, err := swap.SignTransaction(quote.TransactionPayload, privKey)
 	if err != nil {
 		return models.SwapTransactionResult{}, fmt.Errorf("execute swap: %w", err)
 	}
 
 	// Submit transaction — reuse the SwapClient's HTTP client (already configured with timeouts).
-	result, err := swap.SubmitTransaction(s.swapClient.HTTPClient(), "https://lite-api.jup.ag", signedTx, rawResp.RequestID)
+	result, err := swap.SubmitTransaction(s.swapClient.HTTPClient(), "https://lite-api.jup.ag", signedTx, quote.RequestID)
 	if err != nil {
 		// Save failed swap to history
 		s.saveHistory(quote, walletAddr, result)

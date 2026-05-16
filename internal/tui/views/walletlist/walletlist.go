@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/dvrd/hound/internal/database"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/tui"
@@ -378,5 +377,4 @@ func (m *Model) SetSize(w, h int) {
 	m.height = h
 }
 
-// Ensure lipgloss is used (it's used in View via tui styles).
-var _ = lipgloss.NewStyle
+

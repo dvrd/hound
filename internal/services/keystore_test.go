@@ -31,23 +31,23 @@ func setupTestDB(t *testing.T) *database.Database {
 
 func TestImportAndUnlockRoundTrip(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
 	// Import
-	address, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 	if address == "" {
-		t.Fatal("ImportKeypair returned empty address")
+		t.Fatal("ImportWallet returned empty address")
 	}
 	t.Logf("Imported wallet address: %s", address)
 
 	// Unlock
-	privKey, err := svc.UnlockKeypair(db, address, testPassword)
+	privKey, err := svc.UnlockWallet(address, testPassword)
 	if err != nil {
-		t.Fatalf("UnlockKeypair failed: %v", err)
+		t.Fatalf("UnlockWallet failed: %v", err)
 	}
 	defer keystore.ZeroBytes(privKey)
 
@@ -63,12 +63,12 @@ func TestImportAndUnlockRoundTrip(t *testing.T) {
 
 func TestImportUsesDualSalt(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	// Verify the stored keypair uses dual-salt format
@@ -103,17 +103,17 @@ func TestImportUsesDualSalt(t *testing.T) {
 
 func TestImportLegacyAndUnlock(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "legacy-wallet", true, models.WalletTypeLegacy, 0)
+	address, err := svc.ImportWallet(words, testPassword, "legacy-wallet", models.WalletTypeLegacy, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair (legacy) failed: %v", err)
+		t.Fatalf("ImportWallet (legacy) failed: %v", err)
 	}
 
-	privKey, err := svc.UnlockKeypair(db, address, testPassword)
+	privKey, err := svc.UnlockWallet(address, testPassword)
 	if err != nil {
-		t.Fatalf("UnlockKeypair (legacy) failed: %v", err)
+		t.Fatalf("UnlockWallet (legacy) failed: %v", err)
 	}
 	defer keystore.ZeroBytes(privKey)
 
@@ -128,17 +128,17 @@ func TestImportLegacyAndUnlock(t *testing.T) {
 
 func TestUnlockWrongPassword(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
-	_, err = svc.UnlockKeypair(db, address, "Wr0ng!Password#9")
+	_, err = svc.UnlockWallet(address, "Wr0ng!Password#9")
 	if err == nil {
-		t.Fatal("UnlockKeypair with wrong password should return error")
+		t.Fatal("UnlockWallet with wrong password should return error")
 	}
 	if !errors.Is(err, models.ErrCryptoFailed) {
 		t.Errorf("expected ErrCryptoFailed, got: %v", err)
@@ -147,12 +147,12 @@ func TestUnlockWrongPassword(t *testing.T) {
 
 func TestImportWeakPasswordRejected(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	_, err := svc.ImportKeypair(db, words, testWeakPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	_, err := svc.ImportWallet(words, testWeakPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err == nil {
-		t.Fatal("ImportKeypair with weak password should return error")
+		t.Fatal("ImportWallet with weak password should return error")
 	}
 	if !errors.Is(err, models.ErrWeakPassword) {
 		t.Errorf("expected ErrWeakPassword, got: %v", err)
@@ -161,46 +161,46 @@ func TestImportWeakPasswordRejected(t *testing.T) {
 
 func TestImportInvalidSeedPhrase(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := []string{"invalid", "words", "that", "are", "not", "a", "valid", "bip39", "mnemonic", "at", "all", "here"}
 
-	_, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	_, err := svc.ImportWallet(words, testPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err == nil {
-		t.Fatal("ImportKeypair with invalid seed phrase should return error")
+		t.Fatal("ImportWallet with invalid seed phrase should return error")
 	}
 }
 
-func TestUpdatePasswordAndUnlock(t *testing.T) {
+func TestUpdateWalletPasswordAndUnlock(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
 	// Import with original password
-	address, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	// Update password
 	newPassword := "NewStr0ng!Pass#2"
-	updatedAddr, err := svc.UpdatePassword(db, words, newPassword)
+	updatedAddr, err := svc.UpdateWalletPassword(words, newPassword)
 	if err != nil {
-		t.Fatalf("UpdatePassword failed: %v", err)
+		t.Fatalf("UpdateWalletPassword failed: %v", err)
 	}
 	if updatedAddr != address {
-		t.Errorf("UpdatePassword returned different address: %s vs %s", updatedAddr, address)
+		t.Errorf("UpdateWalletPassword returned different address: %s vs %s", updatedAddr, address)
 	}
 
 	// Old password should fail
-	_, err = svc.UnlockKeypair(db, address, testPassword)
+	_, err = svc.UnlockWallet(address, testPassword)
 	if err == nil {
-		t.Fatal("UnlockKeypair with old password should fail after UpdatePassword")
+		t.Fatal("UnlockWallet with old password should fail after UpdateWalletPassword")
 	}
 
 	// New password should work
-	privKey, err := svc.UnlockKeypair(db, address, newPassword)
+	privKey, err := svc.UnlockWallet(address, newPassword)
 	if err != nil {
-		t.Fatalf("UnlockKeypair with new password failed: %v", err)
+		t.Fatalf("UnlockWallet with new password failed: %v", err)
 	}
 	defer keystore.ZeroBytes(privKey)
 
@@ -213,20 +213,20 @@ func TestUpdatePasswordAndUnlock(t *testing.T) {
 	}
 }
 
-func TestUpdatePasswordUsesDualSalt(t *testing.T) {
+func TestUpdateWalletPasswordUsesDualSalt(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	newPassword := "NewStr0ng!Pass#2"
-	_, err = svc.UpdatePassword(db, words, newPassword)
+	_, err = svc.UpdateWalletPassword(words, newPassword)
 	if err != nil {
-		t.Fatalf("UpdatePassword failed: %v", err)
+		t.Fatalf("UpdateWalletPassword failed: %v", err)
 	}
 
 	ekd, err := db.GetEncryptedKeypair(address)
@@ -235,49 +235,49 @@ func TestUpdatePasswordUsesDualSalt(t *testing.T) {
 	}
 
 	if ekd.IsLegacyFormat() {
-		t.Error("after UpdatePassword, keypair should NOT be legacy format")
+		t.Error("after UpdateWalletPassword, keypair should NOT be legacy format")
 	}
 	if ekd.Argon2Version != 2 {
 		t.Errorf("Argon2Version = %d, want 2", ekd.Argon2Version)
 	}
 }
 
-func TestUpdatePasswordWeakRejected(t *testing.T) {
+func TestUpdateWalletPasswordWeakRejected(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	_, err := svc.ImportKeypair(db, words, testPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	_, err := svc.ImportWallet(words, testPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
-	_, err = svc.UpdatePassword(db, words, testWeakPassword)
+	_, err = svc.UpdateWalletPassword(words, testWeakPassword)
 	if err == nil {
-		t.Fatal("UpdatePassword with weak password should return error")
+		t.Fatal("UpdateWalletPassword with weak password should return error")
 	}
 	if !errors.Is(err, models.ErrWeakPassword) {
 		t.Errorf("expected ErrWeakPassword, got: %v", err)
 	}
 }
 
-func TestUpdatePasswordWalletNotFound(t *testing.T) {
+func TestUpdateWalletPasswordWalletNotFound(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 
 	// Use a different mnemonic that hasn't been imported
 	words := strings.Split("zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong", " ")
 
-	_, err := svc.UpdatePassword(db, words, testPassword)
+	_, err := svc.UpdateWalletPassword(words, testPassword)
 	if err == nil {
-		t.Fatal("UpdatePassword for non-existent wallet should return error")
+		t.Fatal("UpdateWalletPassword for non-existent wallet should return error")
 	}
 }
 
 func TestLegacyMigrationOnUnlock(t *testing.T) {
 	// Simulate a pre-migration wallet by inserting directly with old format
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
 	// First, derive the keypair to get the address and seed
@@ -331,9 +331,9 @@ func TestLegacyMigrationOnUnlock(t *testing.T) {
 	}
 
 	// Unlock — should trigger migration
-	privKey, err := svc.UnlockKeypair(db, address, testPassword)
+	privKey, err := svc.UnlockWallet(address, testPassword)
 	if err != nil {
-		t.Fatalf("UnlockKeypair (legacy migration) failed: %v", err)
+		t.Fatalf("UnlockWallet (legacy migration) failed: %v", err)
 	}
 	defer keystore.ZeroBytes(privKey)
 
@@ -364,9 +364,9 @@ func TestLegacyMigrationOnUnlock(t *testing.T) {
 	}
 
 	// Verify we can unlock again with the migrated format
-	privKey2, err := svc.UnlockKeypair(db, address, testPassword)
+	privKey2, err := svc.UnlockWallet(address, testPassword)
 	if err != nil {
-		t.Fatalf("UnlockKeypair (post-migration) failed: %v", err)
+		t.Fatalf("UnlockWallet (post-migration) failed: %v", err)
 	}
 	defer keystore.ZeroBytes(privKey2)
 
@@ -379,7 +379,7 @@ func TestLegacyMigrationOnUnlock(t *testing.T) {
 
 func TestLegacyWrongPasswordRejected(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
 	// Create old-format entry
@@ -410,9 +410,9 @@ func TestLegacyWrongPasswordRejected(t *testing.T) {
 	db.InsertWallet(wallet)
 
 	// Wrong password should fail
-	_, err := svc.UnlockKeypair(db, address, "Wr0ng!Password#9")
+	_, err := svc.UnlockWallet(address, "Wr0ng!Password#9")
 	if err == nil {
-		t.Fatal("UnlockKeypair with wrong password on legacy wallet should fail")
+		t.Fatal("UnlockWallet with wrong password on legacy wallet should fail")
 	}
 	if !errors.Is(err, models.ErrCryptoFailed) {
 		t.Errorf("expected ErrCryptoFailed, got: %v", err)
@@ -429,22 +429,22 @@ func TestLegacyWrongPasswordRejected(t *testing.T) {
 // The second import should fail because the wallet address (PRIMARY KEY) already exists.
 func TestImportSameSeedTwice(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
 	// First import should succeed
-	address, err := svc.ImportKeypair(db, words, testPassword, "wallet-one", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "wallet-one", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("first ImportKeypair failed: %v", err)
+		t.Fatalf("first ImportWallet failed: %v", err)
 	}
 	if address == "" {
-		t.Fatal("first ImportKeypair returned empty address")
+		t.Fatal("first ImportWallet returned empty address")
 	}
 
 	// Second import of the same seed should fail (UNIQUE constraint on address)
-	_, err = svc.ImportKeypair(db, words, testPassword, "wallet-two", false, models.WalletTypeBIP44Standard, 0)
+	_, err = svc.ImportWallet(words, testPassword, "wallet-two", models.WalletTypeBIP44Standard, 0)
 	if err == nil {
-		t.Fatal("second ImportKeypair with same seed should return error")
+		t.Fatal("second ImportWallet with same seed should return error")
 	}
 	// The error should be a database-level constraint violation (not a sentinel we wrap)
 	// but it should definitely be non-nil
@@ -454,14 +454,14 @@ func TestImportSameSeedTwice(t *testing.T) {
 // TestImportPasswordTooShort verifies K3: password shorter than 12 chars is rejected at service level.
 func TestImportPasswordTooShort(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
 	// 11 chars — meets all char class requirements but is too short
 	shortPassword := "Abcdefghi1!"
-	_, err := svc.ImportKeypair(db, words, shortPassword, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+	_, err := svc.ImportWallet(words, shortPassword, "test-wallet", models.WalletTypeBIP44Standard, 0)
 	if err == nil {
-		t.Fatal("ImportKeypair with 11-char password should return error")
+		t.Fatal("ImportWallet with 11-char password should return error")
 	}
 	if !errors.Is(err, models.ErrWeakPassword) {
 		t.Errorf("expected ErrWeakPassword for short password, got: %v", err)
@@ -471,7 +471,7 @@ func TestImportPasswordTooShort(t *testing.T) {
 // TestImportPasswordMissingCharClasses verifies K4: passwords missing required char classes are rejected.
 func TestImportPasswordMissingCharClasses(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
 	tests := []struct {
@@ -486,9 +486,9 @@ func TestImportPasswordMissingCharClasses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.ImportKeypair(db, words, tt.password, "test-wallet", true, models.WalletTypeBIP44Standard, 0)
+			_, err := svc.ImportWallet(words, tt.password, "test-wallet", models.WalletTypeBIP44Standard, 0)
 			if err == nil {
-				t.Fatalf("ImportKeypair with password %q (missing char class) should return error", tt.password)
+				t.Fatalf("ImportWallet with password %q (missing char class) should return error", tt.password)
 			}
 			if !errors.Is(err, models.ErrWeakPassword) {
 				t.Errorf("expected ErrWeakPassword, got: %v", err)

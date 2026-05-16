@@ -86,15 +86,8 @@ func NewRouterWithSOLPrice(rpcClient *blockchain.RPCClient, jupiterClient *Jupit
 // FetchPrice fetches the price for a token, trying pools in priority order.
 // Falls back to Jupiter API if all pool-based methods fail.
 func (r *Router) FetchPrice(token models.Token) (models.PriceData, error) {
-	// Try each pool in order
-	for _, pool := range token.Pools {
-		dexType := ParseDexType(pool.Dex, pool.PoolType)
-
-		// For now, all pool-based decoders are stubbed out.
-		// They will be implemented later (Orca Whirlpool, Raydium CLMM/AMM, Meteora DLMM).
-		// Skip to next pool or fall through to Jupiter.
-		_ = dexType
-	}
+	// TODO: implement pool-based price decoders (Orca Whirlpool, Raydium CLMM/AMM, Meteora DLMM).
+	// For now, all pool-based methods are unimplemented — fall through to Jupiter API.
 
 	// Fallback: Jupiter API
 	priceData, err := r.jupiterClient.FetchPrice(token.ContractAddress)

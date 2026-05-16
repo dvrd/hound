@@ -691,6 +691,6 @@ func (a App) saveState(view, addr string) {
 	if a.db == nil {
 		return
 	}
-	_ = a.db.SetAppState("last_view", view)
-	_ = a.db.SetAppState("last_addr", addr)
+	_ = a.db.SetAppState("last_view", view)  // best-effort: state persistence is non-critical
+	_ = a.db.SetAppState("last_addr", addr)   // best-effort: state persistence is non-critical
 }

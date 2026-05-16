@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/dvrd/hound/internal/dex"
 	"github.com/dvrd/hound/internal/models"
+	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/views/tokenlist"
 )
@@ -17,7 +18,7 @@ import (
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 func newTestModel() tokenlist.Model {
-	return tokenlist.NewWithJupiter(nil, dex.NewJupiterClient())
+	return tokenlist.New(services.NewTokenCatalog(nil, nil, nil), nil)
 }
 
 func loadedModel() tokenlist.Model {
@@ -107,7 +108,8 @@ func modelWithJupiter(t *testing.T, serverBody string) (tokenlist.Model, *httpte
 	srv := jupiterServer(t, serverBody)
 	httpClient := &http.Client{}
 	j := dex.NewJupiterClientWithHTTP(httpClient, "https://unused/", srv.URL+"/search?query=")
-	m := tokenlist.NewWithJupiter(nil, j)
+	catalog := services.NewTokenCatalog(j, nil, nil)
+	m := tokenlist.New(catalog, nil)
 	updated, _ := m.Update(tokenlist.TokensLoadedMsg{Tokens: nil})
 	return updated.(tokenlist.Model), srv
 }
@@ -310,7 +312,7 @@ func TestLoadingView(t *testing.T) {
 }
 
 func TestTokenList_ResponsiveView_Narrow(t *testing.T) {
-	m := tokenlist.NewWithJupiter(nil, dex.NewJupiterClient())
+	m := tokenlist.New(services.NewTokenCatalog(nil, nil, nil), nil)
 
 	tokens := make([]tokenlist.TokenRow, 20)
 	for i := range tokens {
@@ -459,7 +461,7 @@ func TestSearchResultsDisplayed(t *testing.T) {
 
 func TestSearchResultsSavedBadge(t *testing.T) {
 	// Load a model with SOL saved
-	base := tokenlist.NewWithJupiter(nil, dex.NewJupiterClient())
+	base := tokenlist.New(services.NewTokenCatalog(nil, nil, nil), nil)
 	savedRows := []tokenlist.TokenRow{
 		{Token: models.Token{
 			Symbol:          "SOL",

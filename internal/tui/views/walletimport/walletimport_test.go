@@ -10,7 +10,7 @@ import (
 )
 
 func newTestModel() walletimport.Model {
-	return walletimport.New(nil, nil)
+	return walletimport.New(nil)
 }
 
 func TestInitialStepIsChoice(t *testing.T) {
@@ -272,7 +272,7 @@ func TestImportingStep_ViewContainsSpinner(t *testing.T) {
 }
 
 func TestWalletImport_ResponsiveInputWidths(t *testing.T) {
-	m := walletimport.New(nil, nil)
+	m := walletimport.New(nil)
 
 	model, _ := m.Update(tea.WindowSizeMsg{Width: 50, Height: 20})
 

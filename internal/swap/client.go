@@ -176,18 +176,19 @@ func (c *SwapClient) GetQuote(inputMint, outputMint, amount string, taker string
 	}
 
 	quote := models.SwapQuote{
-		InputMint:      raw.InputMint,
-		OutputMint:     raw.OutputMint,
-		InAmount:       raw.InAmount,
-		OutAmount:      raw.OutAmount,
-		Rate:           rate,
-		SlippageBps:    raw.SlippageBps,
-		PriceImpactPct: priceImpact,
-		RoutePlan:      routePlan,
-		NetworkFee:     networkFee,
-		MinReceived:    minReceived,
-		FetchedAt:      time.Now(),
-		RawResponse:    json.RawMessage(body),
+		InputMint:           raw.InputMint,
+		OutputMint:          raw.OutputMint,
+		InAmount:            raw.InAmount,
+		OutAmount:           raw.OutAmount,
+		Rate:                rate,
+		SlippageBps:         raw.SlippageBps,
+		PriceImpactPct:      priceImpact,
+		RoutePlan:           routePlan,
+		NetworkFee:          networkFee,
+		MinReceived:         minReceived,
+		FetchedAt:           time.Now(),
+		TransactionPayload:  raw.Transaction,
+		RequestID:           raw.RequestID,
 	}
 
 	// Cache result and evict stale entries (H6: prevent unbounded cache growth).

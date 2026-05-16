@@ -1,7 +1,6 @@
 package models
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -32,18 +31,21 @@ type RouteStep struct {
 }
 
 // SwapQuote represents a complete swap quote from Jupiter.
+// TransactionPayload and RequestID are extracted from the raw Jupiter response
+// so callers don't need to parse Jupiter's JSON format.
 type SwapQuote struct {
-	InputMint      string
-	OutputMint     string
-	InAmount       string
-	OutAmount      string
-	Rate           float64
-	SlippageBps    int
-	PriceImpactPct float64
-	RoutePlan      []RouteStep
-	NetworkFee     float64
-	FetchedAt      time.Time
-	RawResponse    json.RawMessage // Raw Jupiter response for signing
+	InputMint           string
+	OutputMint          string
+	InAmount            string
+	OutAmount           string
+	Rate                float64
+	SlippageBps         int
+	PriceImpactPct      float64
+	RoutePlan           []RouteStep
+	NetworkFee          float64
+	FetchedAt           time.Time
+	TransactionPayload  string // base64-encoded transaction (extracted from Jupiter response)
+	RequestID           string // Jupiter request ID for submission
 
 	// Human-readable fields populated after quote
 	InputSymbol  string

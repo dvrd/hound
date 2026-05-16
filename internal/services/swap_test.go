@@ -2,7 +2,6 @@ package services_test
 
 import (
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -39,12 +38,12 @@ func makeTestTransaction(address string) string {
 
 func TestSwapService_ExecuteSwap_ExpiredQuote(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "swap-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "swap-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	swapClient := swap.NewSwapClient()
@@ -70,29 +69,25 @@ func TestSwapService_ExecuteSwap_ExpiredQuote(t *testing.T) {
 
 func TestSwapService_ExecuteSwap_WrongPassword(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "swap-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "swap-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	swapClient := swap.NewSwapClient()
 	swapSvc := services.NewSwapService(swapClient, svc, db)
 
-	rawResp, _ := json.Marshal(map[string]interface{}{
-		"transaction": makeTestTransaction(address),
-		"requestId":   "req-123",
-	})
-
 	quote := models.SwapQuote{
-		InputMint:   "So11111111111111111111111111111111111111112",
-		OutputMint:  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-		InAmount:    "1000000000",
-		OutAmount:   "150000000",
-		FetchedAt:   time.Now(),
-		RawResponse: rawResp,
+		InputMint:          "So11111111111111111111111111111111111111112",
+		OutputMint:         "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		InAmount:           "1000000000",
+		OutAmount:          "150000000",
+		FetchedAt:          time.Now(),
+		TransactionPayload: makeTestTransaction(address),
+		RequestID:          "req-123",
 	}
 
 	_, err = swapSvc.ExecuteSwap(quote, address, "Wr0ng!Password#9")
@@ -106,29 +101,25 @@ func TestSwapService_ExecuteSwap_WrongPassword(t *testing.T) {
 
 func TestSwapService_ExecuteSwap_NoTransaction(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "swap-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "swap-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	swapClient := swap.NewSwapClient()
 	swapSvc := services.NewSwapService(swapClient, svc, db)
 
-	// Quote with no transaction field
-	rawResp, _ := json.Marshal(map[string]interface{}{
-		"requestId": "req-123",
-	})
-
+	// Quote with no transaction payload
 	quote := models.SwapQuote{
 		InputMint:   "So11111111111111111111111111111111111111112",
 		OutputMint:  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
 		InAmount:    "1000000000",
 		OutAmount:   "150000000",
 		FetchedAt:   time.Now(),
-		RawResponse: rawResp,
+		RequestID:   "req-123",
 	}
 
 	_, err = swapSvc.ExecuteSwap(quote, address, testPassword)
@@ -142,33 +133,29 @@ func TestSwapService_ExecuteSwap_NoTransaction(t *testing.T) {
 
 func TestSwapService_ExecuteSwap_SignsAndSubmits(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "swap-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "swap-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
-
-	rawResp, _ := json.Marshal(map[string]interface{}{
-		"transaction": makeTestTransaction(address),
-		"requestId":   "req-123",
-	})
 
 	swapClient := swap.NewSwapClient()
 	swapSvc := services.NewSwapService(swapClient, svc, db)
 
 	quote := models.SwapQuote{
-		InputMint:    "So11111111111111111111111111111111111111112",
-		OutputMint:   "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-		InAmount:     "1000000000",
-		OutAmount:    "150000000",
-		InputSymbol:  "SOL",
-		OutputSymbol: "USDC",
-		InputAmount:  1.0,
-		OutputAmount: 150.0,
-		FetchedAt:    time.Now(),
-		RawResponse:  rawResp,
+		InputMint:          "So11111111111111111111111111111111111111112",
+		OutputMint:         "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		InAmount:           "1000000000",
+		OutAmount:          "150000000",
+		InputSymbol:        "SOL",
+		OutputSymbol:       "USDC",
+		InputAmount:        1.0,
+		OutputAmount:       150.0,
+		FetchedAt:          time.Now(),
+		TransactionPayload: makeTestTransaction(address),
+		RequestID:          "req-123",
 	}
 
 	// Execute - will fail on submit (hits real Jupiter API), but signing should succeed
@@ -193,24 +180,24 @@ func TestSwapService_ExecuteSwap_SignsAndSubmits(t *testing.T) {
 
 func TestSwapService_ExecuteSwap_InvalidRawResponse(t *testing.T) {
 	db := setupTestDB(t)
-	svc := &services.KeystoreService{}
+	svc := services.NewKeystoreService(db)
 	words := strings.Split(testMnemonic, " ")
 
-	address, err := svc.ImportKeypair(db, words, testPassword, "swap-wallet", true, models.WalletTypeBIP44Standard, 0)
+	address, err := svc.ImportWallet(words, testPassword, "swap-wallet", models.WalletTypeBIP44Standard, 0)
 	if err != nil {
-		t.Fatalf("ImportKeypair failed: %v", err)
+		t.Fatalf("ImportWallet failed: %v", err)
 	}
 
 	swapClient := swap.NewSwapClient()
 	swapSvc := services.NewSwapService(swapClient, svc, db)
 
 	quote := models.SwapQuote{
-		InputMint:   "So11111111111111111111111111111111111111112",
-		OutputMint:  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-		InAmount:    "1000000000",
-		OutAmount:   "150000000",
-		FetchedAt:   time.Now(),
-		RawResponse: json.RawMessage(`{invalid json`),
+		InputMint:          "So11111111111111111111111111111111111111112",
+		OutputMint:         "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+		InAmount:           "1000000000",
+		OutAmount:          "150000000",
+		FetchedAt:          time.Now(),
+		TransactionPayload: `{invalid json`,
 	}
 
 	_, err = swapSvc.ExecuteSwap(quote, address, testPassword)

@@ -48,6 +48,28 @@ func (m *WalletManager) GetPrimaryWallet() (models.Wallet, error) {
 	return m.db.GetPrimaryWallet()
 }
 
+// GetPortfolio returns the portfolio for a wallet address, handling cache,
+// live fetch, dedup, metadata resolution, pricing, and preload errors
+// behind a single seam. Callers no longer need to know whether data comes
+// from cache or a live RPC call.
+//
+// Priority: cached data → live refresh if no cache → fallback to DB balances.
+func (m *WalletManager) GetPortfolio(ctx context.Context, address string) (models.PortfolioBalance, error) {
+	// 1. Surface preload errors early so callers see them instead of a generic cache-miss.
+	if preloadErr := m.PreloadError(address); preloadErr != nil {
+		return models.PortfolioBalance{}, preloadErr
+	}
+
+	// 2. Try cache first (populated by preload or prior refresh).
+	cached, err := m.GetCachedPortfolio(address)
+	if err == nil && cached.WalletAddress != "" {
+		return cached, nil
+	}
+
+	// 3. No useful cache — fetch live.
+	return m.RefreshPortfolio(ctx, address)
+}
+
 // RefreshPortfolio fetches live balances and caches the result.
 // If a refresh for the same address is already in-flight, it returns the cached
 // portfolio immediately (or waits for the in-flight call to complete via the cache).

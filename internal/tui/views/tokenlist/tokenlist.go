@@ -1,17 +1,15 @@
 package tokenlist
 
 import (
-	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/dvrd/hound/internal/database"
-	"github.com/dvrd/hound/internal/dex"
 	"github.com/dvrd/hound/internal/models"
+	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/tui"
 	"github.com/dvrd/hound/internal/tui/components"
 	"github.com/dvrd/hound/internal/wallet"
@@ -32,10 +30,8 @@ type searchResultsMsg struct {
 	err     error
 }
 
-// debounceMsg fires after the debounce delay to trigger a Jupiter search.
-type debounceMsg struct {
-	generation int // matches m.searchGen; stale ticks are discarded
-}
+// debounceMsg is an alias for the shared DebounceTickMsg.
+type debounceMsg = components.DebounceTickMsg
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -74,7 +70,7 @@ type Model struct {
 
 	// Search state
 	searchInput  textinput.Model
-	searchGen    int            // incremented on every keystroke for debounce
+	debouncer    components.Debouncer
 	searching    bool           // true while Jupiter fetch is in flight
 	searchErr    error          // last search error
 	results      []SearchResult // live results from Jupiter
@@ -84,22 +80,17 @@ type Model struct {
 	cursor int
 
 	// Infrastructure
-	db      *database.Database
-	jupiter *dex.JupiterClient
-	loading bool
+	db           *database.Database
+	tokenCatalog *services.TokenCatalog
+	loading      bool
 	spinner components.SpinnerModel
 	width   int
 	height  int
 	err     error
 }
 
-// New creates a new token list / search view.
-func New(db *database.Database) Model {
-	return NewWithJupiter(db, dex.NewJupiterClient())
-}
-
-// NewWithJupiter creates the model with a custom Jupiter client (for testing).
-func NewWithJupiter(db *database.Database, jupiter *dex.JupiterClient) Model {
+// New creates a new token list / search view using the given TokenCatalog.
+func New(catalog *services.TokenCatalog, db *database.Database) Model {
 	si := textinput.New()
 	si.Placeholder = "Search tokens…"
 	si.Prompt = ""
@@ -111,11 +102,12 @@ func NewWithJupiter(db *database.Database, jupiter *dex.JupiterClient) Model {
 	si.Focus()
 
 	return Model{
-		db:          db,
-		jupiter:     jupiter,
-		loading:     true,
-		spinner:     components.NewSpinner("Loading tokens..."),
-		searchInput: si,
+		db:           db,
+		tokenCatalog: catalog,
+		loading:      true,
+		spinner:      components.NewSpinner("Loading tokens..."),
+		searchInput:  si,
+		debouncer:    components.NewDebouncer(),
 	}
 }
 
@@ -145,27 +137,15 @@ func (m Model) loadTokens() tea.Cmd {
 
 // ─── Debounce ────────────────────────────────────────────────────────────────
 
-const searchDebounce = 300 * time.Millisecond
-
-func (m Model) scheduleSearch() tea.Cmd {
-	gen := m.searchGen
-	return tea.Tick(searchDebounce, func(_ time.Time) tea.Msg {
-		return debounceMsg{generation: gen}
-	})
+func (m *Model) scheduleSearch() tea.Cmd {
+	return m.debouncer.Bump()
 }
 
 func (m Model) doSearch(query string) tea.Cmd {
-	savedAddrs := make(map[string]bool, len(m.tokens))
-	for _, tr := range m.tokens {
-		savedAddrs[tr.Token.ContractAddress] = true
-	}
-	jupiter := m.jupiter
+	catalog := m.tokenCatalog
 	return func() tea.Msg {
-		results, err := jupiter.LookupTokenList(query)
+		results, err := catalog.Search(query)
 		if err != nil {
-			if errors.Is(err, models.ErrTokenNotFound) {
-				return searchResultsMsg{query: query, results: nil}
-			}
 			return searchResultsMsg{query: query, err: err}
 		}
 		sr := make([]SearchResult, 0, len(results))
@@ -174,7 +154,7 @@ func (m Model) doSearch(query string) tea.Cmd {
 				Symbol:  r.Symbol,
 				Name:    r.Name,
 				Address: r.Address,
-				Saved:   savedAddrs[r.Address],
+				Saved:   r.Saved,
 			})
 		}
 		return searchResultsMsg{query: query, results: sr}
@@ -197,7 +177,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case debounceMsg:
-		if msg.generation != m.searchGen {
+		if !m.debouncer.IsCurrent(msg.Generation) {
 			return m, nil
 		}
 		query := strings.TrimSpace(m.searchInput.Value())
@@ -239,7 +219,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if query != "" {
 				// First esc: clear search, return to idle
 				m.searchInput.SetValue("")
-				m.searchGen++
+				_ = m.debouncer.Bump()
 				m.results = nil
 				m.inSearchMode = false
 				m.searching = false
@@ -301,7 +281,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 			m.searching = true
-			m.searchGen++
+			_ = m.debouncer.Bump()
 			return m, m.doSearch(q)
 
 		// ── All other keys go to search input ─────────────────────────────
@@ -326,7 +306,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // query is non-empty, or resets to idle mode if the field was cleared.
 func (m *Model) afterInput(inputCmd tea.Cmd) tea.Cmd {
 	query := strings.TrimSpace(m.searchInput.Value())
-	m.searchGen++
 	if query == "" {
 		m.results = nil
 		m.inSearchMode = false
@@ -442,7 +421,7 @@ func (m Model) renderSavedTokens(b *strings.Builder) {
 		}
 	}
 
-	startIdx, endIdx := viewWindow(m.cursor, maxRows, len(m.tokens))
+	startIdx, endIdx := components.ViewWindow(m.cursor, maxRows, len(m.tokens))
 	rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%dd %%%ds", colSym, colName, colPools, colLiq)
 	for i := startIdx; i < endIdx; i++ {
 		tr := m.tokens[i]
@@ -501,7 +480,7 @@ func (m Model) renderSearchResults(b *strings.Builder) {
 		}
 	}
 
-	startIdx, endIdx := viewWindow(m.cursor, maxRows, len(m.results))
+	startIdx, endIdx := components.ViewWindow(m.cursor, maxRows, len(m.results))
 	rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%-%ds", colSym, colName, colAddr)
 	for i := startIdx; i < endIdx; i++ {
 		r := m.results[i]
@@ -522,22 +501,7 @@ func (m Model) renderSearchResults(b *strings.Builder) {
 	}
 }
 
-// viewWindow computes [startIdx, endIdx) keeping cursor within a maxRows window.
-func viewWindow(cursor, maxRows, total int) (startIdx, endIdx int) {
-	startIdx = 0
-	if cursor >= maxRows {
-		startIdx = cursor - maxRows + 1
-	}
-	endIdx = startIdx + maxRows
-	if endIdx > total {
-		endIdx = total
-		startIdx = endIdx - maxRows
-		if startIdx < 0 {
-			startIdx = 0
-		}
-	}
-	return
-}
+
 
 // ─── Footer ──────────────────────────────────────────────────────────────────
 

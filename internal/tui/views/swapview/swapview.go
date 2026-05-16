@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/dvrd/hound/internal/dex"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
 	"github.com/dvrd/hound/internal/swap"
@@ -76,10 +74,8 @@ type TokenSearchResultMsg struct {
 	Err     error
 }
 
-// tokenSearchDebounceMsg fires after debounce delay (internal).
-type tokenSearchDebounceMsg struct {
-	gen int
-}
+// tokenSearchDebounceMsg is an alias for the shared DebounceTickMsg.
+type tokenSearchDebounceMsg = components.DebounceTickMsg
 
 // tokenPickTarget identifies which mint (input or output) a token search is resolving.
 type tokenPickTarget int
@@ -105,7 +101,7 @@ type Model struct {
 	spinner       components.SpinnerModel
 	swapClient    *swap.SwapClient
 	swapSvc       *services.SwapService
-	jupiterClient *dex.JupiterClient
+	tokenCatalog  *services.TokenCatalog
 	width         int
 	height        int
 	err           error
@@ -113,7 +109,7 @@ type Model struct {
 	// Token search state (used during PhaseInput to pick tokens by symbol)
 	pickTarget    tokenPickTarget // which mint we're picking
 	searchInput   textinput.Model // symbol search field
-	searchGen     int             // debounce generation
+	debouncer     components.Debouncer
 	searching     bool            // true while Jupiter fetch in flight
 	searchResults []TokenSearchResult
 	searchCursor  int
@@ -126,7 +122,7 @@ type Model struct {
 }
 
 // New creates a new swap view.
-func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapService, dryRun bool, jupiterClient ...*dex.JupiterClient) Model {
+func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapService, dryRun bool, catalog ...*services.TokenCatalog) Model {
 	im := textinput.New()
 	im.Placeholder = "Input token mint (e.g. SOL mint)"
 	im.CharLimit = 64
@@ -162,9 +158,9 @@ func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapS
 	search.CharLimit = 32
 	search.Width = 40
 
-	var jc *dex.JupiterClient
-	if len(jupiterClient) > 0 {
-		jc = jupiterClient[0]
+	var tc *services.TokenCatalog
+	if len(catalog) > 0 {
+		tc = catalog[0]
 	}
 
 	return Model{
@@ -178,8 +174,9 @@ func New(walletAddr string, swapClient *swap.SwapClient, swapSvc *services.SwapS
 		walletAddr:    walletAddr,
 		swapClient:    swapClient,
 		swapSvc:       swapSvc,
-		jupiterClient: jc,
+		tokenCatalog:  tc,
 		dryRun:        dryRun,
+		debouncer:     components.NewDebouncer(),
 	}
 }
 
@@ -224,7 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tokenSearchDebounceMsg:
-		if msg.gen != m.searchGen {
+		if !m.debouncer.IsCurrent(msg.Generation) {
 			return m, nil // stale debounce
 		}
 		q := strings.TrimSpace(m.searchInput.Value())
@@ -309,7 +306,7 @@ func (m Model) updateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.searchResults = nil
 			m.searchErr = nil
 			m.searchCursor = 0
-			m.searchGen = 0
+			_ = m.debouncer.Bump() // invalidate any pending debounce tick
 			cmd := m.searchInput.Focus()
 			return m, cmd
 		}
@@ -589,13 +586,13 @@ func (m Model) renderResult(b *strings.Builder) {
 
 }
 
-// doTokenSearch calls Jupiter's token search API and returns results as a TokenSearchResultMsg.
+// doTokenSearch uses the TokenCatalog to search for tokens by symbol/name.
 func (m Model) doTokenSearch(query string) tea.Cmd {
 	return func() tea.Msg {
-		if m.jupiterClient == nil {
-			return TokenSearchResultMsg{Query: query, Err: fmt.Errorf("Jupiter client not available")}
+		if m.tokenCatalog == nil {
+			return TokenSearchResultMsg{Query: query, Err: fmt.Errorf("token catalog not available")}
 		}
-		raw, err := m.jupiterClient.LookupTokenList(query)
+		raw, err := m.tokenCatalog.Search(query)
 		if err != nil {
 			return TokenSearchResultMsg{Query: query, Err: err}
 		}
@@ -611,12 +608,9 @@ func (m Model) doTokenSearch(query string) tea.Cmd {
 	}
 }
 
-// scheduleSearch returns a command that fires a tokenSearchDebounceMsg after 300 ms.
-func (m Model) scheduleSearch() tea.Cmd {
-	gen := m.searchGen
-	return tea.Tick(300*time.Millisecond, func(time.Time) tea.Msg {
-		return tokenSearchDebounceMsg{gen: gen}
-	})
+// scheduleSearch returns a debounced search command.
+func (m *Model) scheduleSearch() tea.Cmd {
+	return m.debouncer.Bump()
 }
 
 // updateTokenPick handles key events while the token-pick overlay is open.
@@ -652,7 +646,7 @@ func (m Model) updateTokenPick(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		var cmd tea.Cmd
 		m.searchInput, cmd = m.searchInput.Update(msg)
-		m.searchGen++
+		_ = m.debouncer.Bump()
 		return m, tea.Batch(cmd, m.scheduleSearch())
 	}
 }
