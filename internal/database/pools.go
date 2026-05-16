@@ -33,6 +33,34 @@ func (d *Database) InsertPool(tokenSymbol string, pool models.PoolInfo) error {
 	return nil
 }
 
+// getAllPoolsByTokenID loads all pools grouped by token_id in a single query.
+// Eliminates N+1 in GetAllTokens.
+func (d *Database) getAllPoolsByTokenID() (map[int64][]models.PoolInfo, error) {
+	rows, err := d.db.Query(
+		`SELECT token_id, dex, pool_address, quote_token, pool_type, liquidity_usd, volume_24h, fee_percent, discovered_at
+		 FROM pools ORDER BY token_id`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying all pools: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[int64][]models.PoolInfo)
+	for rows.Next() {
+		var tokenID int64
+		var p models.PoolInfo
+		if err := rows.Scan(&tokenID, &p.Dex, &p.PoolAddress, &p.QuoteToken, &p.PoolType,
+			&p.LiquidityUSD, &p.Volume24h, &p.FeePercent, &p.DiscoveredAt); err != nil {
+			return nil, fmt.Errorf("scanning pool row: %w", err)
+		}
+		result[tokenID] = append(result[tokenID], p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating all pools: %w", err)
+	}
+	return result, nil
+}
+
 // GetPoolsForToken retrieves all pools for a given token ID.
 func (d *Database) GetPoolsForToken(tokenID int64) ([]models.PoolInfo, error) {
 	rows, err := d.db.Query(

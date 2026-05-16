@@ -84,6 +84,33 @@ func (d *Database) GetTokenByContractAddress(addr string) (models.Token, error) 
 	return token, nil
 }
 
+// GetTokenMapByContract returns all tokens indexed by contract_address.
+// Does NOT load pools — optimized for batch lookup during portfolio assembly.
+func (d *Database) GetTokenMapByContract() (map[string]models.Token, error) {
+	rows, err := d.db.Query(
+		`SELECT symbol, name, contract_address, chain, is_quote_token, usd_price FROM tokens`,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("querying token map: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string]models.Token)
+	for rows.Next() {
+		var t models.Token
+		var isQuote int
+		if err := rows.Scan(&t.Symbol, &t.Name, &t.ContractAddress, &t.Chain, &isQuote, &t.USDPrice); err != nil {
+			return nil, fmt.Errorf("scanning token map row: %w", err)
+		}
+		t.IsQuoteToken = isQuote != 0
+		result[t.ContractAddress] = t
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterating token map rows: %w", err)
+	}
+	return result, nil
+}
+
 // GetAllTokens retrieves all tokens ordered by symbol, with pools loaded.
 // Tokens and their IDs are collected first, then pools are loaded in a
 // separate pass to avoid nested queries on the same connection.
@@ -117,14 +144,15 @@ func (d *Database) GetAllTokens() ([]models.Token, error) {
 		return nil, fmt.Errorf("iterating token rows: %w", err)
 	}
 
-	// Load pools in a separate pass (rows cursor is now closed).
+	// Batch-load all pools in a single query (eliminates N+1).
+	allPools, err := d.getAllPoolsByTokenID()
+	if err != nil {
+		return nil, fmt.Errorf("loading all pools: %w", err)
+	}
+
 	tokens := make([]models.Token, 0, len(items))
 	for _, tw := range items {
-		pools, err := d.GetPoolsForToken(tw.id)
-		if err != nil {
-			return nil, fmt.Errorf("loading pools for token %q: %w", tw.token.Symbol, err)
-		}
-		tw.token.Pools = pools
+		tw.token.Pools = allPools[tw.id]
 		tokens = append(tokens, tw.token)
 	}
 

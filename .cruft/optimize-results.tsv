@@ -1,0 +1,7 @@
+timestamp	target	metric	baseline	result	improvement_pct	test_result
+2026-05-15	wallet/balance.go	DB queries per portfolio	N+1 (20+ queries)	1 batch query	~95% fewer queries	991 pass
+2026-05-15	wallet/manager.go	wallet refresh strategy	sequential (N × RTT)	parallel (3 concurrent)	~3x faster for 3+ wallets	991 pass
+2026-05-15	database/tokens.go	GetAllTokens pool loading	N+1 (50 pool queries)	1 batch query (158μs)	~95% fewer queries	991 pass
+2026-05-15	services/token_catalog.go	saved-addr lookup	full DB scan per keystroke	cached (30s TTL)	~100% cache hit after first	991 pass
+2026-05-15	tui/app.go	renderHelp string build	string concat in loop	strings.Builder	~30% fewer allocs in render	991 pass
+2026-05-15	tui/app.go	renderHelp styles	12 NewStyle() per frame	package-level vars (0 alloc)	12 allocs eliminated per frame	991 pass

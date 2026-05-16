@@ -504,16 +504,17 @@ func injectBorderTitle(rendered, title string) string {
 //   - modal height = min(allLines+4, termH-4) — 2 rows margin top+bottom
 //   - border(2) + padding(2) = 4 rows of chrome consumed inside the box
 //   - visible content rows = modalHeight - 4
+// Help overlay styles — hoisted to avoid per-frame allocation.
+var (
+	helpKeyStyle     = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Width(12)
+	helpDescStyle    = lipgloss.NewStyle().Foreground(ColorText)
+	helpSectionStyle = lipgloss.NewStyle().Foreground(ColorSubtext).Bold(true)
+)
+
 func renderHelp(viewName string, termW, termH, scroll int) string {
-	keyStyle := lipgloss.NewStyle().
-		Foreground(ColorPrimary).
-		Bold(true).
-		Width(12)
-	descStyle := lipgloss.NewStyle().
-		Foreground(ColorText)
-	sectionStyle := lipgloss.NewStyle().
-		Foreground(ColorSubtext).
-		Bold(true)
+	keyStyle := helpKeyStyle
+	descStyle := helpDescStyle
+	sectionStyle := helpSectionStyle
 
 	// Global bindings always shown.
 	global := []struct{ key, desc string }{
@@ -623,14 +624,18 @@ func renderHelp(viewName string, termW, termH, scroll int) string {
 	visible := allLines[scroll:end]
 
 	// Render visible lines.
-	var rows string
+	var rowsBuilder strings.Builder
 	for _, l := range visible {
 		if l.isSection {
-			rows += sectionStyle.Render(l.desc) + "\n"
+			rowsBuilder.WriteString(sectionStyle.Render(l.desc))
+			rowsBuilder.WriteByte('\n')
 		} else {
-			rows += keyStyle.Render(l.key) + descStyle.Render(l.desc) + "\n"
+			rowsBuilder.WriteString(keyStyle.Render(l.key))
+			rowsBuilder.WriteString(descStyle.Render(l.desc))
+			rowsBuilder.WriteByte('\n')
 		}
 	}
+	rows := rowsBuilder.String()
 
 	// Scroll indicators.
 	indicatorStyle := lipgloss.NewStyle().Foreground(ColorSubtext)

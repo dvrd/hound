@@ -106,32 +106,52 @@ func (m *WalletManager) RefreshPortfolio(ctx context.Context, address string) (m
 	return portfolio, nil
 }
 
-// RefreshAllPortfolios refreshes all wallets (best-effort: continues on failure).
+// RefreshAllPortfolios refreshes all wallets concurrently with bounded parallelism.
+// Best-effort: continues on individual failures.
 func (m *WalletManager) RefreshAllPortfolios(ctx context.Context) (map[string]models.PortfolioBalance, error) {
 	wallets, err := m.db.GetAllWallets()
 	if err != nil {
 		return nil, fmt.Errorf("listing wallets: %w", err)
 	}
 
-	results := make(map[string]models.PortfolioBalance, len(wallets))
-	var lastErr error
+	type result struct {
+		addr      string
+		portfolio models.PortfolioBalance
+		err       error
+	}
+
+	resultCh := make(chan result, len(wallets))
+	sem := make(chan struct{}, 3) // max 3 concurrent RPC wallet refreshes
 
 	for _, w := range wallets {
-		if ctx.Err() != nil {
-			break // context cancelled — stop early
-		}
-		portfolio, err := m.RefreshPortfolio(ctx, w.Address)
-		if err != nil {
-			lastErr = err
+		go func(addr string) {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			if ctx.Err() != nil {
+				resultCh <- result{addr: addr, err: ctx.Err()}
+				return
+			}
+			p, err := m.RefreshPortfolio(ctx, addr)
+			resultCh <- result{addr: addr, portfolio: p, err: err}
+		}(w.Address)
+	}
+
+	results := make(map[string]models.PortfolioBalance, len(wallets))
+	var lastErr error
+	for range wallets {
+		r := <-resultCh
+		if r.err != nil {
+			lastErr = r.err
 			m.preloadErrMu.Lock()
-			m.preloadErrors[w.Address] = err
+			m.preloadErrors[r.addr] = r.err
 			m.preloadErrMu.Unlock()
 			continue
 		}
 		m.preloadErrMu.Lock()
-		delete(m.preloadErrors, w.Address)
+		delete(m.preloadErrors, r.addr)
 		m.preloadErrMu.Unlock()
-		results[w.Address] = portfolio
+		results[r.addr] = r.portfolio
 	}
 
 	if len(results) == 0 && lastErr != nil {

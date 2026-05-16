@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/dvrd/hound/internal/database"
 	"github.com/dvrd/hound/internal/dex"
@@ -15,6 +17,11 @@ type TokenCatalog struct {
 	jupiter     *dex.JupiterClient
 	dexscreener *dex.DexScreenerClient
 	db          *database.Database
+
+	// Cached saved-address set to avoid querying DB on every keystroke.
+	savedAddrs    map[string]bool
+	savedAddrsMu  sync.RWMutex
+	savedAddrsAt  time.Time
 }
 
 // TokenResult is a unified token result returned by the catalog.
@@ -48,16 +55,8 @@ func (c *TokenCatalog) Search(query string) ([]TokenResult, error) {
 		return nil, fmt.Errorf("token catalog: search %q: %w", query, err)
 	}
 
-	// Build saved-address set from DB.
-	savedAddrs := make(map[string]bool)
-	if c.db != nil {
-		tokens, err := c.db.GetAllTokens()
-		if err == nil {
-			for _, t := range tokens {
-				savedAddrs[t.ContractAddress] = true
-			}
-		}
-	}
+	// Use cached saved-address set (refreshed every 30s).
+	savedAddrs := c.getSavedAddrs()
 
 	results := make([]TokenResult, len(raw))
 	for i, r := range raw {
@@ -117,4 +116,38 @@ func (c *TokenCatalog) LookupMetadata(mintAddr string) (TokenResult, error) {
 	}
 
 	return TokenResult{}, fmt.Errorf("token catalog: metadata for %s: %w", mintAddr, models.ErrTokenNotFound)
+}
+
+const savedAddrsCacheTTL = 30 * time.Second
+
+// getSavedAddrs returns the cached set of saved contract addresses,
+// refreshing from DB at most every 30 seconds.
+func (c *TokenCatalog) getSavedAddrs() map[string]bool {
+	c.savedAddrsMu.RLock()
+	if c.savedAddrs != nil && time.Since(c.savedAddrsAt) < savedAddrsCacheTTL {
+		defer c.savedAddrsMu.RUnlock()
+		return c.savedAddrs
+	}
+	c.savedAddrsMu.RUnlock()
+
+	// Refresh.
+	c.savedAddrsMu.Lock()
+	defer c.savedAddrsMu.Unlock()
+
+	// Double-check after acquiring write lock.
+	if c.savedAddrs != nil && time.Since(c.savedAddrsAt) < savedAddrsCacheTTL {
+		return c.savedAddrs
+	}
+
+	addrs := make(map[string]bool)
+	if c.db != nil {
+		if tokenMap, err := c.db.GetTokenMapByContract(); err == nil {
+			for addr := range tokenMap {
+				addrs[addr] = true
+			}
+		}
+	}
+	c.savedAddrs = addrs
+	c.savedAddrsAt = time.Now()
+	return addrs
 }

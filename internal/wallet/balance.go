@@ -2,7 +2,6 @@ package wallet
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math"
 
@@ -89,7 +88,13 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 		return models.PortfolioBalance{}, fmt.Errorf("fetching token accounts: %w", err)
 	}
 
-	// 6. Process each token account — resolve metadata, then batch-fetch prices.
+	// 6. Batch-load all known tokens into a map (single DB query instead of N+1).
+	tokenMap, _ := f.db.GetTokenMapByContract() // best-effort: empty map on error
+	if tokenMap == nil {
+		tokenMap = make(map[string]models.Token)
+	}
+
+	// 7. Process each token account — resolve metadata, then batch-fetch prices.
 	type pendingToken struct {
 		ta       blockchain.TokenAccount
 		token    models.Token
@@ -99,7 +104,7 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 		hasToken bool // true if found in DB (eligible for price fetch)
 	}
 
-	var pending []pendingToken
+	pending := make([]pendingToken, 0, len(tokenAccounts))
 	for _, ta := range tokenAccounts {
 		if ta.Amount == 0 {
 			continue
@@ -107,14 +112,13 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 
 		pt := pendingToken{ta: ta, decimals: ta.Decimals}
 
-		token, err := f.db.GetTokenByContractAddress(ta.Mint)
-		if err == nil {
+		if token, ok := tokenMap[ta.Mint]; ok {
 			pt.symbol = token.Symbol
 			pt.name = token.Name
 			pt.decimals = models.GetTokenDecimals(token)
 			pt.token = token
 			pt.hasToken = true
-		} else if errors.Is(err, models.ErrTokenNotFound) {
+		} else {
 			// Unknown token: try to resolve metadata from external source (e.g. Jupiter).
 			if f.metadataFetcher != nil {
 				if meta, metaErr := f.metadataFetcher.LookupTokenMetadata(ta.Mint); metaErr == nil {
@@ -141,9 +145,6 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 					pt.symbol = ta.Mint
 				}
 			}
-		} else {
-			// Unexpected DB error, skip this token
-			continue
 		}
 
 		pending = append(pending, pt)
