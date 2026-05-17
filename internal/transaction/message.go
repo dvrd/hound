@@ -140,7 +140,14 @@ func NewMessage(feePayer Pubkey, instructions []Instruction, recentBlockhash Pub
 
 // Serialize serializes a Message to bytes in Solana's wire format.
 func (m Message) Serialize() []byte {
-	var buf []byte
+	// Pre-compute size to avoid repeated slice growth.
+	// Header(3) + compact(accounts) + accounts(32 each) + blockhash(32)
+	// + compact(instructions) + per-instruction overhead.
+	size := 3 + 3 + len(m.AccountKeys)*32 + 32 + 3
+	for _, ix := range m.Instructions {
+		size += 1 + 3 + len(ix.AccountIndices) + 3 + len(ix.Data)
+	}
+	buf := make([]byte, 0, size)
 
 	// Header: 3 bytes
 	buf = append(buf, m.Header.NumRequiredSignatures)

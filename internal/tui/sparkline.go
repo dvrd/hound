@@ -6,6 +6,13 @@ import "github.com/charmbracelet/lipgloss"
 // from lowest to highest fill.
 var sparklineBlocks = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
 
+// Sparkline color styles — hoisted to avoid allocation per render.
+var (
+	sparklinePositive = lipgloss.NewStyle().Foreground(ColorPositive)
+	sparklineNegative = lipgloss.NewStyle().Foreground(ColorNegative)
+	sparklineMuted    = lipgloss.NewStyle().Foreground(ColorMuted)
+)
+
 // RenderSparkline renders a slice of price points as a Unicode block sparkline.
 //
 // The width parameter controls how many characters wide the output is. If len(prices)
@@ -61,18 +68,15 @@ func RenderSparkline(prices []float64, width int) string {
 	}
 
 	// Choose color based on trend.
-	var color lipgloss.Color
 	first, last := sampled[0], sampled[len(sampled)-1]
 	switch {
 	case last > first:
-		color = ColorPositive
+		return sparklinePositive.Render(string(blocks))
 	case last < first:
-		color = ColorNegative
+		return sparklineNegative.Render(string(blocks))
 	default:
-		color = ColorMuted
+		return sparklineMuted.Render(string(blocks))
 	}
-
-	return lipgloss.NewStyle().Foreground(color).Render(string(blocks))
 }
 
 // resample linearly interpolates or downsamples prices to produce exactly n points.

@@ -201,23 +201,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) refreshAll() tea.Cmd {
 	return func() tea.Msg {
-		portfolios := make(map[string]models.PortfolioBalance)
-		wallets, err := m.db.GetAllWallets()
+		// Use the parallelized RefreshAllPortfolios (bounded concurrency).
+		portfolios, err := m.walletMgr.RefreshAllPortfolios(context.Background())
 		if err != nil {
 			return WalletsLoadedMsg{Err: err}
 		}
-		var failedCount int
-		for _, w := range wallets {
-			p, err := m.walletMgr.RefreshPortfolio(context.Background(), w.Address)
-			if err == nil {
-				portfolios[w.Address] = p
-			} else {
-				failedCount++
-			}
+		wallets, wErr := m.db.GetAllWallets()
+		if wErr != nil {
+			return WalletsLoadedMsg{Err: wErr}
 		}
 		var partialErr error
-		if failedCount > 0 {
-			partialErr = fmt.Errorf("%d wallet(s) could not be refreshed", failedCount)
+		if len(portfolios) < len(wallets) {
+			failed := len(wallets) - len(portfolios)
+			partialErr = fmt.Errorf("%d wallet(s) could not be refreshed", failed)
 		}
 		return WalletsLoadedMsg{Wallets: wallets, Portfolios: portfolios, PartialErr: partialErr}
 	}

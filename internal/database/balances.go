@@ -39,6 +39,28 @@ func (d *Database) UpdateBalanceTx(tx *sql.Tx, walletAddr, mint, symbol, name st
 	return nil
 }
 
+// UpdateBalancesBatch inserts or replaces multiple balances using a prepared statement
+// within a transaction for better performance (avoids re-parsing SQL per row).
+func (d *Database) UpdateBalancesBatch(tx *sql.Tx, walletAddr string, balances []models.TokenBalance) error {
+	now := time.Now().Unix()
+	stmt, err := tx.Prepare(
+		`INSERT OR REPLACE INTO balances (wallet_address, mint, symbol, name, amount, usd_price, usd_value, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+	)
+	if err != nil {
+		return fmt.Errorf("preparing balance batch: %w", err)
+	}
+	defer stmt.Close()
+
+	for _, b := range balances {
+		_, err := stmt.Exec(walletAddr, b.Mint, b.Symbol, b.Name, b.Amount, b.USDPrice, b.USDValue, now)
+		if err != nil {
+			return fmt.Errorf("batch insert balance %q: %w", b.Symbol, err)
+		}
+	}
+	return nil
+}
+
 // GetBalancesForWallet retrieves all token balances for a wallet, ordered by USD value descending.
 func (d *Database) GetBalancesForWallet(walletAddr string) ([]models.TokenBalance, error) {
 	rows, err := d.db.Query(
