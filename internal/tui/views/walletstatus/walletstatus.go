@@ -114,6 +114,8 @@ type Model struct {
 	cachedTitle      string   // pre-rendered title + label + address header
 	cachedSelectedRow string  // pre-rendered selected row (invalidated on cursor move)
 	cachedSelectedIdx int     // which index the cached selected row is for
+	cachedSortLine   string  // pre-rendered sort/filter status line
+	cachedScrollInd  string  // pre-rendered scroll indicator (or empty)
 
 	width  int
 	height int
@@ -511,6 +513,31 @@ func (m *Model) recomputeVisible() {
 		m.cachedRowsRaw[i] = row
 		m.cachedRows[i] = tui.RenderRowNormal(row)
 	}
+
+	// Cache sort line.
+	sortLine := fmt.Sprintf("Sort: %s  filter:%s", m.sortMode.String(), m.filterMode.String())
+	if !m.lastRefresh.IsZero() {
+		sortLine += "  |  " + m.lastRefresh.Format("15:04:05")
+	}
+	m.cachedSortLine = tui.StyleMuted.Render(sortLine)
+
+	// Cache scroll indicator.
+	maxVisible := len(tokens)
+	if m.height > 0 {
+		vis := m.height - 10
+		if vis < 1 {
+			vis = 1
+		}
+		if vis < maxVisible {
+			maxVisible = vis
+		}
+	}
+	if len(tokens) > maxVisible {
+		hidden := len(tokens) - maxVisible
+		m.cachedScrollInd = tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden))
+	} else {
+		m.cachedScrollInd = ""
+	}
 }
 
 func (m Model) visibleTokens() []models.TokenBalance {
@@ -597,8 +624,10 @@ func (m Model) View() string {
 	// If we have data and an error, show the error inline but keep the table.
 
 	// Total USD + SOL balance (pre-rendered in recomputeVisible)
-	b.WriteString(m.cachedTotal + "\n\n")
-	b.WriteString(m.cachedSolLine + "\n\n")
+	b.WriteString(m.cachedTotal)
+	b.WriteString("\n\n")
+	b.WriteString(m.cachedSolLine)
+	b.WriteString("\n\n")
 
 	// Token table — rows are pre-rendered in recomputeVisible().
 	tokens := m.visibleTokens()
@@ -636,20 +665,17 @@ func (m Model) View() string {
 
 		for i := startIdx; i < endIdx; i++ {
 			if i == m.cursor {
-				// Selected row: use pre-computed styled result.
-				b.WriteString(m.cachedSelectedRow + "\n")
-			} else {
-				// Non-selected: already pre-wrapped, zero-alloc.
-				if i < len(m.cachedRows) {
-					b.WriteString(m.cachedRows[i] + "\n")
-				}
+				b.WriteString(m.cachedSelectedRow)
+			} else if i < len(m.cachedRows) {
+				b.WriteString(m.cachedRows[i])
 			}
+			b.WriteByte('\n')
 		}
 
-		// Scroll indicator
-		if len(tokens) > maxRows {
-			hidden := len(tokens) - maxRows
-			b.WriteString(tui.StyleMuted.Render(fmt.Sprintf("  ↕ %d more", hidden)) + "\n")
+		// Scroll indicator (pre-rendered)
+		if m.cachedScrollInd != "" {
+			b.WriteString(m.cachedScrollInd)
+			b.WriteByte('\n')
 		}
 	} else {
 		b.WriteString(tui.StyleMuted.Render("No tokens found") + "\n")
@@ -657,11 +683,8 @@ func (m Model) View() string {
 
 	// Sort indicator + active filters + refresh time
 	b.WriteString("\n")
-	sortLine := fmt.Sprintf("Sort: %s  filter:%s", m.sortMode.String(), m.filterMode.String())
-	if !m.lastRefresh.IsZero() {
-		sortLine += fmt.Sprintf("  |  %s", m.lastRefresh.Format("15:04:05"))
-	}
-	b.WriteString(tui.StyleMuted.Render(sortLine) + "\n")
+	b.WriteString(m.cachedSortLine)
+	b.WriteByte('\n')
 	// Inline refresh indicator — shown while a background fetch is in flight.
 	if m.loading {
 		b.WriteString(m.spinner.View() + "\n")
