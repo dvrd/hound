@@ -35,7 +35,7 @@ func (t *Transaction) Serialize() []byte {
 	var buf []byte
 
 	// Number of signatures (compact-u16)
-	buf = append(buf, EncodeCompactU16(uint16(len(t.Signatures)))...)
+	buf = AppendCompactU16(buf, uint16(len(t.Signatures)))
 
 	// Signatures (64 bytes each)
 	for _, sig := range t.Signatures {

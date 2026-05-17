@@ -23,7 +23,7 @@ const (
 
 // priceCache is a thread-safe cache for price data with TTL.
 type priceCache struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	entries map[string]priceCacheEntry
 	ttl     time.Duration
 }
@@ -41,8 +41,8 @@ func newPriceCache(ttl time.Duration) *priceCache {
 }
 
 func (c *priceCache) get(key string) (models.PriceData, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	entry, ok := c.entries[key]
 	if !ok || time.Since(entry.fetchedAt) > c.ttl {
 		return models.PriceData{}, false
@@ -58,7 +58,7 @@ func (c *priceCache) set(key string, data models.PriceData) {
 
 // poolCache is a thread-safe cache for pool data with TTL.
 type poolCache struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	entries map[string]poolCacheEntry
 	ttl     time.Duration
 }
@@ -76,8 +76,8 @@ func newPoolCache(ttl time.Duration) *poolCache {
 }
 
 func (c *poolCache) get(key string) ([]models.PairData, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	entry, ok := c.entries[key]
 	if !ok || time.Since(entry.fetchedAt) > c.ttl {
 		return nil, false
@@ -93,7 +93,7 @@ func (c *poolCache) set(key string, data []models.PairData) {
 
 // candleCache is a thread-safe cache for candle data with TTL.
 type candleCache struct {
-	mu      sync.Mutex
+	mu      sync.RWMutex
 	entries map[string]candleCacheEntry
 	ttl     time.Duration
 }
@@ -111,8 +111,8 @@ func newCandleCache(ttl time.Duration) *candleCache {
 }
 
 func (c *candleCache) get(key string) ([]models.PriceCandle, bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	entry, ok := c.entries[key]
 	if !ok || time.Since(entry.fetchedAt) > c.ttl {
 		return nil, false

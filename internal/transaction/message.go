@@ -155,7 +155,7 @@ func (m Message) Serialize() []byte {
 	buf = append(buf, m.Header.NumReadonlyUnsignedAccounts)
 
 	// Number of account keys (compact-u16)
-	buf = append(buf, EncodeCompactU16(uint16(len(m.AccountKeys)))...)
+	buf = AppendCompactU16(buf, uint16(len(m.AccountKeys)))
 
 	// Account keys (32 bytes each)
 	for _, key := range m.AccountKeys {
@@ -166,7 +166,7 @@ func (m Message) Serialize() []byte {
 	buf = append(buf, m.RecentBlockhash[:]...)
 
 	// Number of instructions (compact-u16)
-	buf = append(buf, EncodeCompactU16(uint16(len(m.Instructions)))...)
+	buf = AppendCompactU16(buf, uint16(len(m.Instructions)))
 
 	// Each compiled instruction
 	for _, ix := range m.Instructions {
@@ -174,13 +174,13 @@ func (m Message) Serialize() []byte {
 		buf = append(buf, ix.ProgramIDIndex)
 
 		// Number of accounts (compact-u16)
-		buf = append(buf, EncodeCompactU16(uint16(len(ix.AccountIndices)))...)
+		buf = AppendCompactU16(buf, uint16(len(ix.AccountIndices)))
 
 		// Account indices (1 byte each)
 		buf = append(buf, ix.AccountIndices...)
 
 		// Data length (compact-u16)
-		buf = append(buf, EncodeCompactU16(uint16(len(ix.Data)))...)
+		buf = AppendCompactU16(buf, uint16(len(ix.Data)))
 
 		// Data
 		buf = append(buf, ix.Data...)

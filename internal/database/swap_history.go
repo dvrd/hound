@@ -3,6 +3,7 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dvrd/hound/internal/models"
@@ -105,4 +106,36 @@ func (d *Database) GetSwapHistoryCount(walletAddr string) (int, error) {
 	}
 
 	return count, nil
+}
+
+// GetSwapSignatures returns a set of which signatures (from the provided list)
+// exist in swap_history. Efficient for marking activity items as swaps.
+func (d *Database) GetSwapSignatures(signatures []string) map[string]bool {
+	result := make(map[string]bool, len(signatures))
+	if len(signatures) == 0 {
+		return result
+	}
+
+	// Build placeholders for IN clause.
+	placeholders := make([]string, len(signatures))
+	args := make([]interface{}, len(signatures))
+	for i, sig := range signatures {
+		placeholders[i] = "?"
+		args[i] = sig
+	}
+
+	query := `SELECT signature FROM swap_history WHERE signature IN (` + strings.Join(placeholders, ",") + `)`
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return result
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var sig string
+		if rows.Scan(&sig) == nil {
+			result[sig] = true
+		}
+	}
+	return result
 }
