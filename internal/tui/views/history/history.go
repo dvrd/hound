@@ -30,6 +30,8 @@ type Model struct {
 	// Pagination: cursors[i] is the `before` value used to load page i+1.
 	// cursors[0] = "" (first page), cursors[1] = LastSig of page 1, etc.
 	cursors []string
+	// Cached row content — rebuilt when items change, reused across frames.
+	cachedRows []string
 	// pageCache stores loaded items per page (1-indexed) so going back never re-fetches.
 	pageCache   map[int][]services.ActivityItem
 	page        int // 1-based current page number
@@ -99,6 +101,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.items = msg.Result.Items
 		m.pageCache[m.page] = msg.Result.Items
 		m.cursor = components.NewListCursor(len(m.items))
+		m.rebuildRows()
 		m.noMorePages = !msg.Result.HasMore
 		// Push next-page cursor if we don't already have it.
 		// cursors[page-1] = cursor used to reach this page.
@@ -139,6 +142,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.page = targetPage
 					m.items = cached
 					m.cursor = components.NewListCursor(len(m.items))
+					m.rebuildRows()
 					m.noMorePages = false // we know there's at least the page we came from
 				}
 			}
@@ -218,6 +222,46 @@ func formatActivityLine(item services.ActivityItem) string {
 }
 
 // View renders the activity history.
+// rebuildRows pre-renders per-item row content for cached reuse across frames.
+func (m *Model) rebuildRows() {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	colDesc := max(15, w*38/100)
+	colTime := max(8, w*19/100)
+
+	m.cachedRows = make([]string, len(m.items))
+	for i, item := range m.items {
+		icon := directionStyledIcon(item.Direction, item.Type)
+		line := formatActivityLine(item)
+		timeStr := FormatRelativeTime(item.Timestamp)
+
+		var counterparty string
+		if item.Counterparty != "" {
+			if item.Direction == "sent" {
+				counterparty = " → " + item.Counterparty
+			} else {
+				counterparty = " ← " + item.Counterparty
+			}
+		}
+
+		var statusStr string
+		switch item.Status {
+		case "confirmed":
+			statusStr = tui.StyleSuccess.Render(item.Status)
+		case "failed":
+			statusStr = tui.StyleError.Render(item.Status)
+		default:
+			statusStr = item.Status
+		}
+
+		desc := tui.Truncate(line+counterparty, colDesc)
+		m.cachedRows[i] = icon + " " + tui.PadRight(desc, colDesc) + " " +
+			tui.PadRight(tui.StyleMuted.Render(timeStr), colTime) + " " + statusStr
+	}
+}
+
 func (m Model) View() string {
 	var b strings.Builder
 
@@ -251,15 +295,6 @@ func (m Model) View() string {
 	if len(m.items) == 0 {
 		b.WriteString(tui.StyleMuted.Render("No transaction history found.") + "\n")
 	} else {
-		// Proportional column widths
-		w := m.width
-		if w <= 0 {
-			w = 80
-		}
-		colDesc := max(15, w*38/100)
-		colTime := max(8, w*19/100)
-		colStatus := max(8, w*15/100)
-
 		// Cap visible rows to available height.
 		// m.height is already the inner content height from the app shell —
 		// no need to subtract chrome here. Reserve 3 rows for title + blank + status line.
@@ -278,36 +313,10 @@ func (m Model) View() string {
 		startIdx, endIdx := components.ViewWindow(m.cursor.Pos(), maxRows, len(m.items))
 
 		for i := startIdx; i < endIdx; i++ {
-			item := m.items[i]
-			icon := directionStyledIcon(item.Direction, item.Type)
-			line := formatActivityLine(item)
-			timeStr := FormatRelativeTime(item.Timestamp)
-
-			var counterparty string
-			if item.Counterparty != "" {
-				if item.Direction == "sent" {
-					counterparty = fmt.Sprintf(" → %s", item.Counterparty)
-				} else {
-					counterparty = fmt.Sprintf(" ← %s", item.Counterparty)
-				}
+			var row string
+			if i < len(m.cachedRows) {
+				row = m.cachedRows[i]
 			}
-
-			statusStr := item.Status
-			switch item.Status {
-			case "confirmed":
-				statusStr = tui.StyleSuccess.Render(item.Status)
-			case "failed":
-				statusStr = tui.StyleError.Render(item.Status)
-			}
-
-			rowFmt := fmt.Sprintf("%%s %%-%ds %%-%ds %%-%ds", colDesc, colTime, colStatus)
-			row := fmt.Sprintf(rowFmt,
-				icon,
-				tui.Truncate(line+counterparty, colDesc),
-				tui.StyleMuted.Render(timeStr),
-				statusStr,
-			)
-
 			b.WriteString(tui.RenderRow(row, i == m.cursor.Pos()) + "\n")
 		}
 

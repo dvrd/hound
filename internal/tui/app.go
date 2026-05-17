@@ -60,6 +60,8 @@ type App struct {
 	errorMsg        string
 	errorShown      bool
 	ready           bool
+	contentStyle    lipgloss.Style // cached: Height(innerH).Width(innerW)
+	appStyle        lipgloss.Style // cached: StyleApp.Width(w).Height(h+1)
 	viewFactory     ViewFactory
 	currentViewName string // tracks the active view key for border title (D)
 	notifMsg        string // floating notification text (E)
@@ -145,6 +147,14 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width = msg.Width
 		a.height = msg.Height
 		a.ready = true
+		a.contentStyle = lipgloss.NewStyle().Height(a.innerHeight()).Width(a.innerWidth())
+		a.appStyle = StyleApp
+		if a.width > 0 {
+			a.appStyle = a.appStyle.Width(a.innerWidth())
+		}
+		if a.height > 0 {
+			a.appStyle = a.appStyle.Height(a.innerHeight() + 1)
+		}
 		// Force full repaint so the alternate screen redraws correctly
 		// when the terminal grows (e.g. dragging the top edge up).
 		cmds = append(cmds, tea.ClearScreen)
@@ -404,17 +414,8 @@ func (a App) View() string {
 		footer = errBarStyle.Width(a.innerWidth()).Render(a.errorMsg)
 	}
 
-	// Apply app style with constraints.
-	// innerHeight() already reserves 1 row for the footer.
-	style := StyleApp
-	w := a.innerWidth()
-	if a.width > 0 {
-		style = style.Width(w)
-	}
-	if a.height > 0 {
-		// +1 because StyleApp wraps content+footer together; footer row is inside the border.
-		style = style.Height(a.innerHeight() + 1)
-	}
+	// App style is pre-computed on WindowSizeMsg.
+	style := a.appStyle
 
 	// Build inner layout: scrollable content area + pinned footer.
 	// No Width on footerStyle: the footer is already pre-rendered with ANSI
@@ -424,7 +425,7 @@ func (a App) View() string {
 	footerStyle := footerBarStyle
 
 	inner := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Height(a.innerHeight()).Width(w).Render(content),
+		a.contentStyle.Render(content),
 		footerStyle.Render(footer),
 	)
 
