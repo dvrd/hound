@@ -32,6 +32,11 @@ type Model struct {
 	height     int
 	loading    bool
 	spinner    components.SpinnerModel
+
+	// Cached render data — rebuilt on data load/resize, reused across frames.
+	cachedRows   []string
+	cachedTotal  string
+	cachedHeader string
 	err        error
 	partialErr error // set when some wallet refreshes failed
 	help       components.HelpModel
@@ -102,17 +107,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.wallets = msg.Wallets
 		m.portfolios = msg.Portfolios
 		m.partialErr = msg.PartialErr
+		m.rebuildRows()
 		return m, nil
 
 	case tui.PortfolioRefreshedMsg:
 		if msg.Err == nil {
 			m.portfolios[msg.Portfolio.WalletAddress] = msg.Portfolio
+			m.rebuildRows()
 		}
 		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if len(m.wallets) > 0 {
+			m.rebuildRows()
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -248,21 +258,10 @@ func (m Model) View() string {
 	if len(m.wallets) == 0 {
 		b.WriteString(tui.StyleMuted.Render("No wallets found. Press [i] to import one.") + "\n")
 	} else {
-		// Compute proportional column widths
-		w := m.width
-		if w <= 0 {
-			w = 80
+		// Header and rows are pre-rendered in rebuildRows().
+		if m.cachedHeader != "" {
+			b.WriteString(m.cachedHeader)
 		}
-		colLabel := max(6, w*15/100)
-		colAddr := max(8, w*18/100)
-		colType := max(8, w*20/100)
-		colBal := max(8, w*12/100)
-
-		// Table header — 4-char prefix ("  " badge + "  " cursor) to align with rows.
-		headerFmt := fmt.Sprintf("    %%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
-		header := fmt.Sprintf(headerFmt, "Label", "Address", "Type", "Balance")
-		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
-		b.WriteString(tui.TableSeparator(w) + "\n")
 
 		// Cap visible rows
 		maxRows := len(m.wallets)
@@ -290,41 +289,13 @@ func (m Model) View() string {
 			}
 		}
 
-		// Table rows — build each cell independently so ANSI codes from one cell
-		// never affect adjacent column width calculations.
+		// Table rows — use pre-rendered content, only apply cursor highlight per frame.
 		for i := startIdx; i < endIdx; i++ {
-			w := m.wallets[i]
-
-			// 2-char primary badge (plain, fixed width).
-			primaryPlain := "  "
-			if w.IsPrimary {
-				primaryPlain = "* "
+			var row string
+			if i < len(m.cachedRows) {
+				row = m.cachedRows[i]
 			}
-			var primaryStyled string
-			if w.IsPrimary {
-				primaryStyled = tui.StylePrimaryBadge.Render(primaryPlain)
-			} else {
-				primaryStyled = primaryPlain
-			}
-
-			// Build each cell to its exact column width using plain strings.
-			labelCell := tui.PadRight(w.Label, colLabel)
-			addrCell := tui.PadRight(tui.TruncateAddress(w.Address), colAddr)
-			typePlain := tui.PadRight(w.WalletType.String(), colType)
-			balPlain := "$0.00"
-			if p, ok := m.portfolios[w.Address]; ok {
-				balPlain = wallet.FormatPrice(p.TotalUSD)
-			}
-			balCell := tui.StyleValue.Render(tui.PadLeft(balPlain, colBal))
-
-			// Apply color only to the pre-padded type cell — width is already fixed.
-			coloredType := tui.StyleTypeBadge.Render(typePlain)
-
-			// Assemble: badge(2) + label + addr + coloredType + balance.
-			// Header uses 4-char indent ("    ") to match badge(2) + RenderRow indent(2).
-			coloredRow := primaryStyled + labelCell + " " + addrCell + " " + coloredType + " " + balCell
-
-			b.WriteString(tui.RenderRow(coloredRow, i == m.cursor) + "\n")
+			b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 		}
 
 		// Scroll indicator
@@ -334,18 +305,64 @@ func (m Model) View() string {
 		}
 
 		// Footer: total USD
-		var totalUSD float64
-		for _, p := range m.portfolios {
-			totalUSD += p.TotalUSD
-		}
 		b.WriteString("\n")
-		b.WriteString(tui.StyleBold.Render(fmt.Sprintf("  Total: %s", wallet.FormatPrice(totalUSD))) + "\n")
+		b.WriteString(m.cachedTotal + "\n")
 	}
 
 	return b.String()
 }
 
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
+// rebuildRows pre-renders per-row content strings so View() only calls RenderRow.
+func (m *Model) rebuildRows() {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	colLabel := max(6, w*15/100)
+	colAddr := max(8, w*18/100)
+	colType := max(8, w*20/100)
+	colBal := max(8, w*12/100)
+
+	// Header
+	headerFmt := fmt.Sprintf("    %%-%ds %%-%ds %%-%ds %%%ds", colLabel, colAddr, colType, colBal)
+	header := fmt.Sprintf(headerFmt, "Label", "Address", "Type", "Balance")
+	m.cachedHeader = tui.StyleTableHeader.Render(header) + "\n" + tui.TableSeparator(w) + "\n"
+
+	m.cachedRows = make([]string, len(m.wallets))
+	for i, wl := range m.wallets {
+		primaryPlain := "  "
+		if wl.IsPrimary {
+			primaryPlain = "* "
+		}
+		var primaryStyled string
+		if wl.IsPrimary {
+			primaryStyled = tui.StylePrimaryBadge.Render(primaryPlain)
+		} else {
+			primaryStyled = primaryPlain
+		}
+
+		labelCell := tui.PadRight(wl.Label, colLabel)
+		addrCell := tui.PadRight(tui.TruncateAddress(wl.Address), colAddr)
+		typePlain := tui.PadRight(wl.WalletType.String(), colType)
+		balPlain := "$0.00"
+		if p, ok := m.portfolios[wl.Address]; ok {
+			balPlain = wallet.FormatPrice(p.TotalUSD)
+		}
+		balCell := tui.StyleValue.Render(tui.PadLeft(balPlain, colBal))
+		coloredType := tui.StyleTypeBadge.Render(typePlain)
+
+		m.cachedRows[i] = primaryStyled + labelCell + " " + addrCell + " " + coloredType + " " + balCell
+	}
+
+	// Pre-render total.
+	var totalUSD float64
+	for _, p := range m.portfolios {
+		totalUSD += p.TotalUSD
+	}
+	m.cachedTotal = tui.StyleBold.Render(fmt.Sprintf("  Total: %s", wallet.FormatPrice(totalUSD)))
+}
+
 // Pre-rendered static footer.
 var listFooter = tui.RenderFooter(
 	tui.FooterGroup{

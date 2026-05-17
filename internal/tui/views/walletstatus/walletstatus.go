@@ -104,8 +104,17 @@ type Model struct {
 
 	// Cached header — recomputed only on WindowSizeMsg.
 	cachedHeader string
-	width        int
-	height       int
+
+	// Cached per-row content strings — the expensive lipgloss.Render + Format
+	// calls are done once when data changes, not every frame.
+	// cachedRows[i] holds the styled content for cachedVisible[i].
+	// Only RenderRow(row, selected) is called per-frame (cursor-dependent).
+	cachedRows    []string
+	cachedSolLine string  // pre-rendered SOL balance line
+	cachedTotal   string  // pre-rendered total USD line
+
+	width  int
+	height int
 	err         error
 
 	// Rename mode
@@ -409,6 +418,10 @@ func (m *Model) rebuildHeader() {
 	headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
 	header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Balance", "Price", "Value", "24h")
 	m.cachedHeader = tui.StyleTableHeader.Render(header) + "\n" + tui.TableSeparator(w) + "\n"
+	// Column widths changed — rebuild row cache too.
+	if m.hasData {
+		m.recomputeVisible()
+	}
 }
 
 func (m *Model) recomputeVisible() {
@@ -432,6 +445,41 @@ func (m *Model) recomputeVisible() {
 	}
 	m.cachedVisible = tokens
 	m.cachedVisibleDirty = false
+
+	// Pre-render total and SOL balance lines.
+	m.cachedTotal = tui.StyleBold.Render("Total: " + wallet.FormatPrice(m.portfolio.TotalUSD))
+	sol := m.portfolio.SOLBalance
+	m.cachedSolLine = fmt.Sprintf("SOL  %s  %s  ",
+		wallet.FormatBalance(sol.Amount),
+		wallet.FormatPrice(sol.USDValue)) + tui.FormatChange(sol.Change24h)
+
+	// Pre-render row content strings (expensive lipgloss.Render + FormatBalance/Price).
+	// Only the RenderRow wrapper (cursor highlight) is applied per-frame.
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	colSym := max(6, w*11/100)
+	colName := max(10, w*18/100)
+	colBal := max(8, w*13/100)
+	colPrice := max(8, w*12/100)
+	colVal := max(8, w*12/100)
+	colChg := max(6, w*8/100)
+
+	m.cachedRows = make([]string, len(tokens))
+	for i, t := range tokens {
+		symCell := tui.PadRight(t.Symbol, colSym)
+		nameCell := tui.PadRight(t.Name, colName)
+		balCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatBalance(t.Amount), colBal))
+		priceCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatPrice(t.USDPrice), colPrice))
+		valCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatPrice(t.USDValue), colVal))
+		chgCell := tui.ColorizeChange(t.Change24h, tui.PadLeft(tui.FormatChangePlain(t.Change24h), colChg))
+		row := symCell + " " + nameCell + " " + balCell + " " + priceCell + " " + valCell + " " + chgCell
+		if m.hiddenMints[t.Mint] {
+			row += " " + tui.StyleMuted.Render("[hidden]")
+		}
+		m.cachedRows[i] = row
+	}
 }
 
 func (m Model) visibleTokens() []models.TokenBalance {
@@ -522,38 +570,16 @@ func (m Model) View() string {
 	// Error with no prior data is already handled above (!hasData).
 	// If we have data and an error, show the error inline but keep the table.
 
-	// Total USD
-	totalStr := wallet.FormatPrice(m.portfolio.TotalUSD)
-	b.WriteString(tui.StyleBold.Render("Total: "+totalStr) + "\n\n")
+	// Total USD + SOL balance (pre-rendered in recomputeVisible)
+	b.WriteString(m.cachedTotal + "\n\n")
+	b.WriteString(m.cachedSolLine + "\n\n")
 
-	// SOL balance
-	sol := m.portfolio.SOLBalance
-	solLine := fmt.Sprintf("SOL  %s  %s  ",
-		wallet.FormatBalance(sol.Amount),
-		wallet.FormatPrice(sol.USDValue))
-	b.WriteString(solLine + tui.FormatChange(sol.Change24h) + "\n\n")
-
-	// Token table with proportional columns
+	// Token table — rows are pre-rendered in recomputeVisible().
 	tokens := m.visibleTokens()
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	colSym := max(6, w*11/100)
-	colName := max(10, w*18/100)
-	colBal := max(8, w*13/100)
-	colPrice := max(8, w*12/100)
-	colVal := max(8, w*12/100)
-	colChg := max(6, w*8/100)
 
 	if len(tokens) > 0 {
 		if m.cachedHeader != "" {
 			b.WriteString(m.cachedHeader)
-		} else {
-			headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
-			header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Balance", "Price", "Value", "24h")
-			b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
-			b.WriteString(tui.TableSeparator(w) + "\n")
 		}
 
 		// Cap visible rows
@@ -583,21 +609,11 @@ func (m Model) View() string {
 		}
 
 		for i := startIdx; i < endIdx; i++ {
-			t := tokens[i]
-			// Build plain symbol+name columns, then styled numeric columns.
-			symCell := tui.PadRight(t.Symbol, colSym)
-			nameCell := tui.PadRight(t.Name, colName)
-			balCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatBalance(t.Amount), colBal))
-			priceCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatPrice(t.USDPrice), colPrice))
-			valCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatPrice(t.USDValue), colVal))
-			chgCell := tui.ColorizeChange(t.Change24h, tui.PadLeft(tui.FormatChangePlain(t.Change24h), colChg))
-			row := symCell + " " + nameCell + " " + balCell + " " + priceCell + " " + valCell + " " + chgCell
-
-			// Show a dim [hidden] tag so the user knows they can unhide it
-			if m.hiddenMints[t.Mint] {
-				row += " " + tui.StyleMuted.Render("[hidden]")
+			// Use pre-rendered row content; only RenderRow (cursor highlight) is per-frame.
+			var row string
+			if i < len(m.cachedRows) {
+				row = m.cachedRows[i]
 			}
-
 			b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 		}
 
