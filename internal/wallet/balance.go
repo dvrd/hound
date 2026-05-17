@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/dvrd/hound/internal/blockchain"
 	"github.com/dvrd/hound/internal/database"
@@ -203,15 +204,15 @@ func (f *BalanceFetcher) FetchPortfolioBalance(address string) (models.Portfolio
 func FormatBalance(amount float64) string {
 	switch {
 	case amount >= 1000:
-		return fmt.Sprintf("%.2f", amount)
+		return strconv.FormatFloat(amount, 'f', 2, 64)
 	case amount >= 1:
-		return fmt.Sprintf("%.4f", amount)
+		return strconv.FormatFloat(amount, 'f', 4, 64)
 	case amount >= 0.01:
-		return fmt.Sprintf("%.6f", amount)
+		return strconv.FormatFloat(amount, 'f', 6, 64)
 	case amount == 0:
 		return "0.00"
 	default:
-		return fmt.Sprintf("%.8f", amount)
+		return strconv.FormatFloat(amount, 'f', 8, 64)
 	}
 }
 
@@ -220,13 +221,13 @@ func FormatBalance(amount float64) string {
 func FormatPrice(price float64) string {
 	switch {
 	case price >= 1:
-		return fmt.Sprintf("$%.2f", price)
+		return "$" + strconv.FormatFloat(price, 'f', 2, 64)
 	case price >= 0.01:
-		return fmt.Sprintf("$%.4f", price)
+		return "$" + strconv.FormatFloat(price, 'f', 4, 64)
 	case price == 0:
 		return "$0.00"
 	default:
-		return fmt.Sprintf("$%.6f", price)
+		return "$" + strconv.FormatFloat(price, 'f', 6, 64)
 	}
 }
 

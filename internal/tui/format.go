@@ -1,5 +1,23 @@
 package tui
 
+// PadRight pads s to exactly width characters, truncating with "~" if needed.
+// Avoids fmt.Sprintf("%-*s", ...) allocation in hot render loops.
+func PadRight(s string, width int) string {
+	if len(s) >= width {
+		if len(s) > width {
+			return s[:width-1] + "~"
+		}
+		return s
+	}
+	// Pad with spaces.
+	buf := make([]byte, width)
+	copy(buf, s)
+	for i := len(s); i < width; i++ {
+		buf[i] = ' '
+	}
+	return string(buf)
+}
+
 // TruncateAddress returns the first 4 and last 4 characters of addr joined
 // by "...", or addr unchanged if it is 11 characters or fewer.
 func TruncateAddress(addr string) string {

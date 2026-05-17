@@ -72,7 +72,7 @@ func (d *Database) GetBalancesForWallet(walletAddr string) ([]models.TokenBalanc
 	}
 	defer rows.Close()
 
-	var balances []models.TokenBalance
+	balances := make([]models.TokenBalance, 0, 32) // typical portfolio: 10-30 tokens
 	for rows.Next() {
 		var b models.TokenBalance
 		if err := rows.Scan(&b.Mint, &b.Symbol, &b.Name, &b.Amount, &b.USDPrice, &b.USDValue); err != nil {

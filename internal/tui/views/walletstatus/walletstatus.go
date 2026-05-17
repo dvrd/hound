@@ -101,8 +101,11 @@ type Model struct {
 	// Cached visible tokens — invalidated on portfolio/filter/sort/hide changes.
 	cachedVisible      []models.TokenBalance
 	cachedVisibleDirty bool
-	width       int
-	height      int
+
+	// Cached header — recomputed only on WindowSizeMsg.
+	cachedHeader string
+	width        int
+	height       int
 	err         error
 
 	// Rename mode
@@ -215,6 +218,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.rebuildHeader()
 		if m.renaming {
 			maxW := m.width - 10
 			if maxW < 10 {
@@ -389,6 +393,24 @@ func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // recomputeVisible rebuilds the cached visible token list. Call when portfolio,
 // filters, sort mode, or hidden-mints change.
+// rebuildHeader pre-renders the table header for the current width.
+func (m *Model) rebuildHeader() {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	colSym := max(6, w*11/100)
+	colName := max(10, w*18/100)
+	colBal := max(8, w*13/100)
+	colPrice := max(8, w*12/100)
+	colVal := max(8, w*12/100)
+	colChg := max(6, w*8/100)
+
+	headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
+	header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Balance", "Price", "Value", "24h")
+	m.cachedHeader = tui.StyleTableHeader.Render(header) + "\n" + tui.TableSeparator(w) + "\n"
+}
+
 func (m *Model) recomputeVisible() {
 	tokens := make([]models.TokenBalance, 0, len(m.portfolio.TokenBalances))
 	for _, t := range m.portfolio.TokenBalances {
@@ -525,10 +547,14 @@ func (m Model) View() string {
 	colChg := max(6, w*8/100)
 
 	if len(tokens) > 0 {
-		headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
-		header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Balance", "Price", "Value", "24h")
-		b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
-		b.WriteString(tui.TableSeparator(w) + "\n")
+		if m.cachedHeader != "" {
+			b.WriteString(m.cachedHeader)
+		} else {
+			headerFmt := fmt.Sprintf("%%-%ds %%-%ds %%%ds %%%ds %%%ds %%%ds", colSym, colName, colBal, colPrice, colVal, colChg)
+			header := fmt.Sprintf(headerFmt, "Symbol", "Name", "Balance", "Price", "Value", "24h")
+			b.WriteString(tui.StyleTableHeader.Render(header) + "\n")
+			b.WriteString(tui.TableSeparator(w) + "\n")
+		}
 
 		// Cap visible rows
 		maxRows := len(tokens)
@@ -559,8 +585,8 @@ func (m Model) View() string {
 		for i := startIdx; i < endIdx; i++ {
 			t := tokens[i]
 			// Build plain symbol+name columns, then styled numeric columns.
-			symCell := fmt.Sprintf("%-*s", colSym, tui.Truncate(t.Symbol, colSym))
-			nameCell := fmt.Sprintf("%-*s", colName, tui.Truncate(t.Name, colName))
+			symCell := tui.PadRight(t.Symbol, colSym)
+			nameCell := tui.PadRight(t.Name, colName)
 			balCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colBal, wallet.FormatBalance(t.Amount)))
 			priceCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colPrice, wallet.FormatPrice(t.USDPrice)))
 			valCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colVal, wallet.FormatPrice(t.USDValue)))
