@@ -421,12 +421,10 @@ func (a App) View() string {
 	// No Width on footerStyle: the footer is already pre-rendered with ANSI
 	// color codes by RenderFooter. Applying Width to a pre-styled string causes
 	// lipgloss to pad it to the full inner width, which pushes the box beyond
-	// the terminal width and clips the right edge of the footer.
-	footerStyle := footerBarStyle
-
+	// Footer is already pre-rendered with ANSI codes — no additional styling needed.
 	inner := lipgloss.JoinVertical(lipgloss.Left,
 		a.contentStyle.Render(content),
-		footerStyle.Render(footer),
+		footer,
 	)
 
 	rendered := style.Render(inner)
@@ -463,30 +461,61 @@ func (a App) View() string {
 //
 // This is a workaround for lipgloss v1.x not supporting BorderTitle natively.
 func injectBorderTitle(rendered, title string) string {
-	lines := strings.SplitN(rendered, "\n", 2)
-	if len(lines) < 2 {
+	// Find first newline to isolate the top border line.
+	nlIdx := strings.IndexByte(rendered, '\n')
+	if nlIdx < 0 {
 		return rendered
 	}
-	topLine := lines[0]
-	// Find the opening corner rune (╭ is 3 bytes in UTF-8).
+	topLine := rendered[:nlIdx]
+	rest := rendered[nlIdx:] // includes the '\n'
+
+	// Find the corner ╭ (3 bytes UTF-8).
 	cornerIdx := strings.Index(topLine, "╭")
 	if cornerIdx < 0 {
 		return rendered
 	}
-	afterCorner := cornerIdx + len("╭")
+	afterCorner := cornerIdx + 3 // ╭ is 3 bytes
 	if afterCorner >= len(topLine) {
 		return rendered
 	}
-	// Count visible runes in title to know how many border chars to skip.
-	titleRunes := []rune(title)
-	titleLen := len(titleRunes)
-	// Walk titleLen runes forward from afterCorner in the border line.
-	restRunes := []rune(topLine[afterCorner:])
-	if titleLen >= len(restRunes) {
-		return rendered // title too long — don't mangle
+
+	// The border chars after ╭ are ─ (3 bytes each).
+	// Skip len(title) runes worth of border bytes.
+	// Title is typically ASCII, so len([]rune(title)) ≈ len(title) for ASCII.
+	titleRuneLen := len([]rune(title))
+	skipBytes := 0
+	slice := topLine[afterCorner:]
+	for i := 0; i < titleRuneLen && skipBytes < len(slice); i++ {
+		_, size := runeAt(slice, skipBytes)
+		skipBytes += size
 	}
-	newTop := topLine[:afterCorner] + title + string(restRunes[titleLen:])
-	return newTop + "\n" + lines[1]
+	if skipBytes > len(slice) {
+		return rendered
+	}
+
+	// Build result without rune slice allocations.
+	var b strings.Builder
+	b.Grow(len(rendered))
+	b.WriteString(topLine[:afterCorner])
+	b.WriteString(title)
+	b.WriteString(topLine[afterCorner+skipBytes:])
+	b.WriteString(rest)
+	return b.String()
+}
+
+// runeAt returns the rune and its byte width at position i in s.
+func runeAt(s string, i int) (rune, int) {
+	b := s[i]
+	if b < 0x80 {
+		return rune(b), 1
+	}
+	if b < 0xE0 {
+		return rune(b&0x1F)<<6 | rune(s[i+1]&0x3F), 2
+	}
+	if b < 0xF0 {
+		return rune(b&0x0F)<<12 | rune(s[i+1]&0x3F)<<6 | rune(s[i+2]&0x3F), 3
+	}
+	return rune(b&0x07)<<18 | rune(s[i+1]&0x3F)<<12 | rune(s[i+2]&0x3F)<<6 | rune(s[i+3]&0x3F), 4
 }
 
 // renderHelp renders a view-aware help overlay that is responsive to the

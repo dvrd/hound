@@ -296,7 +296,7 @@ func (m Model) View() string {
 			if i < len(m.cachedRows) {
 				row = m.cachedRows[i]
 			}
-			b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
+			b.WriteString(tui.RenderRow(row, i == m.cursor)); b.WriteByte('\n')
 		}
 
 		// Scroll indicator
@@ -307,7 +307,7 @@ func (m Model) View() string {
 
 		// Footer: total USD
 		b.WriteString("\n")
-		b.WriteString(m.cachedTotal + "\n")
+		b.WriteString(m.cachedTotal); b.WriteByte('\n')
 	}
 
 	return b.String()

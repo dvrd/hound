@@ -318,7 +318,7 @@ func (m Model) View() string {
 			if i < len(m.cachedRows) {
 				row = m.cachedRows[i]
 			}
-			b.WriteString(tui.RenderRow(row, i == m.cursor.Pos()) + "\n")
+			b.WriteString(tui.RenderRow(row, i == m.cursor.Pos())); b.WriteByte('\n')
 		}
 
 		// Scroll indicator
