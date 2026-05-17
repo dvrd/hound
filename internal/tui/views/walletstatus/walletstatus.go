@@ -107,11 +107,10 @@ type Model struct {
 
 	// Cached per-row content strings — the expensive lipgloss.Render + Format
 	// calls are done once when data changes, not every frame.
-	// cachedRows[i] holds the styled content for cachedVisible[i].
-	// Only RenderRow(row, selected) is called per-frame (cursor-dependent).
 	cachedRows    []string
-	cachedSolLine string  // pre-rendered SOL balance line
-	cachedTotal   string  // pre-rendered total USD line
+	cachedSolLine string // pre-rendered SOL balance line
+	cachedTotal   string // pre-rendered total USD line
+	cachedTitle   string // pre-rendered title + label + address header
 
 	width  int
 	height int
@@ -148,6 +147,7 @@ func New(walletMgr *wallet.WalletManager, address string, db *database.Database)
 			m.hiddenMints = hidden
 		}
 	}
+	m.rebuildTitle()
 	return m
 }
 
@@ -390,6 +390,7 @@ func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// M8: Update in-memory label so UI reflects change immediately
 		m.wallet.Label = newLabel
+		m.rebuildTitle()
 		m.renaming = false
 		m.renameErr = nil
 		return m, nil
@@ -402,6 +403,17 @@ func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // recomputeVisible rebuilds the cached visible token list. Call when portfolio,
 // filters, sort mode, or hidden-mints change.
+// rebuildTitle pre-renders the view title + wallet label + address.
+func (m *Model) rebuildTitle() {
+	var t strings.Builder
+	t.WriteString(tui.StyleTitle.Render("Wallet Status") + "\n")
+	if m.wallet.Label != "" {
+		t.WriteString(tui.StyleBold.Render(m.wallet.Label) + "\n")
+	}
+	t.WriteString(tui.StyleSubtitle.Render(tui.TruncateAddress(m.address)) + "\n\n")
+	m.cachedTitle = t.String()
+}
+
 // rebuildHeader pre-renders the table header for the current width.
 func (m *Model) rebuildHeader() {
 	w := m.width
@@ -478,7 +490,7 @@ func (m *Model) recomputeVisible() {
 		if m.hiddenMints[t.Mint] {
 			row += " " + tui.StyleMuted.Render("[hidden]")
 		}
-		m.cachedRows[i] = row
+		m.cachedRows[i] = tui.RenderRowNormal(row)
 	}
 }
 
@@ -534,14 +546,7 @@ func (m Model) View() string {
 	var b strings.Builder
 
 	// Header — show label if available, truncated address always.
-	title := tui.StyleTitle.Render("Wallet Status")
-	b.WriteString(title + "\n")
-
-	if m.wallet.Label != "" {
-		b.WriteString(tui.StyleBold.Render(m.wallet.Label) + "\n")
-	}
-	addrDisplay := tui.TruncateAddress(m.address)
-	b.WriteString(tui.StyleSubtitle.Render(addrDisplay) + "\n\n")
+	b.WriteString(m.cachedTitle)
 
 	// Rename overlay
 	if m.renaming {

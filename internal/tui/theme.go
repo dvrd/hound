@@ -95,10 +95,14 @@ func RenderRow(content string, selected bool) string {
 	if selected {
 		return renderedAccentBar + " " + StyleTableRowSelected.Render(content)
 	}
-	// Non-selected: skip lipgloss entirely. StyleTableRow only adds Padding(0,1)
-	// = 1 space each side. The content already has styled subsections (StyleValue,
-	// ColorizeChange) whose ANSI codes render correctly without an outer wrapper.
-	// "  " (indent) + " " (left pad) + content + " " (right pad)
+	// Non-selected: skip lipgloss entirely. The content is pre-padded
+	// with RenderRowNormal prefix+suffix applied during cache build.
+	return content
+}
+
+// RenderRowNormal pre-wraps content for non-selected row display.
+// Call this during cache build so RenderRow can return it directly (0-alloc).
+func RenderRowNormal(content string) string {
 	return "   " + content + " "
 }
 

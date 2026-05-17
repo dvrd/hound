@@ -352,7 +352,7 @@ func (m *Model) rebuildRows() {
 		balCell := tui.StyleValue.Render(tui.PadLeft(balPlain, colBal))
 		coloredType := tui.StyleTypeBadge.Render(typePlain)
 
-		m.cachedRows[i] = primaryStyled + labelCell + " " + addrCell + " " + coloredType + " " + balCell
+		m.cachedRows[i] = tui.RenderRowNormal(primaryStyled + labelCell + " " + addrCell + " " + coloredType + " " + balCell)
 	}
 
 	// Pre-render total.

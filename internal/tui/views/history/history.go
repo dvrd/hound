@@ -257,8 +257,8 @@ func (m *Model) rebuildRows() {
 		}
 
 		desc := tui.Truncate(line+counterparty, colDesc)
-		m.cachedRows[i] = icon + " " + tui.PadRight(desc, colDesc) + " " +
-			tui.PadRight(tui.StyleMuted.Render(timeStr), colTime) + " " + statusStr
+		m.cachedRows[i] = tui.RenderRowNormal(icon + " " + tui.PadRight(desc, colDesc) + " " +
+			tui.PadRight(tui.StyleMuted.Render(timeStr), colTime) + " " + statusStr)
 	}
 }
 
