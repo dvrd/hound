@@ -62,6 +62,8 @@ type App struct {
 	ready           bool
 	contentStyle    lipgloss.Style // cached: Height(innerH).Width(innerW)
 	appStyle        lipgloss.Style // cached: StyleApp.Width(w).Height(h+1)
+
+
 	viewFactory     ViewFactory
 	currentViewName string // tracks the active view key for border title (D)
 	notifMsg        string // floating notification text (E)
@@ -155,6 +157,7 @@ func (a App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.height > 0 {
 			a.appStyle = a.appStyle.Height(a.innerHeight() + 1)
 		}
+
 		// Force full repaint so the alternate screen redraws correctly
 		// when the terminal grows (e.g. dragging the top edge up).
 		cmds = append(cmds, tea.ClearScreen)
@@ -328,6 +331,8 @@ func (a App) navigateBack() (tea.Model, tea.Cmd) {
 
 	return a, tea.Batch(sizeCmd, initCmd)
 }
+
+
 
 // innerWidth returns the usable content width after subtracting App chrome.
 // StyleApp has Padding(1,2) and RoundedBorder. In lipgloss, .Width() sets the
