@@ -2,6 +2,7 @@ package tokenlist
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -422,15 +423,12 @@ func (m Model) renderSavedTokens(b *strings.Builder) {
 	}
 
 	startIdx, endIdx := components.ViewWindow(m.cursor, maxRows, len(m.tokens))
-	rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%%dd %%%ds", colSym, colName, colPools, colLiq)
 	for i := startIdx; i < endIdx; i++ {
 		tr := m.tokens[i]
-		row := fmt.Sprintf(rowFmt,
-			tui.Truncate(tr.Token.Symbol, colSym),
-			tui.Truncate(tr.Token.Name, colName),
-			tr.PoolStats.PoolCount,
-			wallet.FormatLargeNumber(tr.PoolStats.TotalLiquidity),
-		)
+		row := tui.PadRight(tr.Token.Symbol, colSym) + " " +
+			tui.PadRight(tr.Token.Name, colName) + " " +
+			tui.PadLeft(strconv.Itoa(tr.PoolStats.PoolCount), colPools) + " " +
+			tui.PadLeft(wallet.FormatLargeNumber(tr.PoolStats.TotalLiquidity), colLiq)
 		b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 	}
 
@@ -481,18 +479,15 @@ func (m Model) renderSearchResults(b *strings.Builder) {
 	}
 
 	startIdx, endIdx := components.ViewWindow(m.cursor, maxRows, len(m.results))
-	rowFmt := fmt.Sprintf("%%-%ds %%-%ds %%-%ds", colSym, colName, colAddr)
 	for i := startIdx; i < endIdx; i++ {
 		r := m.results[i]
 		badge := ""
 		if r.Saved {
 			badge = " " + savedBadgeStyle.Render("●")
 		}
-		row := fmt.Sprintf(rowFmt,
-			tui.Truncate(r.Symbol, colSym),
-			tui.Truncate(r.Name, colName),
-			tui.TruncateAddress(r.Address),
-		) + badge
+		row := tui.PadRight(r.Symbol, colSym) + " " +
+			tui.PadRight(r.Name, colName) + " " +
+			tui.PadRight(tui.TruncateAddress(r.Address), colAddr) + badge
 		b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 	}
 

@@ -32,7 +32,13 @@ func NewTransaction(msg Message, signers []ed25519.PrivateKey) (*Transaction, er
 
 // Serialize serializes the transaction to bytes in Solana's wire format.
 func (t *Transaction) Serialize() []byte {
-	var buf []byte
+	// Pre-compute capacity: compact-u16(1-3) + sigs(64 each) + message.
+	msgLen := len(t.serializedMessage)
+	if msgLen == 0 {
+		msgLen = 256 // estimate for unserialized message
+	}
+	cap := 3 + len(t.Signatures)*64 + msgLen
+	buf := make([]byte, 0, cap)
 
 	// Number of signatures (compact-u16)
 	buf = AppendCompactU16(buf, uint16(len(t.Signatures)))

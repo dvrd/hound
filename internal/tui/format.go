@@ -18,6 +18,21 @@ func PadRight(s string, width int) string {
 	return string(buf)
 }
 
+// PadLeft right-aligns s within a field of the given width.
+// Avoids fmt.Sprintf("%*s", ...) allocation in hot render loops.
+func PadLeft(s string, width int) string {
+	if len(s) >= width {
+		return s
+	}
+	pad := width - len(s)
+	buf := make([]byte, width)
+	for i := 0; i < pad; i++ {
+		buf[i] = ' '
+	}
+	copy(buf[pad:], s)
+	return string(buf)
+}
+
 // TruncateAddress returns the first 4 and last 4 characters of addr joined
 // by "...", or addr unchanged if it is 11 characters or fewer.
 func TruncateAddress(addr string) string {

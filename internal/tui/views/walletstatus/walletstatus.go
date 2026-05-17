@@ -587,12 +587,10 @@ func (m Model) View() string {
 			// Build plain symbol+name columns, then styled numeric columns.
 			symCell := tui.PadRight(t.Symbol, colSym)
 			nameCell := tui.PadRight(t.Name, colName)
-			balCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colBal, wallet.FormatBalance(t.Amount)))
-			priceCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colPrice, wallet.FormatPrice(t.USDPrice)))
-			valCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colVal, wallet.FormatPrice(t.USDValue)))
-			plainChg := tui.FormatChangePlain(t.Change24h)
-			paddedChg := fmt.Sprintf("%*s", colChg, plainChg)
-			chgCell := tui.ColorizeChange(t.Change24h, paddedChg)
+			balCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatBalance(t.Amount), colBal))
+			priceCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatPrice(t.USDPrice), colPrice))
+			valCell := tui.StyleValue.Render(tui.PadLeft(wallet.FormatPrice(t.USDValue), colVal))
+			chgCell := tui.ColorizeChange(t.Change24h, tui.PadLeft(tui.FormatChangePlain(t.Change24h), colChg))
 			row := symCell + " " + nameCell + " " + balCell + " " + priceCell + " " + valCell + " " + chgCell
 
 			// Show a dim [hidden] tag so the user knows they can unhide it

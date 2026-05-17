@@ -308,14 +308,14 @@ func (m Model) View() string {
 			}
 
 			// Build each cell to its exact column width using plain strings.
-			labelCell := fmt.Sprintf("%-*s", colLabel, tui.Truncate(w.Label, colLabel))
-			addrCell := fmt.Sprintf("%-*s", colAddr, tui.TruncateAddress(w.Address))
-			typePlain := fmt.Sprintf("%-*s", colType, tui.Truncate(w.WalletType.String(), colType))
+			labelCell := tui.PadRight(w.Label, colLabel)
+			addrCell := tui.PadRight(tui.TruncateAddress(w.Address), colAddr)
+			typePlain := tui.PadRight(w.WalletType.String(), colType)
 			balPlain := "$0.00"
 			if p, ok := m.portfolios[w.Address]; ok {
 				balPlain = wallet.FormatPrice(p.TotalUSD)
 			}
-			balCell := tui.StyleValue.Render(fmt.Sprintf("%*s", colBal, balPlain))
+			balCell := tui.StyleValue.Render(tui.PadLeft(balPlain, colBal))
 
 			// Apply color only to the pre-padded type cell — width is already fixed.
 			coloredType := tui.StyleTypeBadge.Render(typePlain)
