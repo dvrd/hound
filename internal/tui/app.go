@@ -401,13 +401,7 @@ func (a App) View() string {
 
 	// Error bar overrides the footer when shown.
 	if a.errorShown && a.errorMsg != "" {
-		errStyle := lipgloss.NewStyle().
-			Background(ColorError).
-			Foreground(lipgloss.Color("#FFFFFF")).
-			Bold(true).
-			Padding(0, 1).
-			Width(a.innerWidth())
-		footer = errStyle.Render(a.errorMsg)
+		footer = errBarStyle.Width(a.innerWidth()).Render(a.errorMsg)
 	}
 
 	// Apply app style with constraints.
@@ -427,8 +421,7 @@ func (a App) View() string {
 	// color codes by RenderFooter. Applying Width to a pre-styled string causes
 	// lipgloss to pad it to the full inner width, which pushes the box beyond
 	// the terminal width and clips the right edge of the footer.
-	footerStyle := lipgloss.NewStyle().
-		Foreground(ColorSubtext)
+	footerStyle := footerBarStyle
 
 	inner := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Height(a.innerHeight()).Width(w).Render(content),
@@ -456,8 +449,7 @@ func (a App) View() string {
 
 	// E: Floating notification — rendered below the box, auto-dismisses after 3s.
 	if a.notifShown && a.notifMsg != "" {
-		notifStyle := lipgloss.NewStyle().Foreground(ColorSuccess).PaddingLeft(2)
-		rendered += "\n" + notifStyle.Render(a.notifMsg)
+		rendered += "\n" + notifBarStyle.Render(a.notifMsg)
 	}
 
 	return rendered
@@ -504,11 +496,16 @@ func injectBorderTitle(rendered, title string) string {
 //   - modal height = min(allLines+4, termH-4) — 2 rows margin top+bottom
 //   - border(2) + padding(2) = 4 rows of chrome consumed inside the box
 //   - visible content rows = modalHeight - 4
-// Help overlay styles — hoisted to avoid per-frame allocation.
+// Reusable styles — hoisted to avoid per-frame allocation.
 var (
-	helpKeyStyle     = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Width(12)
-	helpDescStyle    = lipgloss.NewStyle().Foreground(ColorText)
-	helpSectionStyle = lipgloss.NewStyle().Foreground(ColorSubtext).Bold(true)
+	helpKeyStyle       = lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Width(12)
+	helpDescStyle      = lipgloss.NewStyle().Foreground(ColorText)
+	helpSectionStyle   = lipgloss.NewStyle().Foreground(ColorSubtext).Bold(true)
+	helpIndicatorStyle = lipgloss.NewStyle().Foreground(ColorSubtext)
+	helpTitleStyle     = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
+	errBarStyle        = lipgloss.NewStyle().Background(ColorError).Foreground(lipgloss.Color("#FFFFFF")).Bold(true).Padding(0, 1)
+	notifBarStyle      = lipgloss.NewStyle().Foreground(ColorSuccess).PaddingLeft(2)
+	footerBarStyle     = lipgloss.NewStyle().Foreground(ColorSubtext)
 )
 
 func renderHelp(viewName string, termW, termH, scroll int) string {
@@ -638,7 +635,7 @@ func renderHelp(viewName string, termW, termH, scroll int) string {
 	rows := rowsBuilder.String()
 
 	// Scroll indicators.
-	indicatorStyle := lipgloss.NewStyle().Foreground(ColorSubtext)
+	indicatorStyle := helpIndicatorStyle
 	scrollBar := ""
 	if scroll > 0 && scroll < maxScroll {
 		scrollBar = indicatorStyle.Render("↑↓ more")
@@ -651,9 +648,7 @@ func renderHelp(viewName string, termW, termH, scroll int) string {
 		rows += scrollBar + "\n"
 	}
 
-	titleStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(ColorPrimary)
+	titleStyle := helpTitleStyle
 
 	contentW := modalW - 6 // border(2) + padding(4)
 	if contentW < 10 {

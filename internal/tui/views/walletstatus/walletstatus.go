@@ -97,6 +97,10 @@ type Model struct {
 	spinner     components.SpinnerModel
 	walletMgr   *wallet.WalletManager
 	address     string
+
+	// Cached visible tokens — invalidated on portfolio/filter/sort/hide changes.
+	cachedVisible      []models.TokenBalance
+	cachedVisibleDirty bool
 	width       int
 	height      int
 	err         error
@@ -193,6 +197,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasData = true
 		m.err = nil
 		m.lastRefresh = time.Now()
+		m.recomputeVisible()
 		// H1: Reschedule next refresh only after this one completes (one-shot timer).
 		return m, m.scheduleRefresh()
 
@@ -248,6 +253,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.filterMode = FilterDefault
 			}
+			m.recomputeVisible()
 			m.clampCursor()
 		case "t":
 			return m, func() tea.Msg {
@@ -268,6 +274,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 				m.hiddenMints[t.Mint] = true
+				m.recomputeVisible()
 				m.clampCursor()
 			}
 		case ">":
@@ -282,17 +289,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 					}
 					delete(m.hiddenMints, t.Mint)
+					m.recomputeVisible()
 					m.clampCursor()
 				}
 			}
 		case "1":
 			m.sortMode = SortByValue
+			m.recomputeVisible()
 			m.clampCursor()
 		case "2":
 			m.sortMode = SortBySymbol
+			m.recomputeVisible()
 			m.clampCursor()
 		case "3":
 			m.sortMode = SortByBalance
+			m.recomputeVisible()
 			m.clampCursor()
 		case "s":
 			return m, func() tea.Msg {
@@ -376,7 +387,36 @@ func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+// recomputeVisible rebuilds the cached visible token list. Call when portfolio,
+// filters, sort mode, or hidden-mints change.
+func (m *Model) recomputeVisible() {
+	tokens := make([]models.TokenBalance, 0, len(m.portfolio.TokenBalances))
+	for _, t := range m.portfolio.TokenBalances {
+		if m.hiddenMints[t.Mint] && !m.showHidden {
+			continue
+		}
+		if m.filterMode == FilterDefault && (t.USDValue < 1.0 || (t.USDValue == 0 && t.Amount == 0)) {
+			continue
+		}
+		tokens = append(tokens, t)
+	}
+	switch m.sortMode {
+	case SortByValue:
+		sort.Slice(tokens, func(i, j int) bool { return tokens[i].USDValue > tokens[j].USDValue })
+	case SortBySymbol:
+		sort.Slice(tokens, func(i, j int) bool { return tokens[i].Symbol < tokens[j].Symbol })
+	case SortByBalance:
+		sort.Slice(tokens, func(i, j int) bool { return tokens[i].Amount > tokens[j].Amount })
+	}
+	m.cachedVisible = tokens
+	m.cachedVisibleDirty = false
+}
+
 func (m Model) visibleTokens() []models.TokenBalance {
+	if !m.cachedVisibleDirty && m.cachedVisible != nil {
+		return m.cachedVisible
+	}
+	// Fallback: compute inline (should rarely happen — Update calls recomputeVisible)
 	tokens := make([]models.TokenBalance, 0, len(m.portfolio.TokenBalances))
 	for _, t := range m.portfolio.TokenBalances {
 		// Filter 1: manually hidden tokens (scam/spam)

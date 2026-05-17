@@ -56,17 +56,20 @@ func (s *PriceService) FetchPrice(token models.Token) (models.PriceData, error) 
 	return models.PriceData{}, fmt.Errorf("all price sources failed for %s: %w", token.Symbol, models.ErrTokenNotFound)
 }
 
-// FetchMultiplePrices fetches prices for multiple tokens concurrently.
-// Best-effort: continues on individual failures and returns partial results.
+// FetchMultiplePrices fetches prices for multiple tokens concurrently with
+// bounded parallelism (max 10). Best-effort: continues on individual failures.
 func (s *PriceService) FetchMultiplePrices(tokens []models.Token) map[string]models.PriceData {
-	results := make(map[string]models.PriceData)
+	results := make(map[string]models.PriceData, len(tokens))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10) // bound concurrency to avoid flooding APIs
 
 	for _, token := range tokens {
 		wg.Add(1)
 		go func(t models.Token) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			price, err := s.FetchPrice(t)
 			if err == nil {
 				mu.Lock()
