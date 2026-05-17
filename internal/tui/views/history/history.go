@@ -264,6 +264,7 @@ func (m *Model) rebuildRows() {
 
 func (m Model) View() string {
 	var b strings.Builder
+	b.Grow(4096)
 
 	title := tui.StyleTitle.Render("History")
 	b.WriteString(title + "\n\n")

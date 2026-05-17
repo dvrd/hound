@@ -107,10 +107,13 @@ type Model struct {
 
 	// Cached per-row content strings — the expensive lipgloss.Render + Format
 	// calls are done once when data changes, not every frame.
-	cachedRows    []string
-	cachedSolLine string // pre-rendered SOL balance line
-	cachedTotal   string // pre-rendered total USD line
-	cachedTitle   string // pre-rendered title + label + address header
+	cachedRows       []string // pre-wrapped with RenderRowNormal for non-selected display
+	cachedRowsRaw    []string // raw content (unwrapped) for selected-row styling
+	cachedSolLine    string   // pre-rendered SOL balance line
+	cachedTotal      string   // pre-rendered total USD line
+	cachedTitle      string   // pre-rendered title + label + address header
+	cachedSelectedRow string  // pre-rendered selected row (invalidated on cursor move)
+	cachedSelectedIdx int     // which index the cached selected row is for
 
 	width  int
 	height int
@@ -210,6 +213,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		m.lastRefresh = time.Now()
 		m.recomputeVisible()
+		m.rebuildSelectedRow()
 		// H1: Reschedule next refresh only after this one completes (one-shot timer).
 		return m, m.scheduleRefresh()
 
@@ -340,11 +344,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.cursor > 0 {
 				m.cursor--
+				m.rebuildSelectedRow()
 			}
 		case "down", "j":
 			tokens := m.visibleTokens()
 			if m.cursor < len(tokens)-1 {
 				m.cursor++
+				m.rebuildSelectedRow()
 			}
 		}
 	}
@@ -403,6 +409,17 @@ func (m Model) updateRename(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // recomputeVisible rebuilds the cached visible token list. Call when portfolio,
 // filters, sort mode, or hidden-mints change.
+// rebuildSelectedRow pre-renders the lipgloss-styled selected row.
+// Called on cursor move, data change, or filter/sort change.
+func (m *Model) rebuildSelectedRow() {
+	if m.cursor < len(m.cachedRowsRaw) {
+		m.cachedSelectedRow = tui.RenderRow(m.cachedRowsRaw[m.cursor], true)
+	} else {
+		m.cachedSelectedRow = tui.RenderRow("", true)
+	}
+	m.cachedSelectedIdx = m.cursor
+}
+
 // rebuildTitle pre-renders the view title + wallet label + address.
 func (m *Model) rebuildTitle() {
 	var t strings.Builder
@@ -479,6 +496,7 @@ func (m *Model) recomputeVisible() {
 	colChg := max(6, w*8/100)
 
 	m.cachedRows = make([]string, len(tokens))
+	m.cachedRowsRaw = make([]string, len(tokens))
 	for i, t := range tokens {
 		symCell := tui.PadRight(t.Symbol, colSym)
 		nameCell := tui.PadRight(t.Name, colName)
@@ -490,6 +508,7 @@ func (m *Model) recomputeVisible() {
 		if m.hiddenMints[t.Mint] {
 			row += " " + tui.StyleMuted.Render("[hidden]")
 		}
+		m.cachedRowsRaw[i] = row
 		m.cachedRows[i] = tui.RenderRowNormal(row)
 	}
 }
@@ -539,11 +558,13 @@ func (m *Model) clampCursor() {
 	} else if m.cursor >= len(tokens) {
 		m.cursor = len(tokens) - 1
 	}
+	m.rebuildSelectedRow()
 }
 
 // View renders the wallet status.
 func (m Model) View() string {
 	var b strings.Builder
+	b.Grow(4096) // pre-allocate: typical portfolio view is 2-4KB
 
 	// Header — show label if available, truncated address always.
 	b.WriteString(m.cachedTitle)
@@ -614,12 +635,15 @@ func (m Model) View() string {
 		}
 
 		for i := startIdx; i < endIdx; i++ {
-			// Use pre-rendered row content; only RenderRow (cursor highlight) is per-frame.
-			var row string
-			if i < len(m.cachedRows) {
-				row = m.cachedRows[i]
+			if i == m.cursor {
+				// Selected row: use pre-computed styled result.
+				b.WriteString(m.cachedSelectedRow + "\n")
+			} else {
+				// Non-selected: already pre-wrapped, zero-alloc.
+				if i < len(m.cachedRows) {
+					b.WriteString(m.cachedRows[i] + "\n")
+				}
 			}
-			b.WriteString(tui.RenderRow(row, i == m.cursor) + "\n")
 		}
 
 		// Scroll indicator

@@ -237,6 +237,7 @@ func (m Model) View() string {
 	}
 
 	var b strings.Builder
+	b.Grow(4096)
 
 	title := tui.StyleTitle.Render("Hound - Wallet Manager")
 	b.WriteString(title + "\n\n")
