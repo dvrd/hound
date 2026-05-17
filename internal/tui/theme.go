@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/lipgloss"
 )
@@ -72,6 +73,14 @@ var (
 	styleSeparator = lipgloss.NewStyle().Foreground(ColorBorder)
 	styleFooterKey = lipgloss.NewStyle().Foreground(ColorHighlight).Bold(true)
 	styleFooterSep = lipgloss.NewStyle().Foreground(ColorMuted)
+
+	// Pre-rendered constants for hot paths.
+	renderedAccentBar = styleAccentBar.Render("┃")
+
+	// Change-color styles (used in per-row rendering).
+	stylePositive = lipgloss.NewStyle().Foreground(ColorPositive)
+	styleNegative = lipgloss.NewStyle().Foreground(ColorNegative)
+	styleMutedFg  = lipgloss.NewStyle().Foreground(ColorMuted)
 )
 
 // ─── Row rendering helpers ────────────────────────────────────────────────────
@@ -84,19 +93,39 @@ var (
 //	selected=false → "  " + StyleTableRow(content)
 func RenderRow(content string, selected bool) string {
 	if selected {
-		bar := styleAccentBar.Render("┃")
-		return bar + " " + StyleTableRowSelected.Render(content)
+		return renderedAccentBar + " " + StyleTableRowSelected.Render(content)
 	}
 	return "  " + StyleTableRow.Render(content)
 }
 
+// Cached separator lines by width to avoid strings.Repeat + Render per frame.
+var (
+	separatorCache   = make(map[int]string)
+	separatorCacheMu sync.RWMutex
+)
+
 // TableSeparator returns a full-width ─── line styled in the border color,
 // to be placed between the table header and the first data row.
+// Result is cached per width to avoid per-frame allocation.
 func TableSeparator(width int) string {
 	if width <= 0 {
 		width = 40
 	}
-	return styleSeparator.Render(strings.Repeat("─", width))
+
+	separatorCacheMu.RLock()
+	if cached, ok := separatorCache[width]; ok {
+		separatorCacheMu.RUnlock()
+		return cached
+	}
+	separatorCacheMu.RUnlock()
+
+	result := styleSeparator.Render(strings.Repeat("─", width))
+
+	separatorCacheMu.Lock()
+	separatorCache[width] = result
+	separatorCacheMu.Unlock()
+
+	return result
 }
 
 // ─── Footer helpers ───────────────────────────────────────────────────────────
@@ -113,17 +142,19 @@ type FooterGroup []FooterBinding
 // RenderFooter renders groups of key bindings separated by a styled │.
 // Format: "key action  key action  │  key action"
 // Keys are rendered in highlight color, actions in plain subtext.
+// Pre-rendered footer separator (never changes).
+var renderedFooterSep = "  " + styleFooterSep.Render("│") + "  "
+
 func RenderFooter(groups ...FooterGroup) string {
-	var parts []string
+	parts := make([]string, 0, len(groups))
 	for _, g := range groups {
-		var bindings []string
-		for _, b := range g {
-			bindings = append(bindings, styleFooterKey.Render(b.Key)+" "+b.Action)
+		bindings := make([]string, len(g))
+		for i, b := range g {
+			bindings[i] = styleFooterKey.Render(b.Key) + " " + b.Action
 		}
 		parts = append(parts, strings.Join(bindings, "  "))
 	}
-	sep := "  " + styleFooterSep.Render("│") + "  "
-	return strings.Join(parts, sep)
+	return strings.Join(parts, renderedFooterSep)
 }
 
 // ─── Color helpers ────────────────────────────────────────────────────────────
@@ -132,11 +163,11 @@ func RenderFooter(groups ...FooterGroup) string {
 func FormatChange(change float64) string {
 	switch {
 	case change > 0:
-		return lipgloss.NewStyle().Foreground(ColorPositive).Render(fmt.Sprintf("+%.2f%%", change))
+		return stylePositive.Render(fmt.Sprintf("+%.2f%%", change))
 	case change < 0:
-		return lipgloss.NewStyle().Foreground(ColorNegative).Render(fmt.Sprintf("%.2f%%", change))
+		return styleNegative.Render(fmt.Sprintf("%.2f%%", change))
 	default:
-		return lipgloss.NewStyle().Foreground(ColorMuted).Render("0.00%")
+		return styleMutedFg.Render("0.00%")
 	}
 }
 
@@ -158,10 +189,10 @@ func FormatChangePlain(change float64) string {
 func ColorizeChange(change float64, plain string) string {
 	switch {
 	case change > 0:
-		return lipgloss.NewStyle().Foreground(ColorPositive).Render(plain)
+		return stylePositive.Render(plain)
 	case change < 0:
-		return lipgloss.NewStyle().Foreground(ColorNegative).Render(plain)
+		return styleNegative.Render(plain)
 	default:
-		return lipgloss.NewStyle().Foreground(ColorMuted).Render(plain)
+		return styleMutedFg.Render(plain)
 	}
 }

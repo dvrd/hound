@@ -346,17 +346,18 @@ func (m Model) View() string {
 }
 
 // Footer implements tui.FooterProvider — returns the pinned status bar text.
+// Pre-rendered static footer.
+var listFooter = tui.RenderFooter(
+	tui.FooterGroup{
+		{Key: "enter", Action: "status"}, {Key: "S", Action: "send"},
+		{Key: "x", Action: "swap"}, {Key: "h", Action: "history"},
+		{Key: "t", Action: "tokens"},
+	},
+	tui.FooterGroup{{Key: "?", Action: "help"}},
+)
+
 func (m Model) Footer() string {
-	return tui.RenderFooter(
-		tui.FooterGroup{
-			{Key: "enter", Action: "status"}, {Key: "S", Action: "send"},
-			{Key: "x", Action: "swap"}, {Key: "h", Action: "history"},
-			{Key: "t", Action: "tokens"},
-		},
-		tui.FooterGroup{
-			{Key: "?", Action: "help"},
-		},
-	)
+	return listFooter
 }
 
 // SelectedWallet returns the currently selected wallet, if any.
