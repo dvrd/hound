@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -509,16 +510,29 @@ func injectBorderTitle(rendered, title string) string {
 }
 
 // runeAt returns the rune and its byte width at position i in s.
+// Returns utf8.RuneError and 1 if the byte sequence is invalid or truncated.
 func runeAt(s string, i int) (rune, int) {
+	if i >= len(s) {
+		return utf8.RuneError, 0
+	}
 	b := s[i]
 	if b < 0x80 {
 		return rune(b), 1
 	}
 	if b < 0xE0 {
+		if i+1 >= len(s) {
+			return utf8.RuneError, 1
+		}
 		return rune(b&0x1F)<<6 | rune(s[i+1]&0x3F), 2
 	}
 	if b < 0xF0 {
+		if i+2 >= len(s) {
+			return utf8.RuneError, 1
+		}
 		return rune(b&0x0F)<<12 | rune(s[i+1]&0x3F)<<6 | rune(s[i+2]&0x3F), 3
+	}
+	if i+3 >= len(s) {
+		return utf8.RuneError, 1
 	}
 	return rune(b&0x07)<<18 | rune(s[i+1]&0x3F)<<12 | rune(s[i+2]&0x3F)<<6 | rune(s[i+3]&0x3F), 4
 }

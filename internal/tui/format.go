@@ -1,31 +1,45 @@
 package tui
 
-// PadRight pads s to exactly width characters, truncating with "~" if needed.
+import "unicode/utf8"
+
+// PadRight pads s to exactly width runes, truncating with "~" if needed.
 // Avoids fmt.Sprintf("%-*s", ...) allocation in hot render loops.
+// Uses rune count for correct handling of multi-byte UTF-8 characters.
 func PadRight(s string, width int) string {
-	if len(s) >= width {
-		if len(s) > width {
-			return s[:width-1] + "~"
+	n := utf8.RuneCountInString(s)
+	if n >= width {
+		if n > width {
+			// Truncate to width-1 runes and append ~.
+			i := 0
+			for r := 0; r < width-1; r++ {
+				_, size := utf8.DecodeRuneInString(s[i:])
+				i += size
+			}
+			return s[:i] + "~"
 		}
 		return s
 	}
-	// Pad with spaces.
-	buf := make([]byte, width)
+	// Pad with spaces. For ASCII-dominated content (common case),
+	// padding bytes == padding runes.
+	pad := width - n
+	buf := make([]byte, len(s)+pad)
 	copy(buf, s)
-	for i := len(s); i < width; i++ {
+	for i := len(s); i < len(buf); i++ {
 		buf[i] = ' '
 	}
 	return string(buf)
 }
 
-// PadLeft right-aligns s within a field of the given width.
+// PadLeft right-aligns s within a field of the given width (in runes).
 // Avoids fmt.Sprintf("%*s", ...) allocation in hot render loops.
+// Uses rune count for correct handling of multi-byte UTF-8 characters.
 func PadLeft(s string, width int) string {
-	if len(s) >= width {
+	n := utf8.RuneCountInString(s)
+	if n >= width {
 		return s
 	}
-	pad := width - len(s)
-	buf := make([]byte, width)
+	pad := width - n
+	buf := make([]byte, pad+len(s))
 	for i := 0; i < pad; i++ {
 		buf[i] = ' '
 	}
