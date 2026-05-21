@@ -69,7 +69,8 @@ tasks:
         major=$(echo "$current" | cut -d. -f1)
         new="$((major + 1)).0.0"
         echo "$new" > VERSION
-        git add VERSION
+        sed -i '' "s|<span class=\"overline-version\">v[^<]*</span>|<span class=\"overline-version\">v${new}</span>|g" docs/index.html
+        git add VERSION docs/index.html
         git commit -m "chore: bump version to v${new}"
         git tag "v${new}"
         echo "Bumped to v${new}"
@@ -83,7 +84,8 @@ tasks:
         minor=$(echo "$current" | cut -d. -f2)
         new="${major}.$((minor + 1)).0"
         echo "$new" > VERSION
-        git add VERSION
+        sed -i '' "s|<span class=\"overline-version\">v[^<]*</span>|<span class=\"overline-version\">v${new}</span>|g" docs/index.html
+        git add VERSION docs/index.html
         git commit -m "chore: bump version to v${new}"
         git tag "v${new}"
         echo "Bumped to v${new}"
@@ -98,13 +100,14 @@ tasks:
         patch=$(echo "$current" | cut -d. -f3)
         new="${major}.${minor}.$((patch + 1))"
         echo "$new" > VERSION
-        git add VERSION
+        sed -i '' "s|<span class=\"overline-version\">v[^<]*</span>|<span class=\"overline-version\">v${new}</span>|g" docs/index.html
+        git add VERSION docs/index.html
         git commit -m "chore: bump version to v${new}"
         git tag "v${new}"
         echo "Bumped to v${new}"
 
   release:
-    desc: Tag and push current version to trigger GoReleaser (requires clean working tree)
+    desc: "Automatic — merges to main trigger version-bump.yml → release.yml. Manual override if needed."
     cmds:
       - |
         if [ -n "$(git status --porcelain)" ]; then

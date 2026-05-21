@@ -1,0 +1,181 @@
+name: Version Bump & Release
+
+on:
+  push:
+    branches: [main]
+
+# Prevent concurrent runs — only the latest merge matters
+concurrency:
+  group: version-bump
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  bump-and-release:
+    # Skip commits made by this workflow to avoid infinite loops
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: go test ./... -count=1 -timeout 120s
+
+      # ── Version detection ────────────────────────────────────────────
+      # Source of truth is git tags, not the VERSION file.
+
+      - name: Get current version from latest tag
+        id: current
+        run: |
+          LATEST_TAG=$(git tag -l 'v[0-9]*' --sort=-v:refname | head -1)
+          if [ -z "$LATEST_TAG" ]; then
+            echo "version=0.0.0" >> "$GITHUB_OUTPUT"
+            echo "tag=" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${LATEST_TAG#v}" >> "$GITHUB_OUTPUT"
+            echo "tag=${LATEST_TAG}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "::notice::Current version: ${LATEST_TAG:-none}"
+
+      - name: Determine bump type from commits
+        id: bump
+        run: |
+          LAST_TAG="${{ steps.current.outputs.tag }}"
+
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git log --pretty=format:"%s")
+          else
+            COMMITS=$(git log "${LAST_TAG}..HEAD" --pretty=format:"%s")
+          fi
+
+          if [ -z "$COMMITS" ]; then
+            echo "type=none" >> "$GITHUB_OUTPUT"
+            echo "::notice::No new commits since last tag"
+            exit 0
+          fi
+
+          echo "::group::Commits since ${LAST_TAG:-beginning}"
+          echo "$COMMITS"
+          echo "::endgroup::"
+
+          # Check for breaking changes (major bump)
+          if echo "$COMMITS" | grep -qE "^[a-z]+(\(.+\))?!:|BREAKING CHANGE"; then
+            echo "type=major" >> "$GITHUB_OUTPUT"
+            echo "::notice::Detected BREAKING CHANGE → major bump"
+            exit 0
+          fi
+
+          # Check for features (minor bump)
+          if echo "$COMMITS" | grep -qE "^feat(\(.+\))?:"; then
+            echo "type=minor" >> "$GITHUB_OUTPUT"
+            echo "::notice::Detected feat commit → minor bump"
+            exit 0
+          fi
+
+          # Check for fixes or perf (patch bump)
+          if echo "$COMMITS" | grep -qE "^(fix|perf|refactor)(\(.+\))?:"; then
+            echo "type=patch" >> "$GITHUB_OUTPUT"
+            echo "::notice::Detected fix/perf/refactor → patch bump"
+            exit 0
+          fi
+
+          echo "type=none" >> "$GITHUB_OUTPUT"
+          echo "::notice::No conventional commits that trigger a bump"
+
+      # ── Version computation ──────────────────────────────────────────
+
+      - name: Compute new version
+        if: steps.bump.outputs.type != 'none'
+        id: next
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          TYPE="${{ steps.bump.outputs.type }}"
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "$TYPE" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW="${MAJOR}.${MINOR}.${PATCH}"
+          TAG="v${NEW}"
+
+          # Fail-safe: ensure tag doesn't already exist
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists — cannot bump"
+            exit 1
+          fi
+
+          echo "version=${NEW}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "::notice::Bumping ${CURRENT} → ${NEW} (${TYPE})"
+
+      # ── File updates ─────────────────────────────────────────────────
+
+      - name: Bump VERSION file
+        if: steps.bump.outputs.type != 'none'
+        run: echo "${{ steps.next.outputs.version }}" > VERSION
+
+      - name: Sync version in landing page
+        if: steps.bump.outputs.type != 'none'
+        run: |
+          TAG="${{ steps.next.outputs.tag }}"
+          sed -i "s|<span class=\"overline-version\">v[^<]*</span>|<span class=\"overline-version\">${TAG}</span>|g" docs/index.html
+
+      - name: Install git-cliff
+        if: steps.bump.outputs.type != 'none'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: git-cliff
+
+      - name: Generate CHANGELOG.md
+        if: steps.bump.outputs.type != 'none'
+        run: git cliff --tag "${{ steps.next.outputs.tag }}" --output CHANGELOG.md
+
+      # ── Commit, tag, push ────────────────────────────────────────────
+
+      - name: Commit and tag
+        if: steps.bump.outputs.type != 'none'
+        run: |
+          TAG="${{ steps.next.outputs.tag }}"
+          git add VERSION CHANGELOG.md docs/index.html
+          git commit -m "chore(release): ${TAG} [skip ci]"
+          git tag -a "$TAG" -m "Release ${TAG}"
+
+      - name: Push
+        if: steps.bump.outputs.type != 'none'
+        run: git push origin main --follow-tags
+
+      # ── Release ──────────────────────────────────────────────────────
+      # Run GoReleaser here instead of relying on release.yml because
+      # GITHUB_TOKEN pushes cannot trigger other workflows.
+
+      - name: Run GoReleaser
+        if: steps.bump.outputs.type != 'none'
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}

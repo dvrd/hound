@@ -74,7 +74,7 @@
     /* ═══════════════════════════════════════════════════════════════════════
        RESET
     ═══════════════════════════════════════════════════════════════════════ */
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; cursor: none !important; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
     body {
       background: var(--bg);
@@ -84,7 +84,6 @@
       line-height: 1.6;
       overflow-x: hidden;
       -webkit-font-smoothing: antialiased;
-      cursor: none !important;
     }
     a { color: inherit; text-decoration: none; }
     img { display: block; max-width: 100%; }
@@ -93,6 +92,9 @@
     /* ═══════════════════════════════════════════════════════════════════════
        CUSTOM CURSOR
     ═══════════════════════════════════════════════════════════════════════ */
+    /* Only hide native cursor when JS custom cursor is active */
+    body.custom-cursor, body.custom-cursor * { cursor: none !important; }
+
     #cursor {
       position: fixed;
       width: 10px;
@@ -811,6 +813,8 @@
     .bento-card:nth-child(3) { grid-column: 1 / 5;  grid-row: 2; }
     .bento-card:nth-child(4) { grid-column: 5 / 9;  grid-row: 2; }
     .bento-card:nth-child(5) { grid-column: 9 / 13; grid-row: 2; }
+    .bento-card:nth-child(6) { grid-column: 1 / 7;  grid-row: 3; }
+    .bento-card:nth-child(7) { grid-column: 7 / 13; grid-row: 3; }
 
     /* Large card gets bigger icon + different layout */
     .bento-card:nth-child(1) { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center; }
@@ -1239,6 +1243,8 @@
       .bento-card:nth-child(3) { grid-column: 7 / 13; }
       .bento-card:nth-child(4) { grid-column: 1 / 7; grid-row: 3; }
       .bento-card:nth-child(5) { grid-column: 7 / 13; grid-row: 3; }
+      .bento-card:nth-child(6) { grid-column: 1 / 7; grid-row: 4; }
+      .bento-card:nth-child(7) { grid-column: 7 / 13; grid-row: 4; }
       .install-grid { grid-template-columns: 1fr; gap: 60px; }
     }
 
@@ -1314,7 +1320,7 @@
             <div class="hero-overline">
               <span class="overline-bar" aria-hidden="true"></span>
               <span class="overline-text">Solana Terminal Interface</span>
-              <span class="overline-version">v0.23.1</span>
+              <span class="overline-version">v1.1.0</span>
             </div>
 
             <h1 class="hero-headline" id="hero-headline">
@@ -1325,7 +1331,7 @@
             </h1>
 
             <p class="hero-sub">
-              <strong>Hound</strong> is a terminal-native Solana wallet. Track your full portfolio, execute swaps through Jupiter, and manage wallets — all without touching a browser.
+              <strong>Hound</strong> is a terminal-native Solana wallet. Track portfolios, swap tokens, send SOL &amp; SPL, browse transaction history — all without touching a browser.
             </p>
 
             <div class="hero-actions">
@@ -1410,6 +1416,8 @@
         <span class="ticker-item">OPEN SOURCE <span class="sep">//</span> MIT LICENSE</span>
         <span class="ticker-item hi">NO TELEMETRY <span class="sep">//</span> YOUR KEYS YOUR COINS</span>
         <span class="ticker-item">SOLFLARE + LEDGER <span class="sep">//</span> MULTI-WALLET</span>
+        <span class="ticker-item hi">SEND SOL + SPL <span class="sep">//</span> PRIORITY FEES</span>
+        <span class="ticker-item">TX HISTORY <span class="sep">//</span> HELIUS RPC</span>
         <!-- duplicate -->
         <span class="ticker-item hi">◎ SOL <span class="sep">//</span> LIVE PRICES</span>
         <span class="ticker-item">JUPITER AGGREGATOR <span class="sep">//</span> BEST SWAP ROUTE</span>
@@ -1419,6 +1427,8 @@
         <span class="ticker-item">OPEN SOURCE <span class="sep">//</span> MIT LICENSE</span>
         <span class="ticker-item hi">NO TELEMETRY <span class="sep">//</span> YOUR KEYS YOUR COINS</span>
         <span class="ticker-item">SOLFLARE + LEDGER <span class="sep">//</span> MULTI-WALLET</span>
+        <span class="ticker-item hi">SEND SOL + SPL <span class="sep">//</span> PRIORITY FEES</span>
+        <span class="ticker-item">TX HISTORY <span class="sep">//</span> HELIUS RPC</span>
       </div>
     </div>
 
@@ -1512,15 +1522,45 @@
             <span class="card-tag">BIP44 standard</span>
           </article>
 
-          <!-- 5 — Security -->
-          <article class="bento-card v-pink reveal reveal-d4">
+          <!-- 5 — Send -->
+          <article class="bento-card v-green reveal reveal-d4">
+            <div class="card-icon green" aria-hidden="true">
+              <svg viewBox="0 0 28 28" fill="none" stroke="var(--neon-green)" stroke-width="1.5" stroke-linecap="round">
+                <path d="M5 12l9-9 9 9"/>
+                <path d="M14 3v18"/>
+                <path d="M4 24h20"/>
+              </svg>
+            </div>
+            <div class="card-num">05 / Send</div>
+            <h3 class="card-title">Send SOL &amp; SPL tokens</h3>
+            <p class="card-desc">Transfer SOL or any SPL token to any address. ComputeBudget priority fees for faster confirmation when the network is busy.</p>
+            <span class="card-tag">priority fees</span>
+          </article>
+
+          <!-- 6 — History -->
+          <article class="bento-card v-cyan reveal reveal-d5">
+            <div class="card-icon cyan" aria-hidden="true">
+              <svg viewBox="0 0 28 28" fill="none" stroke="var(--neon-cyan)" stroke-width="1.5" stroke-linecap="round">
+                <circle cx="14" cy="14" r="10"/>
+                <path d="M14 8v6l4 3"/>
+                <path d="M4 14H2M26 14h-2"/>
+              </svg>
+            </div>
+            <div class="card-num">06 / History</div>
+            <h3 class="card-title">Transaction history</h3>
+            <p class="card-desc">Browse paginated swap and transfer history via Helius RPC. Page through past transactions without leaving the terminal.</p>
+            <span class="card-tag">Helius RPC</span>
+          </article>
+
+          <!-- 7 — Security -->
+          <article class="bento-card v-pink reveal reveal-d6">
             <div class="card-icon pink" aria-hidden="true">
               <svg viewBox="0 0 28 28" fill="none" stroke="var(--neon-pink)" stroke-width="1.5" stroke-linecap="round">
                 <path d="M14 3l9 4v7c0 5-4 9-9 11C9 23 5 19 5 14V7l9-4z"/>
                 <path d="M10 14l3 3 5-5"/>
               </svg>
             </div>
-            <div class="card-num">05 / Security</div>
+            <div class="card-num">07 / Security</div>
             <h3 class="card-title">AES-256 encrypted</h3>
             <p class="card-desc">AES-256-GCM + Argon2id. Sensitive data zeroed from memory. Your keys never leave your machine.</p>
             <span class="card-tag">zero telemetry</span>
@@ -1609,6 +1649,7 @@
             <span class="compat-item"><span class="compat-dot" aria-hidden="true"></span>Ledger</span>
             <span class="compat-item"><span class="compat-dot" aria-hidden="true"></span>Backpack</span>
             <span class="compat-item"><span class="compat-dot" aria-hidden="true"></span>Jupiter</span>
+            <span class="compat-item"><span class="compat-dot" aria-hidden="true"></span>Helius RPC</span>
             <span class="compat-item"><span class="compat-dot" aria-hidden="true"></span>Solana RPC</span>
             <span class="compat-item"><span class="compat-dot" aria-hidden="true"></span>solana-keygen</span>
           </div>
@@ -1662,6 +1703,9 @@
     // ── Custom cursor ─────────────────────────────────────────────────────
     const cursor     = document.getElementById('cursor');
     const cursorRing = document.getElementById('cursor-ring');
+    if (cursor && cursorRing && window.matchMedia('(pointer: fine)').matches) {
+      document.body.classList.add('custom-cursor');
+    }
     let mx = -100, my = -100;
     let rx = -100, ry = -100;
 
