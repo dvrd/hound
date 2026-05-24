@@ -191,13 +191,13 @@ func classifySOLTransfer(item *ActivityItem, ix blockchain.ParsedInstruction, ad
 
 	if source == address {
 		item.Direction = "sent"
-		item.Counterparty = TruncateAddress(destination)
+		item.Counterparty = truncateAddress(destination)
 	} else if destination == address {
 		item.Direction = "received"
-		item.Counterparty = TruncateAddress(source)
+		item.Counterparty = truncateAddress(source)
 	}
 
-	item.Amount = FormatLamports(lamports)
+	item.Amount = formatLamports(lamports)
 }
 
 // classifySPLTransfer determines direction and amount for an SPL transfer.
@@ -211,12 +211,12 @@ func classifySPLTransfer(item *ActivityItem, ix blockchain.ParsedInstruction, ad
 	// The authority field tells us who initiated the transfer.
 	if authority == address {
 		item.Direction = "sent"
-		item.Counterparty = TruncateAddress(destination)
+		item.Counterparty = truncateAddress(destination)
 	} else {
 		// Not the authority — likely a receive. Fall through to balance-based
 		// classification for accuracy, but set counterparty from source.
 		item.Direction = "received"
-		item.Counterparty = TruncateAddress(source)
+		item.Counterparty = truncateAddress(source)
 		// Double-check with balance-based classification
 		classifyDirectionFromBalances(item, detail, address)
 	}
@@ -259,16 +259,16 @@ func classifyDirectionFromBalances(item *ActivityItem, detail *blockchain.Transa
 	}
 }
 
-// TruncateAddress returns "xxxx...xxxx" format.
-func TruncateAddress(addr string) string {
+// truncateAddress returns "xxxx...xxxx" format.
+func truncateAddress(addr string) string {
 	if len(addr) <= 8 {
 		return addr
 	}
 	return addr[:4] + "..." + addr[len(addr)-4:]
 }
 
-// FormatLamports converts lamports to a human-readable SOL string.
-func FormatLamports(lamports uint64) string {
+// formatLamports converts lamports to a human-readable SOL string.
+func formatLamports(lamports uint64) string {
 	sol := float64(lamports) / 1e9
 	return fmt.Sprintf("%g SOL", sol)
 }

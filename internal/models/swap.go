@@ -11,13 +11,6 @@ const (
 	QuoteTTL = 90 * time.Second
 )
 
-// SwapFlags holds CLI flags for swap commands.
-type SwapFlags struct {
-	DryRun      bool
-	SlippageBps int
-	WalletAddr  string
-}
-
 // RouteStep represents a single hop in a swap route.
 type RouteStep struct {
 	DexLabel   string

@@ -30,19 +30,6 @@ func TestArgon2V2Constants(t *testing.T) {
 	}
 }
 
-func TestBackwardCompatAliases(t *testing.T) {
-	// Old constant names must still resolve to V1 values
-	if keystore.Argon2MemoryKB != keystore.Argon2V1MemoryKB {
-		t.Error("Argon2MemoryKB alias broken")
-	}
-	if keystore.Argon2Iterations != keystore.Argon2V1Iterations {
-		t.Error("Argon2Iterations alias broken")
-	}
-	if keystore.Argon2Parallelism != keystore.Argon2V1Parallelism {
-		t.Error("Argon2Parallelism alias broken")
-	}
-}
-
 func TestSharedConstants(t *testing.T) {
 	if keystore.Argon2SaltBytes != 16 {
 		t.Errorf("Argon2SaltBytes = %d, want 16", keystore.Argon2SaltBytes)

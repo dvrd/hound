@@ -206,7 +206,7 @@ func TestMergeWithSwapHistory(t *testing.T) {
 	}
 }
 
-func TestTruncateAddress(t *testing.T) {
+func Test_truncateAddress(t *testing.T) {
 	tests := []struct {
 		input string
 		want  string
@@ -218,9 +218,9 @@ func TestTruncateAddress(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := TruncateAddress(tt.input)
+		got := truncateAddress(tt.input)
 		if got != tt.want {
-			t.Errorf("TruncateAddress(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("truncateAddress(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -234,7 +234,7 @@ func TestActivityGetActivity_Empty(t *testing.T) {
 	}
 }
 
-func TestFormatLamports(t *testing.T) {
+func Test_formatLamports(t *testing.T) {
 	tests := []struct {
 		lamports uint64
 		want     string
@@ -246,9 +246,9 @@ func TestFormatLamports(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		got := FormatLamports(tt.lamports)
+		got := formatLamports(tt.lamports)
 		if got != tt.want {
-			t.Errorf("FormatLamports(%d) = %q, want %q", tt.lamports, got, tt.want)
+			t.Errorf("formatLamports(%d) = %q, want %q", tt.lamports, got, tt.want)
 		}
 	}
 }

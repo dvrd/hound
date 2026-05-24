@@ -7,9 +7,7 @@ import (
 	"github.com/dvrd/hound/internal/models"
 )
 
-// sparklineChars are the 8 Unicode block characters used to render sparklines,
-// from lowest to highest fill.
-var sparklineChars = []rune{'▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'}
+
 
 // Sparkline renders a slice of PriceCandle values as a Unicode block sparkline
 // using the Close price of each candle.
@@ -64,7 +62,7 @@ func Sparkline(candles []models.PriceCandle, width int) string {
 			// All prices equal — flat line at middle block (▄, index 3).
 			idx = 3
 		}
-		sb.WriteRune(sparklineChars[idx])
+		sb.WriteRune(sparklineBlocks[idx])
 	}
 
 	// Pad with spaces on the left if we have fewer candles than width.

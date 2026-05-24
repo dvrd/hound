@@ -148,66 +148,6 @@ func TestGetAllTokens(t *testing.T) {
 	}
 }
 
-func TestUpdateTokenPrice(t *testing.T) {
-	db := mustOpenInMemory(t)
-	if err := db.CreateSchema(); err != nil {
-		t.Fatalf("CreateSchema: %v", err)
-	}
-
-	token := models.Token{
-		Symbol:          "SOL",
-		Name:            "Solana",
-		ContractAddress: "So11111111111111111111111111111111",
-		Chain:           "solana",
-		USDPrice:        150.0,
-	}
-	if err := db.InsertToken(token); err != nil {
-		t.Fatalf("InsertToken: %v", err)
-	}
-
-	if err := db.UpdateTokenPrice("SOL", 175.50); err != nil {
-		t.Fatalf("UpdateTokenPrice: %v", err)
-	}
-
-	got, err := db.GetTokenBySymbol("SOL")
-	if err != nil {
-		t.Fatalf("GetTokenBySymbol: %v", err)
-	}
-	if got.USDPrice != 175.50 {
-		t.Errorf("USDPrice = %f, want %f", got.USDPrice, 175.50)
-	}
-}
-
-func TestUpdateTokenPriceCaseInsensitive(t *testing.T) {
-	db := mustOpenInMemory(t)
-	if err := db.CreateSchema(); err != nil {
-		t.Fatalf("CreateSchema: %v", err)
-	}
-
-	token := models.Token{
-		Symbol:          "SOL",
-		Name:            "Solana",
-		ContractAddress: "So11111111111111111111111111111111",
-		Chain:           "solana",
-		USDPrice:        150.0,
-	}
-	if err := db.InsertToken(token); err != nil {
-		t.Fatalf("InsertToken: %v", err)
-	}
-
-	if err := db.UpdateTokenPrice("sol", 200.0); err != nil {
-		t.Fatalf("UpdateTokenPrice(sol): %v", err)
-	}
-
-	got, err := db.GetTokenBySymbol("SOL")
-	if err != nil {
-		t.Fatalf("GetTokenBySymbol: %v", err)
-	}
-	if got.USDPrice != 200.0 {
-		t.Errorf("USDPrice = %f, want %f", got.USDPrice, 200.0)
-	}
-}
-
 func TestGetTokenBySymbolNotFound(t *testing.T) {
 	db := mustOpenInMemory(t)
 	if err := db.CreateSchema(); err != nil {
@@ -223,17 +163,4 @@ func TestGetTokenBySymbolNotFound(t *testing.T) {
 	}
 }
 
-func TestUpdateTokenPriceNotFound(t *testing.T) {
-	db := mustOpenInMemory(t)
-	if err := db.CreateSchema(); err != nil {
-		t.Fatalf("CreateSchema: %v", err)
-	}
 
-	err := db.UpdateTokenPrice("NONEXISTENT", 100.0)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	if !errors.Is(err, models.ErrTokenNotFound) {
-		t.Errorf("error = %v, want ErrTokenNotFound", err)
-	}
-}

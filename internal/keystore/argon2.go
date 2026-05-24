@@ -28,14 +28,6 @@ const (
 	Argon2KeyBytes  = 32
 )
 
-// Backward-compat aliases so existing code that references the old names still compiles.
-// TODO: Remove these after all callers are migrated.
-const (
-	Argon2MemoryKB    = Argon2V1MemoryKB
-	Argon2Iterations  = Argon2V1Iterations
-	Argon2Parallelism = Argon2V1Parallelism
-)
-
 // Argon2Version identifies which parameter set was used.
 type Argon2Version int
 

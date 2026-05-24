@@ -128,7 +128,7 @@ func TestPriceService_FetchPrice(t *testing.T) {
 
 			// Create clients with test servers
 			jupClient := dex.NewJupiterClientWithHTTP(routerServer.Client(), routerServer.URL+"?ids=", jupServer.URL+"?query=")
-			router := dex.NewRouter(nil, jupClient)
+			router := dex.NewRouter(jupClient)
 			dexClient := dex.NewDexScreenerClientWithHTTP(dexServer.Client(), dexServer.URL+"/")
 			jupDirect := dex.NewJupiterClientWithHTTP(jupServer.Client(), jupServer.URL+"?ids=", jupServer.URL+"?query=")
 

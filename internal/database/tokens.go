@@ -159,24 +159,3 @@ func (d *Database) GetAllTokens() ([]models.Token, error) {
 	return tokens, nil
 }
 
-// UpdateTokenPrice updates the USD price and last_updated timestamp for a token.
-func (d *Database) UpdateTokenPrice(symbol string, price float64) error {
-	now := time.Now().Unix()
-	result, err := d.db.Exec(
-		`UPDATE tokens SET usd_price = ?, last_updated = ? WHERE symbol = ? COLLATE NOCASE`,
-		price, now, symbol,
-	)
-	if err != nil {
-		return fmt.Errorf("updating price for token %q: %w", symbol, err)
-	}
-
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("checking rows affected for token %q: %w", symbol, err)
-	}
-	if rows == 0 {
-		return fmt.Errorf("updating price for token %q: %w", symbol, models.ErrTokenNotFound)
-	}
-
-	return nil
-}

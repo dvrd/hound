@@ -67,8 +67,3 @@ func EnsureConfigDir() error {
 	return os.MkdirAll(dir, 0o700)
 }
 
-// DatabaseExists returns true if the database file exists.
-func DatabaseExists() bool {
-	_, err := os.Stat(GetDatabasePath())
-	return err == nil
-}

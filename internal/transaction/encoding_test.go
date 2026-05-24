@@ -23,9 +23,9 @@ func TestCompactU16_Encode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := EncodeCompactU16(tt.value)
+			got := AppendCompactU16(nil, tt.value)
 			if !bytes.Equal(got, tt.want) {
-				t.Errorf("EncodeCompactU16(%d) = %v, want %v", tt.value, got, tt.want)
+				t.Errorf("AppendCompactU16(%d) = %v, want %v", tt.value, got, tt.want)
 			}
 		})
 	}
@@ -34,10 +34,10 @@ func TestCompactU16_Encode(t *testing.T) {
 func TestCompactU16_RoundTrip(t *testing.T) {
 	values := []uint16{0, 1, 127, 128, 255, 16383, 16384, 65535}
 	for _, v := range values {
-		encoded := EncodeCompactU16(v)
+		encoded := AppendCompactU16(nil, v)
 		decoded, n, err := DecodeCompactU16(encoded)
 		if err != nil {
-			t.Errorf("DecodeCompactU16(EncodeCompactU16(%d)) error: %v", v, err)
+			t.Errorf("DecodeCompactU16(AppendCompactU16(%d)) error: %v", v, err)
 			continue
 		}
 		if decoded != v {

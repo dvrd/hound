@@ -92,12 +92,6 @@ func TestEnsureConfigDir(t *testing.T) {
 	_ = testDir // suppress unused
 }
 
-func TestDatabaseExists(t *testing.T) {
-	// This may or may not exist depending on the test environment.
-	// Just verify it returns a boolean without panicking.
-	_ = config.DatabaseExists()
-}
-
 func TestConstants(t *testing.T) {
 	if config.DefaultRPCEndpoint != "https://api.mainnet-beta.solana.com" {
 		t.Errorf("DefaultRPCEndpoint = %q", config.DefaultRPCEndpoint)

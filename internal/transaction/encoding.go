@@ -2,16 +2,7 @@ package transaction
 
 import "fmt"
 
-// EncodeCompactU16 encodes a uint16 using Solana's compact-u16 variable-length encoding.
-// Values 0-127: 1 byte, 128-16383: 2 bytes, 16384-65535: 3 bytes.
-func EncodeCompactU16(value uint16) []byte {
-	var buf [3]byte
-	n := putCompactU16(buf[:], value)
-	return append([]byte(nil), buf[:n]...)
-}
-
-// AppendCompactU16 appends a compact-u16 encoded value directly to dst,
-// avoiding the intermediate slice allocation of EncodeCompactU16.
+// AppendCompactU16 appends a compact-u16 encoded value directly to dst.
 func AppendCompactU16(dst []byte, value uint16) []byte {
 	var buf [3]byte
 	n := putCompactU16(buf[:], value)

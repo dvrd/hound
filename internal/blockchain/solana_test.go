@@ -175,28 +175,6 @@ func TestGetAccountInfoNull(t *testing.T) {
 	}
 }
 
-func TestGetTokenAccountBalance(t *testing.T) {
-	server := mockRPCServer(t, map[string]string{
-		"getTokenAccountBalance": `{"context":{"slot":123},"value":{"amount":"1000000","decimals":6,"uiAmount":1.0,"uiAmountString":"1"}}`,
-	})
-	defer server.Close()
-
-	client := blockchain.NewRPCClient(server.URL, nil)
-	amount, decimals, uiAmount, err := blockchain.GetTokenAccountBalance(context.Background(), client, "vaultAddr")
-	if err != nil {
-		t.Fatalf("GetTokenAccountBalance failed: %v", err)
-	}
-	if amount != 1000000 {
-		t.Errorf("amount = %d, want 1000000", amount)
-	}
-	if decimals != 6 {
-		t.Errorf("decimals = %d, want 6", decimals)
-	}
-	if uiAmount != 1.0 {
-		t.Errorf("uiAmount = %f, want 1.0", uiAmount)
-	}
-}
-
 func TestGetTokenSupply(t *testing.T) {
 	server := mockRPCServer(t, map[string]string{
 		"getTokenSupply": `{"context":{"slot":123},"value":{"amount":"10000000000","decimals":6,"uiAmount":10000.0,"uiAmountString":"10000"}}`,

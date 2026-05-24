@@ -40,10 +40,6 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorBorder)
 
-	StyleStatusBar = lipgloss.NewStyle().
-			Foreground(ColorSubtext).
-			Padding(0, 1)
-
 	// Table styles
 	StyleTableHeader = lipgloss.NewStyle().
 				Bold(true).

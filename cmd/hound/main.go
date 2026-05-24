@@ -96,7 +96,7 @@ func initDeps() (*deps, error) {
 	rpcClient := blockchain.NewRPCClient(cfg.RPCEndpoint, cfg.BackupEndpoints)
 	jupiterClient := dex.NewJupiterClient()
 	dexscreenerClient := dex.NewDexScreenerClient()
-	router := dex.NewRouter(rpcClient, jupiterClient)
+	router := dex.NewRouter(jupiterClient)
 	// H2: Use PriceService (implements FetchMultiplePrices for batch fetching) instead of router directly.
 	priceSvc := services.NewPriceService(router, dexscreenerClient, jupiterClient)
 	tokenCatalog := services.NewTokenCatalog(jupiterClient, dexscreenerClient, db)

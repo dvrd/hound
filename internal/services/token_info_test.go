@@ -8,10 +8,24 @@ import (
 	"testing"
 
 	"github.com/dvrd/hound/internal/blockchain"
+	"github.com/dvrd/hound/internal/database"
 	"github.com/dvrd/hound/internal/dex"
 	"github.com/dvrd/hound/internal/models"
 	"github.com/dvrd/hound/internal/services"
 )
+
+func setupPoolTestDB(t *testing.T) *database.Database {
+	t.Helper()
+	db, err := database.OpenInMemory()
+	if err != nil {
+		t.Fatalf("OpenInMemory failed: %v", err)
+	}
+	if err := db.CreateSchema(); err != nil {
+		t.Fatalf("CreateSchema failed: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	return db
+}
 
 func TestTokenInfoService_FetchExtendedTokenInfo(t *testing.T) {
 	dexResponse := `{"pairs":[

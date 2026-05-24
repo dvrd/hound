@@ -165,9 +165,4 @@ func GetTokenDecimals(token Token) int {
 	}
 }
 
-// TokenConfig holds the loaded token configuration.
-type TokenConfig struct {
-	Version string
-	Tokens  []Token
-	Wallets []Wallet
-}
+

@@ -150,32 +150,6 @@ func GetAccountInfo(ctx context.Context, client *RPCClient, address string) ([]b
 	return decoded, nil
 }
 
-// GetTokenAccountBalance returns the balance of a specific token account.
-func GetTokenAccountBalance(ctx context.Context, client *RPCClient, vaultAddr string) (amount uint64, decimals int, uiAmount float64, err error) {
-	result, err := client.Call(ctx, "getTokenAccountBalance", []interface{}{vaultAddr})
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("getTokenAccountBalance: %w", err)
-	}
-
-	var parsed struct {
-		Value struct {
-			Amount   string  `json:"amount"`
-			Decimals int     `json:"decimals"`
-			UIAmount float64 `json:"uiAmount"`
-		} `json:"value"`
-	}
-
-	if err := json.Unmarshal(result, &parsed); err != nil {
-		return 0, 0, 0, fmt.Errorf("getTokenAccountBalance: parse result: %w", models.ErrRPCInvalidResponse)
-	}
-
-	amt, err := strconv.ParseUint(parsed.Value.Amount, 10, 64)
-	if err != nil {
-		return 0, 0, 0, fmt.Errorf("getTokenAccountBalance: parse amount %q: %w", parsed.Value.Amount, models.ErrRPCInvalidResponse)
-	}
-	return amt, parsed.Value.Decimals, parsed.Value.UIAmount, nil
-}
-
 // GetTokenSupply returns the total supply of an SPL token.
 func GetTokenSupply(ctx context.Context, client *RPCClient, mintAddr string) (totalSupply uint64, decimals int, err error) {
 	result, err := client.Call(ctx, "getTokenSupply", []interface{}{mintAddr})

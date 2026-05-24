@@ -26,16 +26,6 @@ func TestZeroBytesNil(t *testing.T) {
 	keystore.ZeroBytes(nil) // should not panic
 }
 
-func TestZeroSlice(t *testing.T) {
-	b := []byte{0x01, 0x02, 0x03, 0x04}
-	keystore.ZeroSlice(b)
-	for i, v := range b {
-		if v != 0 {
-			t.Errorf("ZeroSlice: byte[%d] = 0x%02X, want 0x00", i, v)
-		}
-	}
-}
-
 func TestZeroBytesLargeSlice(t *testing.T) {
 	b := make([]byte, 1024)
 	for i := range b {

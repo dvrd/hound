@@ -8,9 +8,6 @@ import (
 )
 
 const (
-	// TopPoolsToStore is the maximum number of top pools to keep per token.
-	TopPoolsToStore = 3
-
 	// minLiquidityUSD is the minimum liquidity threshold for pool filtering.
 	minLiquidityUSD = 1000.0
 

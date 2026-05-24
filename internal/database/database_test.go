@@ -75,7 +75,7 @@ func TestCreateSchemaIdempotent(t *testing.T) {
 	// Verify all tables exist
 	tables := []string{
 		"tokens", "pools", "wallets", "balances",
-		"encrypted_keypairs", "hyperliquid_wallets", "swap_history",
+		"encrypted_keypairs", "swap_history",
 	}
 	for _, table := range tables {
 		var name string

@@ -2,24 +2,6 @@ package transaction
 
 import "encoding/binary"
 
-// TokenTransfer creates an SPL Token transfer instruction.
-// Data format: uint8(3) (transfer instruction index) + uint64(amount) LE = 9 bytes.
-func TokenTransfer(source, destination, owner Pubkey, amount uint64) Instruction {
-	data := make([]byte, 9)
-	data[0] = 3 // transfer instruction index
-	binary.LittleEndian.PutUint64(data[1:9], amount)
-
-	return Instruction{
-		ProgramID: TokenProgramID,
-		Accounts: []AccountMeta{
-			{Pubkey: source, IsSigner: false, IsWritable: true},
-			{Pubkey: destination, IsSigner: false, IsWritable: true},
-			{Pubkey: owner, IsSigner: true, IsWritable: false},
-		},
-		Data: data,
-	}
-}
-
 // TokenTransferChecked creates an SPL Token transferChecked instruction.
 // Data format: uint8(12) (transferChecked index) + uint64(amount) LE + uint8(decimals) = 10 bytes.
 func TokenTransferChecked(source, mint, destination, owner Pubkey, amount uint64, decimals uint8) Instruction {

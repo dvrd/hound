@@ -48,11 +48,6 @@ func (m SpinnerModel) View() string {
 	return m.spinner.View() + " " + lipgloss.NewStyle().Foreground(tui.ColorSubtext).Render(m.message)
 }
 
-// SetMessage updates the spinner message.
-func (m *SpinnerModel) SetMessage(msg string) {
-	m.message = msg
-}
-
 // SetDone marks the spinner as complete, hiding it.
 func (m *SpinnerModel) SetDone() {
 	m.done = true

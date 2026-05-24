@@ -1,7 +1,6 @@
 package transaction
 
 import (
-	"crypto/ed25519"
 	"fmt"
 
 	"github.com/mr-tron/base58"
@@ -38,13 +37,6 @@ func PubkeyFromBytes(b []byte) (Pubkey, error) {
 	var pk Pubkey
 	copy(pk[:], b)
 	return pk, nil
-}
-
-// PubkeyFromPublicKey creates a Pubkey from an ed25519 public key.
-func PubkeyFromPublicKey(pub ed25519.PublicKey) Pubkey {
-	var pk Pubkey
-	copy(pk[:], pub)
-	return pk
 }
 
 // AccountMeta describes an account used by an instruction.
