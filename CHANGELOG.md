@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Refactor
+
+- remove 1,778 lines of dead code, stale artifacts, and unused modules
+- delete Hyperliquid module (schema, migrations, CRUD — zero consumers)
+- delete unused PoolService, ErrorBar, ConfirmModel components
+- remove 14 unused error sentinels, ExitCode(), DexType enum
+- simplify Router (drop unused rpcClient/getSOLPrice fields)
+- consolidate duplicate sparkline rune arrays, unexport duplicate TruncateAddress
+
 ### Bug Fixes
 
 - **review-loop**: iteration 1 — 2 findings fixed
